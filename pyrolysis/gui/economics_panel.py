@@ -92,8 +92,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     default_permits = 15000.0
     default_contingency = 10000.0
     
-    default_handling = 10.0
-    default_tipping = 40.0
+    default_handling = 0.03
+    default_tipping = 0.15
     default_fuel_price = 3.0
     default_elec_price = 0.15
     default_labor = 50000.0
@@ -179,19 +179,22 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         fuel_consumed_gal = summary['waste_oil_consumed_gal'] * batches_per_year
         elec_consumed_kwh = motor_power * (t_cycle_min / 60.0) * batches_per_year
         
-    # Convert sludge treated to metric tons (1 ton = 1000 kg)
-    sludge_treated_ton = sludge_treated_kg / 1000.0
+    # Convert sludge treated to gallons based on bulk density
+    bulk_density = solver_inputs.get('sludge_density', 900.0)
+    # density_kg_gal = (bulk_density kg/m3) / 1000.0 * 3.785411784 = bulk_density * 0.003785411784
+    density_kg_gal = bulk_density * 0.003785411784
+    sludge_treated_gal = sludge_treated_kg / density_kg_gal
     
     # ----------------------------------------------------
     # REVENUE AND OPEX CALCULATIONS
     # ----------------------------------------------------
-    rev_tipping = sludge_treated_ton * opex_tipping
+    rev_tipping = sludge_treated_gal * opex_tipping
     rev_oil = oil_produced_kg * price_oil
     rev_char = char_produced_kg * price_char
     rev_gas = gas_produced_kg * price_gas
     total_revenue = rev_tipping + rev_oil + rev_char + rev_gas
     
-    cost_handling = sludge_treated_ton * opex_handling
+    cost_handling = sludge_treated_gal * opex_handling
     cost_fuel = fuel_consumed_gal * opex_fuel
     cost_electricity = elec_consumed_kwh * opex_elec
     cost_maintenance = total_capex * (opex_maint / 100.0)
@@ -225,7 +228,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     with col_kpi1:
         npv_label = t('econ_metric_npv')
         npv_sub = "Discounted / Descontado"
-        render_kpi_card(npv_label, f"${npv:,.0f}", npv_sub, is_positive=(npv > 0))
+        render_kpi_card(npv_label, f"${npv:,.2f}", npv_sub, is_positive=(npv > 0))
         
     with col_kpi2:
         irr_label = t('econ_metric_irr')
@@ -235,13 +238,13 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         
     with col_kpi3:
         payback_label = t('econ_metric_payback')
-        payback_val_str = f"{payback:.1f} {t('econ_input_lifetime').split(' ')[-1].lower() if 'econ_input_lifetime' in TRANSLATIONS[lang] else 'Years'}" if payback != float('inf') else "N/A"
+        payback_val_str = f"{payback:.2f} {t('econ_input_lifetime').split(' ')[-1].lower() if 'econ_input_lifetime' in TRANSLATIONS[lang] else 'Years'}" if payback != float('inf') else "N/A"
         payback_sub = "Investment Return / Retorno"
         render_kpi_card(payback_label, payback_val_str, payback_sub, is_positive=(payback < project_lifetime))
         
     with col_kpi4:
         profit_label = t('econ_metric_profit')
-        render_kpi_card(profit_label, f"${net_cash_flow:,.0f}/yr", "Net Cash Flow / Flujo Neto", is_positive=(net_cash_flow > 0))
+        render_kpi_card(profit_label, f"${net_cash_flow:,.2f}/yr", "Net Cash Flow / Flujo Neto", is_positive=(net_cash_flow > 0))
         
     # ----------------------------------------------------
     # RENDERING DATA TABLES AND BREAKDOWNS
@@ -262,7 +265,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 t('econ_annual_elec')
             ],
             t('econ_table_val'): [
-                sludge_treated_ton,
+                sludge_treated_gal,
                 oil_produced_kg,
                 char_produced_kg,
                 gas_produced_kg,
@@ -270,7 +273,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 elec_consumed_kwh
             ],
             t('econ_table_units'): [
-                "tons/yr",
+                "gal/yr",
                 "kg/yr",
                 "kg/yr",
                 "kg/yr",
@@ -279,8 +282,9 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             ]
         }
         
-        # Translate header titles based on language
+        # Translate header titles based on language and format values to 2 decimals
         df_summary = pd.DataFrame(summary_data)
+        df_summary[t('econ_table_val')] = df_summary[t('econ_table_val')].map(lambda x: f"{x:,.2f}")
         st.table(df_summary)
         
         # Display Batch Info
@@ -326,7 +330,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         df_financial = pd.DataFrame(financial_breakdown)
         # Format cash flows for table
         df_financial_disp = df_financial.copy()
-        df_financial_disp["Annual Cash Flow / Flujo Anual ($)"] = df_financial_disp["Annual Cash Flow / Flujo Anual ($)"].map(lambda x: f"${x:,.0f}" if x >= 0 else f"-${abs(x):,.0f}")
+        df_financial_disp["Annual Cash Flow / Flujo Anual ($)"] = df_financial_disp["Annual Cash Flow / Flujo Anual ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
         st.table(df_financial_disp)
 
     # ----------------------------------------------------
