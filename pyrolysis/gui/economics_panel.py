@@ -92,8 +92,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     default_permits = 15000.0
     default_contingency = 10000.0
     
-    default_handling = 0.03
-    default_tipping = 0.15
+    default_handling = 10.0
+    default_tipping = 40.0
     default_fuel_price = 3.0
     default_elec_price = 0.15
     default_labor = 50000.0
@@ -179,22 +179,19 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         fuel_consumed_gal = summary['waste_oil_consumed_gal'] * batches_per_year
         elec_consumed_kwh = motor_power * (t_cycle_min / 60.0) * batches_per_year
         
-    # Convert sludge treated to gallons based on bulk density
-    bulk_density = solver_inputs.get('sludge_density', 900.0)
-    # density_kg_gal = (bulk_density kg/m3) / 1000.0 * 3.785411784 = bulk_density * 0.003785411784
-    density_kg_gal = bulk_density * 0.003785411784
-    sludge_treated_gal = sludge_treated_kg / density_kg_gal
+    # Convert sludge treated to metric tons (1 ton = 1000 kg)
+    sludge_treated_ton = sludge_treated_kg / 1000.0
     
     # ----------------------------------------------------
     # REVENUE AND OPEX CALCULATIONS
     # ----------------------------------------------------
-    rev_tipping = sludge_treated_gal * opex_tipping
+    rev_tipping = sludge_treated_ton * opex_tipping
     rev_oil = oil_produced_kg * price_oil
     rev_char = char_produced_kg * price_char
     rev_gas = gas_produced_kg * price_gas
     total_revenue = rev_tipping + rev_oil + rev_char + rev_gas
     
-    cost_handling = sludge_treated_gal * opex_handling
+    cost_handling = sludge_treated_ton * opex_handling
     cost_fuel = fuel_consumed_gal * opex_fuel
     cost_electricity = elec_consumed_kwh * opex_elec
     cost_maintenance = total_capex * (opex_maint / 100.0)
@@ -265,7 +262,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 t('econ_annual_elec')
             ],
             t('econ_table_val'): [
-                sludge_treated_gal,
+                sludge_treated_ton,
                 oil_produced_kg,
                 char_produced_kg,
                 gas_produced_kg,
@@ -273,7 +270,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 elec_consumed_kwh
             ],
             t('econ_table_units'): [
-                "gal/yr",
+                "tons/yr",
                 "kg/yr",
                 "kg/yr",
                 "kg/yr",

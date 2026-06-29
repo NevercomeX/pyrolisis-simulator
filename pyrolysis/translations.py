@@ -244,6 +244,7 @@ TRANSLATIONS = {
         
         # Economics
         'tab_economics': "💰 Economic Analysis",
+        'econ_metrics': "Financial Performance Metrics",
         'econ_title': "Financial Feasibility & Economic Viability",
         'econ_desc': "Configure financial assumptions below to analyze the project's profitability, cash flows, and key economic indicators.",
         'econ_section_capex': "Capital Expenditures (CAPEX)",
@@ -259,8 +260,8 @@ TRANSLATIONS = {
         'econ_input_installation': "Installation & Engineering ($)",
         'econ_input_permits': "Permits & Legal ($)",
         'econ_input_contingency': "Contingency ($)",
-        'econ_input_handling': "Feedstock Handling Cost ($/gal)",
-        'econ_input_tipping': "Sludge Disposal Tipping Fee ($/gal)",
+        'econ_input_handling': "Feedstock Handling Cost ($/ton)",
+        'econ_input_tipping': "Sludge Disposal Tipping Fee ($/ton)",
         'econ_input_fuel': "Burner Fuel Cost ($/gal)",
         'econ_input_electricity': "Electricity Cost ($/kWh)",
         'econ_input_labor': "Fixed Annual Labor ($/year)",
@@ -528,6 +529,7 @@ TRANSLATIONS = {
         
         # Economics
         'tab_economics': "💰 Viabilidad Económica",
+        'econ_metrics': "Métricas de Rendimiento Financiero",
         'econ_title': "Factibilidad Financiera y Viabilidad Económica",
         'econ_desc': "Configure las hipótesis financieras a continuación para analizar la rentabilidad del proyecto, los flujos de caja y los principales indicadores económicos.",
         'econ_section_capex': "Inversión de Capital (CAPEX)",
@@ -543,8 +545,8 @@ TRANSLATIONS = {
         'econ_input_installation': "Instalación e Ingeniería ($)",
         'econ_input_permits': "Permisos y Legal ($)",
         'econ_input_contingency': "Contingencias ($)",
-        'econ_input_handling': "Costo de Manejo de Lodos ($/gal)",
-        'econ_input_tipping': "Ingreso por Tarifa de Disposición ($/gal)",
+        'econ_input_handling': "Costo de Manejo de Lodos ($/ton)",
+        'econ_input_tipping': "Ingreso por Tarifa de Disposición ($/ton)",
         'econ_input_fuel': "Costo Combustible Quemadores ($/gal)",
         'econ_input_electricity': "Costo de la Electricidad ($/kWh)",
         'econ_input_labor': "Costo de Mano de Obra Anual Fijo ($/año)",
