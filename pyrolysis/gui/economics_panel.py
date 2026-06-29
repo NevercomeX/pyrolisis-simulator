@@ -95,7 +95,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     default_handling = 10.0
     default_tipping = 40.0
     default_fuel_price = 3.0
-    default_elec_price = 0.15
+    default_gen_fuel_price = 3.0
     default_labor = 50000.0
     default_maint_rate = 3.0
     
@@ -105,7 +105,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     
     default_discount = 8.0
     default_lifetime = 10
-    default_days = 300
+    default_days = 246
     default_motor_kw = 15.0 if is_continuous else 7.5
     
     # Columns for parameters (using expanders to keep clean)
@@ -121,7 +121,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         with st.expander(f"⚙️ {t('econ_section_opex')}", expanded=True):
             opex_handling = st.number_input(t('econ_input_handling'), min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=1.0, key='opex_handling')
             opex_fuel = st.number_input(t('econ_input_fuel'), min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=0.1, key='opex_fuel')
-            opex_elec = st.number_input(t('econ_input_electricity'), min_value=0.0, value=float(st.session_state.get('opex_elec', default_elec_price)), step=0.01, key='opex_elec')
+            price_generator_fuel = st.number_input(t('econ_input_gen_fuel'), min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=0.1, key='price_generator_fuel')
             opex_labor = st.number_input(t('econ_input_labor'), min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=5000.0, key='opex_labor')
             opex_maint = st.number_input(t('econ_input_maintenance'), min_value=0.0, max_value=25.0, value=float(st.session_state.get('opex_maint', default_maint_rate)), step=0.5, key='opex_maint')
             
@@ -193,10 +193,11 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     
     cost_handling = sludge_treated_ton * opex_handling
     cost_fuel = fuel_consumed_gal * opex_fuel
-    cost_electricity = elec_consumed_kwh * opex_elec
+    generator_fuel_consumed_gal = elec_consumed_kwh * 0.08
+    cost_generator_fuel = generator_fuel_consumed_gal * price_generator_fuel
     cost_maintenance = total_capex * (opex_maint / 100.0)
     cost_labor = opex_labor
-    total_opex = cost_handling + cost_fuel + cost_electricity + cost_maintenance + cost_labor
+    total_opex = cost_handling + cost_fuel + cost_generator_fuel + cost_maintenance + cost_labor
     
     net_cash_flow = total_revenue - total_opex
     
@@ -259,7 +260,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 t('econ_annual_char'),
                 t('econ_annual_gas'),
                 t('econ_annual_fuel'),
-                t('econ_annual_elec')
+                t('econ_annual_gen_fuel')
             ],
             t('econ_table_val'): [
                 sludge_treated_ton,
@@ -267,7 +268,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 char_produced_kg,
                 gas_produced_kg,
                 fuel_consumed_gal,
-                elec_consumed_kwh
+                generator_fuel_consumed_gal
             ],
             t('econ_table_units'): [
                 "tons/yr",
@@ -275,7 +276,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 "kg/yr",
                 "kg/yr",
                 "gal/yr",
-                "kWh/yr"
+                "gal/yr"
             ]
         }
         
@@ -307,7 +308,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 "Syngas Sales Revenue (Venta de Syngas)",
                 "Feedstock Handling Costs (Costo Manejo Lodos)",
                 "Burner Fuel Consumption Costs (Combustible)",
-                "Electricity Cost (Electricidad)",
+                "Generator Diesel Fuel Costs (Diésel Planta)",
                 "Annual Labor & Operators (Mano de Obra)",
                 "Annual Maintenance Cost (Mantenimiento CAPEX)"
             ],
@@ -319,7 +320,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 rev_gas,
                 -cost_handling,
                 -cost_fuel,
-                -cost_electricity,
+                -cost_generator_fuel,
                 -cost_labor,
                 -cost_maintenance
             ]

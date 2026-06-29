@@ -264,6 +264,7 @@ TRANSLATIONS = {
         'econ_input_tipping': "Sludge Disposal Tipping Fee ($/ton)",
         'econ_input_fuel': "Burner Fuel Cost ($/gal)",
         'econ_input_electricity': "Electricity Cost ($/kWh)",
+        'econ_input_gen_fuel': "Generator Diesel Cost ($/gal)",
         'econ_input_labor': "Fixed Annual Labor ($/year)",
         'econ_input_maintenance': "Annual Maintenance Rate (% of CAPEX)",
         'econ_input_price_oil': "Bio-Oil Value ($/kg)",
@@ -283,6 +284,7 @@ TRANSLATIONS = {
         'econ_annual_gas': "Syngas Produced",
         'econ_annual_fuel': "Burner Fuel Consumed",
         'econ_annual_elec': "Electricity Consumed",
+        'econ_annual_gen_fuel': "Generator Diesel Consumed",
     },
     'es': {
         'page_title': "Simulador de Reactor de Pirólisis Rotatorio",
@@ -549,6 +551,7 @@ TRANSLATIONS = {
         'econ_input_tipping': "Ingreso por Tarifa de Disposición ($/ton)",
         'econ_input_fuel': "Costo Combustible Quemadores ($/gal)",
         'econ_input_electricity': "Costo de la Electricidad ($/kWh)",
+        'econ_input_gen_fuel': "Costo Diésel Planta ($/gal)",
         'econ_input_labor': "Costo de Mano de Obra Anual Fijo ($/año)",
         'econ_input_maintenance': "Tasa de Mantenimiento Anual (% del CAPEX)",
         'econ_input_price_oil': "Valor del Bio-Crudo ($/kg)",
@@ -568,6 +571,7 @@ TRANSLATIONS = {
         'econ_annual_gas': "Syngas Producido",
         'econ_annual_fuel': "Combustible Quemador Consumido",
         'econ_annual_elec': "Electricidad Consumida",
+        'econ_annual_gen_fuel': "Diésel Planta Consumido",
     }
 }
 

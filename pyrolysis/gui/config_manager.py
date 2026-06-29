@@ -66,7 +66,7 @@ DEFAULT_PARAMS = {
     'opex_handling': 10.0,
     'opex_tipping': 40.0,
     'opex_fuel': 3.0,
-    'opex_elec': 0.15,
+    'price_generator_fuel': 3.0,
     'opex_labor': 50000.0,
     'opex_maint': 3.0,
     'price_oil': 0.40,
@@ -74,7 +74,7 @@ DEFAULT_PARAMS = {
     'price_gas': 0.05,
     'discount_rate': 8.0,
     'project_lifetime': 10,
-    'annual_days': 300,
+    'annual_days': 246,
     'motor_power': 15.0,
     'batch_turnaround_h': 1.0
 }
