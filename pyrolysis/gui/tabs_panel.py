@@ -4,7 +4,7 @@ import pandas as pd
 from pyrolysis import TRANSLATIONS
 
 def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'English')
+    lang_opt = st.session_state.get('lang_option', 'Español')
     return 'en' if lang_opt == 'English' else 'es'
 
 def t(key):

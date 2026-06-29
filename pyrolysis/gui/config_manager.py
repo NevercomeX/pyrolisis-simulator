@@ -3,7 +3,7 @@ import json
 import os
 
 DEFAULT_PARAMS = {
-    'lang_option': "English",
+    'lang_option': "Español",
     'mode_option': "Continuous Operation",
     'feed_option': "Blend (Petroleum + Hydrocarbon)",
     'blend_ratio': 50.0,
@@ -84,7 +84,7 @@ DEFAULT_PARAMS = {
 CONFIG_FILE = "pyrolysis_config.json"
 
 def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'English')
+    lang_opt = st.session_state.get('lang_option', 'Español')
     return 'en' if lang_opt == 'English' else 'es'
 
 def t(key):
@@ -114,10 +114,10 @@ def render_config_manager(current_config_data):
     # Compile the full configuration including session state values for all parameters
     full_config_data = {}
     for k in DEFAULT_PARAMS.keys():
-        if k in st.session_state:
-            full_config_data[k] = st.session_state[k]
-        elif k in current_config_data:
+        if k in current_config_data:
             full_config_data[k] = current_config_data[k]
+        elif k in st.session_state:
+            full_config_data[k] = st.session_state[k]
         else:
             full_config_data[k] = DEFAULT_PARAMS[k]
 

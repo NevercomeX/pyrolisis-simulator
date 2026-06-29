@@ -7,9 +7,10 @@ from pyrolysis import (
     blend_feedstocks,
     TRANSLATIONS
 )
+from .config_manager import DEFAULT_PARAMS
 
 def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'English')
+    lang_opt = st.session_state.get('lang_option', 'Español')
     return 'en' if lang_opt == 'English' else 'es'
 
 def t(key):
@@ -28,7 +29,7 @@ def render_sidebar():
     default_lang_idx = (
         lang_option_list.index(st.session_state['lang_option'])
         if st.session_state.get('lang_option') in lang_option_list
-        else 0
+        else 1
     )
     lang_option = st.sidebar.selectbox("🌐 Language / Idioma", lang_option_list, index=default_lang_idx)
     st.session_state['lang_option'] = lang_option
@@ -608,7 +609,27 @@ def render_sidebar():
         'custom_cp_oil': float(custom_cp_oil),
         'custom_cp_char': float(custom_cp_char),
         'custom_cp_ash': float(custom_cp_ash),
-        'bio_oil_density': float(bio_oil_density)
+        'bio_oil_density': float(bio_oil_density),
+        'capex_equip': float(st.session_state.get('capex_equip', DEFAULT_PARAMS['capex_equip'])),
+        'capex_install': float(st.session_state.get('capex_install', DEFAULT_PARAMS['capex_install'])),
+        'capex_permits': float(st.session_state.get('capex_permits', DEFAULT_PARAMS['capex_permits'])),
+        'capex_cont': float(st.session_state.get('capex_cont', DEFAULT_PARAMS['capex_cont'])),
+        'opex_handling': float(st.session_state.get('opex_handling', DEFAULT_PARAMS['opex_handling'])),
+        'opex_tipping': float(st.session_state.get('opex_tipping', DEFAULT_PARAMS['opex_tipping'])),
+        'opex_fuel': float(st.session_state.get('opex_fuel', DEFAULT_PARAMS['opex_fuel'])),
+        'price_generator_fuel': float(st.session_state.get('price_generator_fuel', DEFAULT_PARAMS['price_generator_fuel'])),
+        'gen_diesel_rate': float(st.session_state.get('gen_diesel_rate', DEFAULT_PARAMS['gen_diesel_rate'])),
+        'gen_diesel_batch': float(st.session_state.get('gen_diesel_batch', DEFAULT_PARAMS['gen_diesel_batch'])),
+        'opex_labor': float(st.session_state.get('opex_labor', DEFAULT_PARAMS['opex_labor'])),
+        'opex_maint': float(st.session_state.get('opex_maint', DEFAULT_PARAMS['opex_maint'])),
+        'price_oil': float(st.session_state.get('price_oil', DEFAULT_PARAMS['price_oil'])),
+        'price_char': float(st.session_state.get('price_char', DEFAULT_PARAMS['price_char'])),
+        'price_gas': float(st.session_state.get('price_gas', DEFAULT_PARAMS['price_gas'])),
+        'discount_rate': float(st.session_state.get('discount_rate', DEFAULT_PARAMS['discount_rate'])),
+        'project_lifetime': int(st.session_state.get('project_lifetime', DEFAULT_PARAMS['project_lifetime'])),
+        'annual_days': int(st.session_state.get('annual_days', DEFAULT_PARAMS['annual_days'])),
+        'motor_power': float(st.session_state.get('motor_power', DEFAULT_PARAMS['motor_power'])),
+        'batch_turnaround_h': float(st.session_state.get('batch_turnaround_h', DEFAULT_PARAMS['batch_turnaround_h']))
     }
 
     # Also build inputs for solvers
