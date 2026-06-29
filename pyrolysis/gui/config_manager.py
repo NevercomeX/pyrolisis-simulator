@@ -67,6 +67,8 @@ DEFAULT_PARAMS = {
     'opex_tipping': 40.0,
     'opex_fuel': 3.0,
     'price_generator_fuel': 3.0,
+    'gen_diesel_rate': 1.2,
+    'gen_diesel_batch': 1.0,
     'opex_labor': 50000.0,
     'opex_maint': 3.0,
     'price_oil': 0.40,

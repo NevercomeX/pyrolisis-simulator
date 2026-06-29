@@ -107,6 +107,15 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     default_lifetime = 10
     default_days = 246
     default_motor_kw = 15.0 if is_continuous else 7.5
+
+    # Precalculate default generator consumption based on mode
+    if is_continuous:
+        default_gen_consumption = float(default_motor_kw * 0.08)
+    else:
+        t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
+        t_hold_min = solver_inputs.get('hold_time_min', 60.0)
+        t_cycle_min = t_heat_min + t_hold_min
+        default_gen_consumption = float(default_motor_kw * (t_cycle_min / 60.0) * 0.08)
     
     # Columns for parameters (using expanders to keep clean)
     col_param_l, col_param_r = st.columns(2)
@@ -122,6 +131,10 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             opex_handling = st.number_input(t('econ_input_handling'), min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=1.0, key='opex_handling')
             opex_fuel = st.number_input(t('econ_input_fuel'), min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=0.1, key='opex_fuel')
             price_generator_fuel = st.number_input(t('econ_input_gen_fuel'), min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=0.1, key='price_generator_fuel')
+            if is_continuous:
+                gen_diesel_rate = st.number_input(t('econ_input_gen_fuel_rate'), min_value=0.0, value=float(st.session_state.get('gen_diesel_rate', default_gen_consumption)), step=0.1, key='gen_diesel_rate')
+            else:
+                gen_diesel_batch = st.number_input(t('econ_input_gen_fuel_batch'), min_value=0.0, value=float(st.session_state.get('gen_diesel_batch', default_gen_consumption)), step=0.5, key='gen_diesel_batch')
             opex_labor = st.number_input(t('econ_input_labor'), min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=5000.0, key='opex_labor')
             opex_maint = st.number_input(t('econ_input_maintenance'), min_value=0.0, max_value=25.0, value=float(st.session_state.get('opex_maint', default_maint_rate)), step=0.5, key='opex_maint')
             
@@ -160,6 +173,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         gas_produced_kg = summary['gas_yield_kgh'] * annual_hours
         fuel_consumed_gal = summary['waste_oil_consumed_galh'] * annual_hours
         elec_consumed_kwh = motor_power * annual_hours
+        generator_fuel_consumed_gal = gen_diesel_rate * annual_hours
     else:
         # Calculate single batch duration
         # time to heat up: (T_hold - T_start) / heating_rate
@@ -178,6 +192,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         gas_produced_kg = summary['gas_yield_kg'] * batches_per_year
         fuel_consumed_gal = summary['waste_oil_consumed_gal'] * batches_per_year
         elec_consumed_kwh = motor_power * (t_cycle_min / 60.0) * batches_per_year
+        generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
         
     # Convert sludge treated to metric tons (1 ton = 1000 kg)
     sludge_treated_ton = sludge_treated_kg / 1000.0
@@ -193,7 +208,6 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     
     cost_handling = sludge_treated_ton * opex_handling
     cost_fuel = fuel_consumed_gal * opex_fuel
-    generator_fuel_consumed_gal = elec_consumed_kwh * 0.08
     cost_generator_fuel = generator_fuel_consumed_gal * price_generator_fuel
     cost_maintenance = total_capex * (opex_maint / 100.0)
     cost_labor = opex_labor
@@ -287,13 +301,32 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         
         # Display Batch Info
         if not is_continuous:
-            st.info(f"⏱️ **Batch Timeline Details:**\n"
-                    f"- Heating time: `{t_heat_min:.1f} min` | Holding time: `{t_hold_min:.1f} min` | Unload/Cool: `{batch_turnaround_h*60:.0f} min` \n"
-                    f"- Total single batch duration: `{t_cycle_hours:.2f} hours` \n"
-                    f"- Annual throughput capacity: `{batches_per_year:.0f} batches/year` at `{annual_days} days/year` operation.")
+            elec_per_batch = motor_power * (t_cycle_min / 60.0)
+            gen_diesel_per_batch = elec_per_batch * 0.08
+            burner_fuel_per_batch = summary['waste_oil_consumed_gal']
+            if lang == 'es':
+                st.info(f"⏱️ **Detalles del Ciclo por Lote:**\n"
+                        f"- Tiempo de calentamiento: `{t_heat_min:.1f} min` | Retención: `{t_hold_min:.1f} min` | Enfriado/Carga: `{batch_turnaround_h*60:.0f} min` \n"
+                        f"- Duración del lote: `{t_cycle_hours:.2f} horas` \n"
+                        f"- Capacidad de procesamiento anual: `{batches_per_year:.0f} lotes/año` a `{annual_days} días/año` de operación.\n"
+                        f"- **Consumo por lote:** Diésel planta eléctrica: `{gen_diesel_per_batch:.2f} gal` | Combustible quemadores: `{burner_fuel_per_batch:.2f} gal`")
+            else:
+                st.info(f"⏱️ **Batch Timeline Details:**\n"
+                        f"- Heating time: `{t_heat_min:.1f} min` | Holding time: `{t_hold_min:.1f} min` | Unload/Cool: `{batch_turnaround_h*60:.0f} min` \n"
+                        f"- Total single batch duration: `{t_cycle_hours:.2f} hours` \n"
+                        f"- Annual throughput capacity: `{batches_per_year:.0f} batches/year` at `{annual_days} days/year` operation.\n"
+                        f"- **Consumption per batch:** Generator diesel: `{gen_diesel_per_batch:.2f} gal` | Burner fuel: `{burner_fuel_per_batch:.2f} gal`")
         else:
-            st.info(f"⚡ **Continuous Operation Details:**\n"
-                    f"- Operating hours per year: `{annual_hours:.0f} hours` ({annual_days} days/year × 24h).")
+            gen_diesel_per_hour = motor_power * 0.08
+            burner_fuel_per_hour = summary['waste_oil_consumed_galh']
+            if lang == 'es':
+                st.info(f"⚡ **Detalles de la Operación Continua:**\n"
+                        f"- Horas de operación al año: `{annual_hours:.0f} horas` ({annual_days} días/año × 24h).\n"
+                        f"- **Consumo horario:** Diésel planta eléctrica: `{gen_diesel_per_hour:.2f} gal/h` | Combustible quemadores: `{burner_fuel_per_hour:.2f} gal/h`")
+            else:
+                st.info(f"⚡ **Continuous Operation Details:**\n"
+                        f"- Operating hours per year: `{annual_hours:.0f} hours` ({annual_days} days/year × 24h).\n"
+                        f"- **Consumption per hour:** Generator diesel: `{gen_diesel_per_hour:.2f} gal/h` | Burner fuel: `{burner_fuel_per_hour:.2f} gal/h`")
             
     with col_table_r:
         st.markdown(f"##### 💵 Cash Flow Breakdown / Desglose de Caja")
