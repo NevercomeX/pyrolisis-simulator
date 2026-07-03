@@ -14,13 +14,11 @@ from pyrolysis.gui import (
     render_properties_tab,
     render_balances_tab,
     render_economics_tab,
+    render_sustainability_tab,
     render_guide_tab,
     render_export_tab,
     render_reactor_geometry_section
 )
-
-# Initialize session state configuration parameters
-init_session_state()
 
 # Set page config for a premium, wide-layout application
 st.set_page_config(
@@ -29,6 +27,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize session state configuration parameters
+init_session_state()
 
 # Render the sidebar parameters and get active configurations
 config_dict, solver_inputs = render_sidebar()
@@ -117,12 +118,13 @@ render_reactor_geometry_section(mode_option, summary, solver_inputs)
 st.markdown("---")
 
 # Render detailed profiles, total results, and balance tables using tabs
-tab_metrics, tab_charts, tab_properties, tab_balances, tab_economics, tab_guide, tab_export = st.tabs([
+tab_metrics, tab_charts, tab_properties, tab_balances, tab_economics, tab_sustainability, tab_guide, tab_export = st.tabs([
     t("tab_metrics"),
     t("tab_charts"), 
     t("tab_properties"), 
     t("tab_balances"),
     t("tab_economics"),
+    t("tab_sustainability"),
     t("tab_guide"), 
     t("tab_export")
 ])
@@ -159,6 +161,12 @@ with tab_economics:
     render_economics_tab(
         mode_option=mode_option,
         results=results,
+        summary=summary,
+        solver_inputs=solver_inputs
+    )
+
+with tab_sustainability:
+    render_sustainability_tab(
         summary=summary,
         solver_inputs=solver_inputs
     )

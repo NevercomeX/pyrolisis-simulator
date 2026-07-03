@@ -154,6 +154,7 @@ def render_metrics_panel(mode_option, summary, results):
             m_in_ash = results['ash'][0]
             m_in_total = m_in_moist + m_in_volatile + m_in_char + m_in_ash
             
+            sludge_density = float(st.session_state.get('sludge_density', 900.0))
             in_df = pd.DataFrame({
                 t("analysis_component"): [
                     t("analysis_moisture_name"),
@@ -169,6 +170,13 @@ def render_metrics_panel(mode_option, summary, results):
                     m_in_ash,
                     m_in_total
                 ],
+                "Flujo / Flow Rate (gal/h)": [
+                    (m_in_moist / sludge_density) * 264.172,
+                    (m_in_volatile / sludge_density) * 264.172,
+                    (m_in_char / sludge_density) * 264.172,
+                    (m_in_ash / sludge_density) * 264.172,
+                    (m_in_total / sludge_density) * 264.172
+                ],
                 "Fracción / Fraction (%)": [
                     (m_in_moist / m_in_total * 100.0) if m_in_total > 0 else 0.0,
                     (m_in_volatile / m_in_total * 100.0) if m_in_total > 0 else 0.0,
@@ -177,7 +185,11 @@ def render_metrics_panel(mode_option, summary, results):
                     100.0
                 ]
             })
-            st.table(in_df.style.format({"Flujo / Flow Rate (kg/h)": "{:.2f}", "Fracción / Fraction (%)": "{:.1f}%"}))
+            st.table(in_df.style.format({
+                "Flujo / Flow Rate (kg/h)": "{:.2f}",
+                "Flujo / Flow Rate (gal/h)": "{:.2f}",
+                "Fracción / Fraction (%)": "{:.1f}%"
+            }))
             
         with scol2:
             st.markdown(f"**{t('summary_products_out_rate')}**")
@@ -190,6 +202,7 @@ def render_metrics_panel(mode_option, summary, results):
             oil_density = float(st.session_state.get('bio_oil_density', 750.0))
             oil_gal_h = (m_out_oil / oil_density) * 264.172
             gas_m3_h = m_out_gas / 1.15
+            char_gal_h = (m_out_char / 500.0) * 264.172
             water_gal_h = (m_out_water / 1000.0) * 264.172
             
             out_df = pd.DataFrame({
@@ -210,7 +223,7 @@ def render_metrics_panel(mode_option, summary, results):
                 "Volumen / Volume": [
                     f"{oil_gal_h:.1f} gal/h",
                     f"{gas_m3_h:.1f} m³/h",
-                    "-",
+                    f"{char_gal_h:.1f} gal/h",
                     f"{water_gal_h:.1f} gal/h",
                     "-"
                 ]
@@ -344,6 +357,7 @@ def render_metrics_panel(mode_option, summary, results):
             m_in_ash = results['ash'][0]
             m_in_total = m_in_moist + m_in_volatile + m_in_char + m_in_ash
             
+            sludge_density = float(st.session_state.get('sludge_density', 900.0))
             in_df = pd.DataFrame({
                 t("analysis_component"): [
                     t("analysis_moisture_name"),
@@ -359,6 +373,13 @@ def render_metrics_panel(mode_option, summary, results):
                     m_in_ash,
                     m_in_total
                 ],
+                "Masa / Mass (gal)": [
+                    (m_in_moist / sludge_density) * 264.172,
+                    (m_in_volatile / sludge_density) * 264.172,
+                    (m_in_char / sludge_density) * 264.172,
+                    (m_in_ash / sludge_density) * 264.172,
+                    (m_in_total / sludge_density) * 264.172
+                ],
                 "Fracción / Fraction (%)": [
                     (m_in_moist / m_in_total * 100.0) if m_in_total > 0 else 0.0,
                     (m_in_volatile / m_in_total * 100.0) if m_in_total > 0 else 0.0,
@@ -367,7 +388,11 @@ def render_metrics_panel(mode_option, summary, results):
                     100.0
                 ]
             })
-            st.table(in_df.style.format({"Masa / Mass (kg)": "{:.2f}", "Fracción / Fraction (%)": "{:.1f}%"}))
+            st.table(in_df.style.format({
+                "Masa / Mass (kg)": "{:.2f}",
+                "Masa / Mass (gal)": "{:.2f}",
+                "Fracción / Fraction (%)": "{:.1f}%"
+            }))
             
         with scol2:
             st.markdown(f"**{t('summary_products_out')}**")
@@ -380,6 +405,7 @@ def render_metrics_panel(mode_option, summary, results):
             oil_density = float(st.session_state.get('bio_oil_density', 750.0))
             oil_gal = (m_out_oil / oil_density) * 264.172
             gas_m3 = m_out_gas / 1.15
+            char_gal = (m_out_char / 500.0) * 264.172
             water_gal = (m_out_water / 1000.0) * 264.172
             
             out_df = pd.DataFrame({
@@ -400,7 +426,7 @@ def render_metrics_panel(mode_option, summary, results):
                 "Volumen / Volume": [
                     f"{oil_gal:.1f} gal",
                     f"{gas_m3:.1f} m³",
-                    "-",
+                    f"{char_gal:.1f} gal",
                     f"{water_gal:.1f} gal",
                     "-"
                 ]

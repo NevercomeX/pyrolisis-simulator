@@ -20,6 +20,10 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
         st.subheader(t("analysis_chem_comp"))
         load_val = feed_rate_kgh if mode_option == "Continuous Operation" else batch_load_kg
         load_unit = "kg/h" if mode_option == "Continuous Operation" else "kg"
+        load_unit_gal = "gal/h" if mode_option == "Continuous Operation" else "gal"
+        sludge_density = float(st.session_state.get('sludge_density', 900.0))
+        load_val_gal = (load_val / sludge_density) * 264.172
+        
         comp_df = pd.DataFrame({
             t("analysis_component"): [t("analysis_moisture_name"), t("analysis_volatiles_name"), t("analysis_char_name"), t("analysis_ash_name")],
             t("analysis_wt_pct"): [current_feed.moisture, current_feed.volatile, current_feed.fixed_carbon, current_feed.ash],
@@ -28,6 +32,12 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
                 load_val * current_feed.volatile / 100.0,
                 load_val * current_feed.fixed_carbon / 100.0,
                 load_val * current_feed.ash / 100.0
+            ],
+            t("analysis_input_load").format(load_unit_gal): [
+                load_val_gal * current_feed.moisture / 100.0,
+                load_val_gal * current_feed.volatile / 100.0,
+                load_val_gal * current_feed.fixed_carbon / 100.0,
+                load_val_gal * current_feed.ash / 100.0
             ]
         })
         st.table(comp_df)
@@ -54,12 +64,21 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
     if mode_option == "Continuous Operation":
         st.markdown("### ⚖️ Mass Balance / Balance de Materia")
         load_val = feed_rate_kgh
+        sludge_density = float(st.session_state.get('sludge_density', 900.0))
+        oil_density = float(st.session_state.get('bio_oil_density', 750.0))
+        
+        load_val_gal = (load_val / sludge_density) * 264.172
+        oil_gal_h = (summary['oil_yield_kgh'] / oil_density) * 264.172
+        gas_m3_h = summary['gas_yield_kgh'] / 1.15
+        char_gal_h = (summary['char_yield_kgh'] / 500.0) * 264.172
+        water_gal_h = (summary['water_yield_kgh'] / 1000.0) * 264.172
         
         feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
         mass_in_df = pd.DataFrame({
             t("analysis_component") if "analysis_component" in TRANSLATIONS[lang] else "Component": [feed_name_display],
             t("analysis_wt_pct") if "analysis_wt_pct" in TRANSLATIONS[lang] else "wt%": [100.0],
-            "Flow Rate / Flujo (kg/h)": [load_val]
+            "Flow Rate / Flujo (kg/h)": [load_val],
+            "Flow Rate / Flujo (gal/h)": [load_val_gal]
         })
         
         mass_out_df = pd.DataFrame({
@@ -80,6 +99,12 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
                 summary['gas_yield_kgh'],
                 summary['char_yield_kgh'],
                 summary['water_yield_kgh']
+            ],
+            "Volumen / Volume": [
+                f"{oil_gal_h:.1f} gal/h",
+                f"{gas_m3_h:.1f} m³/h",
+                f"{char_gal_h:.1f} gal/h",
+                f"{water_gal_h:.1f} gal/h"
             ]
         })
         
@@ -211,12 +236,21 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
     else:
         st.markdown("### ⚖️ Mass Balance / Balance de Materia")
         load_val = batch_load_kg
+        sludge_density = float(st.session_state.get('sludge_density', 900.0))
+        oil_density = float(st.session_state.get('bio_oil_density', 750.0))
+        
+        load_val_gal = (load_val / sludge_density) * 264.172
+        oil_gal = (summary['oil_yield_kg'] / oil_density) * 264.172
+        gas_m3 = summary['gas_yield_kg'] / 1.15
+        char_gal = (summary['char_yield_kg'] / 500.0) * 264.172
+        water_gal = (summary['water_yield_kg'] / 1000.0) * 264.172
         
         feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
         mass_in_df = pd.DataFrame({
             t("analysis_component") if "analysis_component" in TRANSLATIONS[lang] else "Component": [feed_name_display],
             t("analysis_wt_pct") if "analysis_wt_pct" in TRANSLATIONS[lang] else "wt%": [100.0],
-            "Load / Carga (kg)": [load_val]
+            "Load / Carga (kg)": [load_val],
+            "Load / Carga (gal)": [load_val_gal]
         })
         
         mass_out_df = pd.DataFrame({
@@ -237,6 +271,12 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
                 summary['gas_yield_kg'],
                 summary['char_yield_kg'],
                 summary['water_yield_kg']
+            ],
+            "Volumen / Volume": [
+                f"{oil_gal:.1f} gal",
+                f"{gas_m3:.1f} m³",
+                f"{char_gal:.1f} gal",
+                f"{water_gal:.1f} gal"
             ]
         })
         

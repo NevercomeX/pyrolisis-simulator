@@ -18,9 +18,9 @@ DEFAULT_PARAMS = {
     'c_y_char': 15.0,
     'use_advanced_kinetics': False,
     'c_ea1': 120.0,
-    'c_a1': 6e6,
-    'c_ea2': 125.0,
-    'c_a2': 4e6,
+    'c_a1': 1e8,
+    'c_ea2': 140.0,
+    'c_a2': 2e6,
     'c_ea3': 100.0,
     'c_a3': 5e5,
     'feed_rate': 100.0,
@@ -61,24 +61,34 @@ DEFAULT_PARAMS = {
     'bio_oil_density': 750.0,
     'capex_equip': 150000.0,
     'capex_install': 40000.0,
+    'capex_civil': 30000.0,
+    'capex_piping_elec': 25000.0,
+    'capex_eng': 20000.0,
     'capex_permits': 15000.0,
     'capex_cont': 10000.0,
-    'opex_handling': 10.0,
-    'opex_tipping': 40.0,
+    'opex_handling': 0.05,
+    'opex_tipping': 0.15,
     'opex_fuel': 3.0,
+    'opex_electricity': 0.12,
+    'opex_aux_utilities': 5000.0,
     'price_generator_fuel': 3.0,
     'gen_diesel_rate': 1.2,
     'gen_diesel_batch': 1.0,
     'opex_labor': 50000.0,
     'opex_maint': 3.0,
-    'price_oil': 0.40,
-    'price_char': 0.15,
-    'price_gas': 0.05,
+    'opex_insurance_tax': 1.0,
+    'price_oil': 1.15,
+    'price_char': 0.30,
+    'price_gas': 0.06,
+    'price_carbon': 20.0,
+    'rate_carbon_offset': 4.84,
     'discount_rate': 8.0,
     'project_lifetime': 10,
     'annual_days': 246,
     'motor_power': 15.0,
-    'batch_turnaround_h': 1.0
+    'batch_turnaround_h': 1.0,
+    'tax_rate': 25.0,
+    'inflation_rate': 2.5
 }
 
 CONFIG_FILE = "pyrolysis_config.json"
@@ -93,18 +103,54 @@ def t(key):
     return TRANSLATIONS[lang].get(key, key)
 
 def init_session_state():
-    """Loads configuration on startup and initializes session state."""
-    loaded_config = {}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                loaded_config = json.load(f)
-        except Exception:
-            pass
-
+    """Loads configuration on startup from localStorage (with file fallback) and initializes session state."""
+    # 1. First, make sure every default parameter is initialized in session state
     for k, v in DEFAULT_PARAMS.items():
         if k not in st.session_state:
-            st.session_state[k] = loaded_config.get(k, v)
+            st.session_state[k] = v
+
+    # 2. Access localStorage using the custom component
+    if not st.session_state.get('local_storage_loaded', False):
+        from pyrolysis.gui.local_storage import local_storage_get
+        ls_config = local_storage_get("pyrolysis_config", key_suffix="init")
+        
+        if ls_config is not None:
+            if isinstance(ls_config, dict) and "__empty__" not in ls_config:
+                # We found a configuration in localStorage! Apply it.
+                for k in DEFAULT_PARAMS.keys():
+                    if k in ls_config:
+                        st.session_state[k] = ls_config[k]
+                st.session_state['local_storage_loaded'] = True
+                st.session_state['fallback_loaded'] = True
+                st.rerun()
+            elif isinstance(ls_config, dict) and ls_config.get("__empty__", False):
+                # The browser completed the check and found nothing. Try file fallback.
+                if not st.session_state.get('fallback_loaded', False):
+                    if os.path.exists(CONFIG_FILE):
+                        try:
+                            with open(CONFIG_FILE, 'r') as f:
+                                loaded_config = json.load(f)
+                                for k in DEFAULT_PARAMS.keys():
+                                    if k in loaded_config:
+                                        st.session_state[k] = loaded_config[k]
+                        except Exception:
+                            pass
+                    st.session_state['fallback_loaded'] = True
+                st.session_state['local_storage_loaded'] = True
+                st.rerun()
+        else:
+            # First frame fallback - load from JSON file while localStorage is fetching
+            if not st.session_state.get('fallback_loaded', False):
+                if os.path.exists(CONFIG_FILE):
+                    try:
+                        with open(CONFIG_FILE, 'r') as f:
+                            loaded_config = json.load(f)
+                            for k in DEFAULT_PARAMS.keys():
+                                if k in loaded_config:
+                                    st.session_state[k] = loaded_config[k]
+                    except Exception:
+                        pass
+                st.session_state['fallback_loaded'] = True
 
 def render_config_manager(current_config_data):
     """Renders the config manager section at the bottom of the sidebar."""
@@ -121,14 +167,22 @@ def render_config_manager(current_config_data):
         else:
             full_config_data[k] = DEFAULT_PARAMS[k]
 
-    # Save to local file config
-    if st.sidebar.button(t("save_config_default"), width='stretch'):
+    # Save to local storage (primary) and local file (fallback)
+    if st.sidebar.button(t("save_config_default"), key="save_config_btn", use_container_width=True):
+        st.session_state['trigger_save_ls'] = True
         try:
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(full_config_data, f, indent=4)
+        except Exception:
+            pass
+
+    if st.session_state.get('trigger_save_ls', False):
+        from pyrolysis.gui.local_storage import local_storage_set
+        res = local_storage_set("pyrolysis_config", full_config_data, key_suffix="save_action")
+        if res is True:
+            st.session_state['trigger_save_ls'] = False
             st.sidebar.success(t("config_saved_success"))
-        except Exception as e:
-            st.sidebar.error(f"Error: {e}")
+            st.rerun()
 
     # Download current configuration
     config_json_bytes = json.dumps(full_config_data, indent=4).encode('utf-8')
@@ -137,7 +191,7 @@ def render_config_manager(current_config_data):
         data=config_json_bytes,
         file_name="pyrolysis_config.json",
         mime="application/json",
-        width='stretch'
+        use_container_width=True
     )
 
     # Upload configuration file
@@ -151,9 +205,6 @@ def render_config_manager(current_config_data):
                     st.session_state[k] = config_data[k]
             st.sidebar.success(t("config_loaded_success"))
             # Force rerun
-            if hasattr(st, "rerun"):
-                st.rerun()
-            else:
-                st.experimental_rerun()
+            st.rerun()
         except Exception:
             st.sidebar.error(t("error_loading_config"))

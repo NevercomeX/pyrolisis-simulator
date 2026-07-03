@@ -9,5 +9,5 @@ from .tabs_panel import (
     render_guide_tab,
     render_export_tab
 )
-from .economics_panel import render_economics_tab
+from .economics_panel import render_economics_tab, render_sustainability_tab
 

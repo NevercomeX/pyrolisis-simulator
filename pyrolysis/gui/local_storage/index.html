@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script>
+        function sendMessage(type, data) {
+            window.parent.postMessage({
+                isStreamlitMessage: true,
+                type: type,
+                ...data
+            }, "*");
+        }
+
+        window.addEventListener("message", function(event) {
+            if (event.data.type === "streamlit:render") {
+                const args = event.data.args;
+                const action = args.action; // "get" or "set"
+                const key = args.item_key;
+                
+                if (action === "set") {
+                    const value = args.value;
+                    try {
+                        localStorage.setItem(key, JSON.stringify(value));
+                        sendMessage("streamlit:setComponentValue", {value: true});
+                    } catch (e) {
+                        sendMessage("streamlit:setComponentValue", {value: false});
+                    }
+                } else if (action === "get") {
+                    try {
+                        const storedVal = localStorage.getItem(key);
+                        if (storedVal === null) {
+                            sendMessage("streamlit:setComponentValue", {value: {"__empty__": true}});
+                        } else {
+                            const parsed = JSON.parse(storedVal);
+                            sendMessage("streamlit:setComponentValue", {value: parsed});
+                        }
+                    } catch (e) {
+                        sendMessage("streamlit:setComponentValue", {value: null});
+                    }
+                }
+            }
+        });
+
+        // Notify Streamlit that the component is ready
+        sendMessage("streamlit:componentReady", {apiVersion: 1});
+    </script>
+</head>
+<body>
+</body>
+</html>
