@@ -706,7 +706,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     edited_df = st.data_editor(
         st.session_state.monthly_config,
         num_rows="fixed",
-        use_container_width=True,
+        width='stretch',
         column_config={
             "Month / Mes": st.column_config.TextColumn("Month / Mes", disabled=True),
             "Days Operated / Días Operados": st.column_config.NumberColumn("Days Operated", min_value=0.0, max_value=31.0, step=0.5),
@@ -857,7 +857,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     df_monthly_disp["OPEX ($)"] = df_monthly_disp["OPEX ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
     df_monthly_disp["Net Cash Flow ($)"] = df_monthly_disp["Net Cash Flow ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
     
-    st.dataframe(df_monthly_disp, use_container_width=True)
+    st.dataframe(df_monthly_disp, width='stretch')
     
     # Export to CSV
     csv_monthly_buf = io.StringIO()
@@ -1032,7 +1032,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         if col != "Year / Año":
             df_proj_disp[col] = df_proj_disp[col].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
             
-    st.dataframe(df_proj_disp, use_container_width=True)
+    st.dataframe(df_proj_disp, width='stretch')
     
     csv_buffer = io.StringIO()
     df_proj.to_csv(csv_buffer, index=False)
