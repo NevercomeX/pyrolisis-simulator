@@ -87,7 +87,7 @@ def render_kpi_card(title, value_str, subtitle=None, is_positive=True):
     st.markdown(html, unsafe_allow_html=True)
 
 def run_financial_model(
-    total_capex, sludge_treated_gal, oil_produced_gal, char_produced_gal, gas_produced_m3,
+    total_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
     fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
     opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
     opex_labor, opex_maint, opex_insurance_tax,
@@ -96,7 +96,7 @@ def run_financial_model(
 ):
     """
     Runs the detailed cash flow model over the project lifetime and returns year-by-year cash flows
-    and advanced economic indicators (computed in gallons and m3).
+    and advanced economic indicators (computed in gallons, kg, and m3).
     """
     r = discount_rate / 100.0
     inf = inflation_rate / 100.0
@@ -105,10 +105,10 @@ def run_financial_model(
     # Year 1 base values (uninflated)
     rev_tipping = sludge_treated_gal * opex_tipping
     rev_oil = oil_produced_gal * price_oil
-    rev_char = char_produced_gal * price_char
+    rev_char = char_produced_kg * price_char
     rev_gas = gas_produced_m3 * price_gas
     
-    annual_co2_sequestered_ton = (char_produced_gal * rate_carbon_offset) / 1000.0
+    annual_co2_sequestered_ton = (char_produced_kg * rate_carbon_offset) / 1000.0
     rev_carbon = annual_co2_sequestered_ton * price_carbon
     
     total_rev_base = rev_tipping + rev_oil + rev_char + rev_gas + rev_carbon
@@ -263,40 +263,93 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     
     st.markdown(f"### 💸 {t('econ_title')}")
     st.markdown(t('econ_desc'))
+    
+    # Currency Selection Header
+    curr_opt = st.radio(
+        t('econ_currency_label'),
+        ["USD ($)", "DOP (RD$)"],
+        index=0 if st.session_state.get('curr_opt', 'USD ($)') == "USD ($)" else 1,
+        horizontal=True,
+        key='curr_opt'
+    )
+    is_dop = (curr_opt == "DOP (RD$)")
+    curr_sym = "RD$" if is_dop else "$"
+    
+    # Handle currency change to automatically reset input defaults for selected currency
+    if st.session_state.get('prev_curr_opt') != curr_opt:
+        st.session_state['prev_curr_opt'] = curr_opt
+        for k in ['capex_equip', 'capex_install', 'capex_civil', 'capex_piping_elec', 'capex_eng', 'capex_permits', 'capex_cont',
+                  'opex_handling', 'opex_electricity', 'price_generator_fuel', 'opex_labor', 'opex_fuel', 'opex_aux_utilities',
+                  'opex_tipping', 'price_oil', 'price_char', 'price_gas', 'price_carbon', 'discount_rate', 'inflation_rate']:
+            if k in st.session_state:
+                del st.session_state[k]
+
     st.markdown("---")
     
-    # Default values based on operational mode
+    # Default values based on operational mode and selected currency
     is_continuous = (mode_option == "Continuous Operation")
-    default_equip = 150000.0 if is_continuous else 80000.0
-    default_install = 40000.0 if is_continuous else 20000.0
-    default_civil = 30000.0 if is_continuous else 15000.0
-    default_piping_elec = 25000.0 if is_continuous else 10000.0
-    default_eng = 20000.0 if is_continuous else 10000.0
-    default_permits = 15000.0
-    default_contingency = 10000.0
-    
-    default_handling = 0.05
-    default_tipping = 0.15
-    default_fuel_price = 3.0
-    default_electricity = 0.12
-    default_aux_utilities = 5000.0
-    default_gen_fuel_price = 3.0
-    default_labor = 50000.0
-    default_maint_rate = 3.0
-    default_insurance_tax = 1.0
-    
-    default_oil_price = 1.15
-    default_char_price = 0.30
-    default_gas_price = 0.06
-    default_price_carbon = 20.0
-    default_rate_carbon_offset = 4.84
-    
-    default_discount = 8.0
-    default_lifetime = 10
-    default_days = 246
-    default_motor_kw = 15.0 if is_continuous else 7.5
-    default_tax_rate = 25.0
-    default_inflation_rate = 2.5
+    if is_dop:
+        default_equip = 9000000.0 if is_continuous else 4800000.0
+        default_install = 3150000.0 if is_continuous else 1680000.0
+        default_civil = 2250000.0 if is_continuous else 1200000.0
+        default_piping_elec = 2250000.0 if is_continuous else 1200000.0
+        default_eng = 1350000.0 if is_continuous else 720000.0
+        default_permits = 450000.0
+        default_contingency = 900000.0
+        
+        default_handling = 3.00
+        default_tipping = 9.00
+        default_fuel_price = 180.00
+        default_electricity = 7.50
+        default_aux_utilities = 300000.0
+        default_gen_fuel_price = 262.80
+        default_labor = 3000000.0
+        default_maint_rate = 3.0
+        default_insurance_tax = 1.0
+        
+        default_oil_price = 120.00
+        default_char_price = 21.00
+        default_gas_price = 3.60
+        default_price_carbon = 1200.0
+        default_rate_carbon_offset = 2.2
+        
+        default_discount = 14.0
+        default_lifetime = 10
+        default_days = 246
+        default_motor_kw = 15.0 if is_continuous else 7.5
+        default_tax_rate = 25.0
+        default_inflation_rate = 4.0
+    else:
+        default_equip = 150000.0 if is_continuous else 80000.0
+        default_install = 52500.0 if is_continuous else 28000.0
+        default_civil = 37500.0 if is_continuous else 20000.0
+        default_piping_elec = 37500.0 if is_continuous else 20000.0
+        default_eng = 22500.0 if is_continuous else 12000.0
+        default_permits = 7500.0
+        default_contingency = 15000.0
+        
+        default_handling = 0.05
+        default_tipping = 0.15
+        default_fuel_price = 3.00
+        default_electricity = 0.12
+        default_aux_utilities = 5000.0
+        default_gen_fuel_price = 3.80
+        default_labor = 50000.0
+        default_maint_rate = 3.0
+        default_insurance_tax = 1.0
+        
+        default_oil_price = 2.00
+        default_char_price = 0.35
+        default_gas_price = 0.06
+        default_price_carbon = 20.0
+        default_rate_carbon_offset = 2.2
+        
+        default_discount = 10.0
+        default_lifetime = 10
+        default_days = 246
+        default_motor_kw = 15.0 if is_continuous else 7.5
+        default_tax_rate = 25.0
+        default_inflation_rate = 2.5
 
     # Precalculate default generator consumption based on mode
     if is_continuous:
@@ -314,25 +367,35 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         with st.expander(f"🏗️ {t('econ_section_capex')}", expanded=True):
             col_cx1, col_cx2 = st.columns(2)
             with col_cx1:
-                capex_equip = st.number_input(t('econ_input_reactor_cost'), min_value=0.0, value=float(st.session_state.get('capex_equip', default_equip)), step=5000.0, key='capex_equip')
-                capex_civil = st.number_input(t('econ_input_civil_works'), min_value=0.0, value=float(st.session_state.get('capex_civil', default_civil)), step=2000.0, key='capex_civil')
-                capex_eng = st.number_input(t('econ_input_engineering'), min_value=0.0, value=float(st.session_state.get('capex_eng', default_eng)), step=2000.0, key='capex_eng')
+                capex_equip = st.number_input(f"{t('econ_input_reactor_cost')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_equip', default_equip)), step=5000.0 if not is_dop else 250000.0, key='capex_equip')
+                capex_civil = st.number_input(f"{t('econ_input_civil_works')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_civil', default_civil)), step=2000.0 if not is_dop else 100000.0, key='capex_civil')
+                capex_eng = st.number_input(f"{t('econ_input_engineering')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_eng', default_eng)), step=2000.0 if not is_dop else 100000.0, key='capex_eng')
             with col_cx2:
-                capex_install = st.number_input(t('econ_input_installation'), min_value=0.0, value=float(st.session_state.get('capex_install', default_install)), step=2000.0, key='capex_install')
-                capex_piping_elec = st.number_input(t('econ_input_piping_elec'), min_value=0.0, value=float(st.session_state.get('capex_piping_elec', default_piping_elec)), step=2000.0, key='capex_piping_elec')
-                capex_permits = st.number_input(t('econ_input_permits'), min_value=0.0, value=float(st.session_state.get('capex_permits', default_permits)), step=1000.0, key='capex_permits')
-            capex_cont = st.number_input(t('econ_input_contingency'), min_value=0.0, value=float(st.session_state.get('capex_cont', default_contingency)), step=1000.0, key='capex_cont')
+                capex_install = st.number_input(f"{t('econ_input_installation')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_install', default_install)), step=2000.0 if not is_dop else 100000.0, key='capex_install')
+                capex_piping_elec = st.number_input(f"{t('econ_input_piping_elec')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_piping_elec', default_piping_elec)), step=2000.0 if not is_dop else 100000.0, key='capex_piping_elec')
+                capex_permits = st.number_input(f"{t('econ_input_permits')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_permits', default_permits)), step=1000.0 if not is_dop else 50000.0, key='capex_permits')
+            capex_cont = st.number_input(f"{t('econ_input_contingency')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_cont', default_contingency)), step=1000.0 if not is_dop else 50000.0, key='capex_cont')
             
+            if st.button(t('econ_btn_apply_ratios'), key='btn_apply_capex_ratios'):
+                eq_val = st.session_state.get('capex_equip', default_equip)
+                st.session_state['capex_install'] = float(round(eq_val * 0.35, 2))
+                st.session_state['capex_civil'] = float(round(eq_val * 0.25, 2))
+                st.session_state['capex_piping_elec'] = float(round(eq_val * 0.25, 2))
+                st.session_state['capex_eng'] = float(round(eq_val * 0.15, 2))
+                st.session_state['capex_permits'] = float(round(eq_val * 0.05, 2))
+                st.session_state['capex_cont'] = float(round(eq_val * 0.10, 2))
+                st.rerun()
+
         with st.expander(f"⚙️ {t('econ_section_opex')}", expanded=True):
             col_ox1, col_ox2 = st.columns(2)
             with col_ox1:
-                opex_handling = st.number_input(t('econ_input_handling'), min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=0.01, key='opex_handling')
-                opex_electricity = st.number_input(t('econ_input_electricity'), min_value=0.0, value=float(st.session_state.get('opex_electricity', default_electricity)), step=0.01, key='opex_electricity')
-                price_generator_fuel = st.number_input(t('econ_input_gen_fuel'), min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=0.1, key='price_generator_fuel')
-                opex_labor = st.number_input(t('econ_input_labor'), min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=5000.0, key='opex_labor')
+                opex_handling = st.number_input(f"{t('econ_input_handling')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=0.01 if not is_dop else 0.5, key='opex_handling')
+                opex_electricity = st.number_input(f"{t('econ_input_electricity')} ({curr_sym}/kWh)", min_value=0.0, value=float(st.session_state.get('opex_electricity', default_electricity)), step=0.01 if not is_dop else 0.5, key='opex_electricity')
+                price_generator_fuel = st.number_input(f"{t('econ_input_gen_fuel')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=0.1 if not is_dop else 5.0, key='price_generator_fuel')
+                opex_labor = st.number_input(f"{t('econ_input_labor')} ({curr_sym}/year)", min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=5000.0 if not is_dop else 250000.0, key='opex_labor')
             with col_ox2:
-                opex_fuel = st.number_input(t('econ_input_fuel'), min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=0.1, key='opex_fuel')
-                opex_aux_utilities = st.number_input(t('econ_input_aux_utilities'), min_value=0.0, value=float(st.session_state.get('opex_aux_utilities', default_aux_utilities)), step=500.0, key='opex_aux_utilities')
+                opex_fuel = st.number_input(f"{t('econ_input_fuel')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=0.1 if not is_dop else 5.0, key='opex_fuel')
+                opex_aux_utilities = st.number_input(f"{t('econ_input_aux_utilities')} ({curr_sym}/year)", min_value=0.0, value=float(st.session_state.get('opex_aux_utilities', default_aux_utilities)), step=500.0 if not is_dop else 25000.0, key='opex_aux_utilities')
                 if is_continuous:
                     gen_diesel_rate = st.number_input(t('econ_input_gen_fuel_rate'), min_value=0.0, value=float(st.session_state.get('gen_diesel_rate', default_gen_consumption)), step=0.1, key='gen_diesel_rate')
                 else:
@@ -342,14 +405,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             
     with col_param_r:
         with st.expander(f"🏷️ {t('econ_section_revenue')}", expanded=True):
-            opex_tipping = st.number_input(t('econ_input_tipping'), min_value=0.0, value=float(st.session_state.get('opex_tipping', default_tipping)), step=0.05, key='opex_tipping')
+            opex_tipping = st.number_input(f"{t('econ_input_tipping')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('opex_tipping', default_tipping)), step=0.05 if not is_dop else 1.0, key='opex_tipping')
             col_rv1, col_rv2 = st.columns(2)
             with col_rv1:
-                price_oil = st.number_input(t('price_bio_oil') if 'price_bio_oil' in TRANSLATIONS[lang] else t('econ_input_price_oil'), min_value=0.0, value=float(st.session_state.get('price_oil', default_oil_price)), step=0.05, key='price_oil')
-                price_char = st.number_input(t('price_bio_char') if 'price_bio_char' in TRANSLATIONS[lang] else t('econ_input_price_char'), min_value=0.0, value=float(st.session_state.get('price_char', default_char_price)), step=0.05, key='price_char')
+                price_oil = st.number_input(f"{t('econ_input_price_oil')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('price_oil', default_oil_price)), step=0.05 if not is_dop else 5.0, key='price_oil')
+                price_char = st.number_input(f"{t('econ_input_price_char')} ({curr_sym}/kg)", min_value=0.0, value=float(st.session_state.get('price_char', default_char_price)), step=0.05 if not is_dop else 1.0, key='price_char')
             with col_rv2:
-                price_gas = st.number_input(t('price_syngas') if 'price_syngas' in TRANSLATIONS[lang] else t('econ_input_price_gas'), min_value=0.0, value=float(st.session_state.get('price_gas', default_gas_price)), step=0.01, key='price_gas')
-                price_carbon = st.number_input(t('econ_input_carbon_price'), min_value=0.0, value=float(st.session_state.get('price_carbon', default_price_carbon)), step=1.0, key='price_carbon')
+                price_gas = st.number_input(f"{t('econ_input_price_gas')} ({curr_sym}/m³)", min_value=0.0, value=float(st.session_state.get('price_gas', default_gas_price)), step=0.01 if not is_dop else 0.5, key='price_gas')
+                price_carbon = st.number_input(f"{t('econ_input_carbon_price')} ({curr_sym}/ton CO2e)", min_value=0.0, value=float(st.session_state.get('price_carbon', default_price_carbon)), step=1.0 if not is_dop else 50.0, key='price_carbon')
             rate_carbon_offset = st.number_input(t('econ_input_carbon_rate'), min_value=0.0, value=float(st.session_state.get('rate_carbon_offset', default_rate_carbon_offset)), step=0.1, key='rate_carbon_offset')
             
         with st.expander(f"📈 {t('econ_section_params')}", expanded=True):
@@ -372,11 +435,10 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     total_capex = capex_equip + capex_install + capex_civil + capex_piping_elec + capex_eng + capex_permits + capex_cont
 
     # ----------------------------------------------------
-    # CORE COMPUTATIONS PREPARATION (CONVERTING MASS TO VOLUME)
+    # CORE COMPUTATIONS PREPARATION
     # ----------------------------------------------------
     sludge_density = float(st.session_state.get('sludge_density', 900.0))
     oil_density = float(st.session_state.get('bio_oil_density', 750.0))
-    char_density = 500.0
     gas_density = 1.15
     
     if is_continuous:
@@ -409,17 +471,16 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         elec_consumed_kwh = motor_power * (t_cycle_min / 60.0) * batches_per_year
         generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
         
-    # Volumetric Conversions
+    # Volumetric Conversions for Liquids & Gases
     sludge_treated_gal = (sludge_treated_kg / sludge_density) * 264.172
     oil_produced_gal = (oil_produced_kg / oil_density) * 264.172
-    char_produced_gal = (char_produced_kg / char_density) * 264.172
     gas_produced_m3 = gas_produced_kg / gas_density
 
     # ----------------------------------------------------
-    # RUN DETAILED FINANCIAL MODEL
+    # RUN DETAILED FINANCIAL MODEL (BIO-CHAR IN KG)
     # ----------------------------------------------------
     m = run_financial_model(
-        total_capex, sludge_treated_gal, oil_produced_gal, char_produced_gal, gas_produced_m3,
+        total_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
         fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
         opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
         opex_labor, opex_maint, opex_insurance_tax,
@@ -437,7 +498,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     with col_kpi1:
         render_kpi_card(
             t('econ_metric_npv'),
-            f"${m['npv']:,.2f}",
+            f"{curr_sym}{m['npv']:,.2f}",
             "Net Present Value / Valor Actual Neto",
             is_positive=(m['npv'] > 0)
         )
@@ -481,7 +542,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     with col_kpi5:
         render_kpi_card(
             t('econ_metric_breakeven_tipping'),
-            f"${m['breakeven_tipping']:.4f}/gal",
+            f"{curr_sym}{m['breakeven_tipping']:.4f}/gal",
             "Tipping fee for NPV=0 / Tarifa equilibrio",
             is_positive=(m['breakeven_tipping'] < opex_tipping)
         )
@@ -545,7 +606,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             tickfont=dict(color="#94a3b8")
         ),
         yaxis=dict(
-            title="Cumulative Balance / Balance Acumulado ($)",
+            title=f"Cumulative Balance / Balance Acumulado ({curr_sym})",
             gridcolor="#334155",
             tickfont=dict(color="#94a3b8")
         ),
@@ -586,7 +647,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             t('econ_table_val'): [
                 sludge_treated_gal,
                 oil_produced_gal,
-                char_produced_gal,
+                char_produced_kg,
                 gas_produced_m3,
                 fuel_consumed_gal,
                 elec_consumed_kwh,
@@ -595,7 +656,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             t('econ_table_units'): [
                 "gal/yr",
                 "gal/yr",
-                "gal/yr",
+                "kg/yr",
                 "m³/yr",
                 "gal/yr",
                 "kWh/yr",
@@ -656,7 +717,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 "Annual Maintenance Cost (Mantenimiento)",
                 "Insurance & Property Tax (Seguros y Tasas)"
             ],
-            "Base Annual Flow / Flujo Anual ($)": [
+            f"Base Annual Flow / Flujo Anual ({curr_sym})": [
                 -total_capex,
                 m['revenue_breakdown']['tipping'],
                 m['revenue_breakdown']['oil'],
@@ -675,7 +736,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         }
         df_financial = pd.DataFrame(financial_breakdown)
         df_financial_disp = df_financial.copy()
-        df_financial_disp["Base Annual Flow / Flujo Anual ($)"] = df_financial_disp["Base Annual Flow / Flujo Anual ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
+        col_flow_name = f"Base Annual Flow / Flujo Anual ({curr_sym})"
+        df_financial_disp[col_flow_name] = df_financial_disp[col_flow_name].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
         st.table(df_financial_disp)
 
     # ----------------------------------------------------
@@ -766,15 +828,15 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             elec_kwh = motor_power * (t_cycle_min / 60.0) * batches
             diesel_gal = gen_diesel_batch * batches
             
-        # Volumetric conversion
+        # Volumetric conversion for liquids & gases; mass for bio-char
         sludge_gal = (sludge_kg / sludge_density) * 264.172
         oil_prod_gal = (oil_kg / oil_density) * 264.172
-        char_prod_gal = (char_kg / char_density) * 264.172
+        char_prod_kg = char_kg
         gas_prod_m3 = gas_kg / gas_density
         
         # Inventory flow calculations
         avail_oil = inv_oil + oil_prod_gal
-        avail_char = inv_char + char_prod_gal
+        avail_char = inv_char + char_prod_kg
         
         oil_sold = avail_oil * (o_pct / 100.0)
         char_sold = avail_char * (c_pct / 100.0)
@@ -788,7 +850,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         rev_o = oil_sold * price_oil
         rev_c = char_sold * price_char
         rev_g = gas_sold * price_gas
-        rev_carb = ((char_prod_gal * rate_carbon_offset) / 1000.0) * price_carbon
+        rev_carb = ((char_prod_kg * rate_carbon_offset) / 1000.0) * price_carbon
         total_rev = rev_tip + rev_o + rev_c + rev_g + rev_carb
         
         # OPEX
@@ -815,7 +877,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         m_oil_prod.append(oil_prod_gal)
         m_oil_sold.append(oil_sold)
         m_oil_inv.append(inv_oil)
-        m_char_prod.append(char_prod_gal)
+        m_char_prod.append(char_prod_kg)
         m_char_sold.append(char_sold)
         m_char_inv.append(inv_char)
         m_gas_prod.append(gas_prod_m3)
@@ -831,14 +893,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         "Bio-Oil Produced (gal)": m_oil_prod,
         "Bio-Oil Sold (gal)": m_oil_sold,
         "Bio-Oil Inventory (gal)": m_oil_inv,
-        "Bio-Char Produced (gal)": m_char_prod,
-        "Bio-Char Sold (gal)": m_char_sold,
-        "Bio-Char Inventory (gal)": m_char_inv,
+        "Bio-Char Produced (kg)": m_char_prod,
+        "Bio-Char Sold (kg)": m_char_sold,
+        "Bio-Char Inventory (kg)": m_char_inv,
         "Syngas Produced (m³)": m_gas_prod,
         "Syngas Sold (m³)": m_gas_sold,
-        "Revenue ($)": m_revenues,
-        "OPEX ($)": m_opex,
-        "Net Cash Flow ($)": m_net_flow
+        f"Revenue ({curr_sym})": m_revenues,
+        f"OPEX ({curr_sym})": m_opex,
+        f"Net Cash Flow ({curr_sym})": m_net_flow
     })
     
     # Format monthly table for display
@@ -848,14 +910,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     df_monthly_disp["Bio-Oil Produced (gal)"] = df_monthly_disp["Bio-Oil Produced (gal)"].map(lambda x: f"{x:,.1f}")
     df_monthly_disp["Bio-Oil Sold (gal)"] = df_monthly_disp["Bio-Oil Sold (gal)"].map(lambda x: f"{x:,.1f}")
     df_monthly_disp["Bio-Oil Inventory (gal)"] = df_monthly_disp["Bio-Oil Inventory (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Char Produced (gal)"] = df_monthly_disp["Bio-Char Produced (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Char Sold (gal)"] = df_monthly_disp["Bio-Char Sold (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Char Inventory (gal)"] = df_monthly_disp["Bio-Char Inventory (gal)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Bio-Char Produced (kg)"] = df_monthly_disp["Bio-Char Produced (kg)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Bio-Char Sold (kg)"] = df_monthly_disp["Bio-Char Sold (kg)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Bio-Char Inventory (kg)"] = df_monthly_disp["Bio-Char Inventory (kg)"].map(lambda x: f"{x:,.1f}")
     df_monthly_disp["Syngas Produced (m³)"] = df_monthly_disp["Syngas Produced (m³)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Syngas Sold (m³)"] = df_monthly_disp["Syngas Sold (m³)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Revenue ($)"] = df_monthly_disp["Revenue ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
-    df_monthly_disp["OPEX ($)"] = df_monthly_disp["OPEX ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
-    df_monthly_disp["Net Cash Flow ($)"] = df_monthly_disp["Net Cash Flow ($)"].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
+    df_monthly_disp["Syngas Sold (m³)"] = df_monthly_disp["Syngas Sold (m³)"] .map(lambda x: f"{x:,.1f}")
+    df_monthly_disp[f"Revenue ({curr_sym})"] = df_monthly_disp[f"Revenue ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
+    df_monthly_disp[f"OPEX ({curr_sym})"] = df_monthly_disp[f"OPEX ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
+    df_monthly_disp[f"Net Cash Flow ({curr_sym})"] = df_monthly_disp[f"Net Cash Flow ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
     
     st.dataframe(df_monthly_disp, width='stretch')
     
@@ -894,7 +956,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             name=t('econ_monthly_rev_label'),
             marker_color="#10b981",
             opacity=0.85,
-            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
         ))
 
         # Monthly OPEX Bar
@@ -904,7 +966,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             name=t('econ_monthly_opex_label'),
             marker_color="#ef4444",
             opacity=0.85,
-            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
         ))
 
         # Monthly Net Cash Flow Line
@@ -915,7 +977,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             line=dict(color="#3b82f6", width=3),
             mode='lines+markers',
             marker=dict(size=7),
-            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
         ))
 
         # Cumulative Net Cash Flow Line
@@ -926,7 +988,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             line=dict(color="#f59e0b", width=2.5, dash='dash'),
             mode='lines+markers',
             marker=dict(size=6),
-            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
         ))
 
         # Zero reference line
@@ -943,10 +1005,9 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 tickfont=dict(color="#94a3b8")
             ),
             yaxis=dict(
-                title="Amount / Monto ($)",
+                title=f"Amount / Monto ({curr_sym})",
                 gridcolor="#334155",
-                tickfont=dict(color="#94a3b8"),
-                tickformat="$,.0f"
+                tickfont=dict(color="#94a3b8")
             ),
             barmode='group',
             paper_bgcolor="#0f172a",
@@ -996,14 +1057,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
         ))
 
-        # Bio-Char Production vs Sales vs Inventory
+        # Bio-Char Production vs Sales vs Inventory (in kg)
         fig_m_vol.add_trace(go.Bar(
             x=month_labels,
             y=m_char_prod,
             name=t('econ_monthly_char_prod'),
             marker_color="#0ea5e9",
             opacity=0.85,
-            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+            hovertemplate='%{x}: %{y:,.1f} kg<extra></extra>'
         ))
 
         fig_m_vol.add_trace(go.Bar(
@@ -1012,7 +1073,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             name=t('econ_monthly_char_sold'),
             marker_color="#fde047",
             opacity=0.85,
-            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+            hovertemplate='%{x}: %{y:,.1f} kg<extra></extra>'
         ))
 
         fig_m_vol.add_trace(go.Scatter(
@@ -1022,12 +1083,12 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             line=dict(color="#d97706", width=2.5, dash='dash'),
             mode='lines+markers',
             marker=dict(size=6),
-            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+            hovertemplate='%{x}: %{y:,.1f} kg<extra></extra>'
         ))
 
         fig_m_vol.update_layout(
             title=dict(
-                text=f"{t('econ_monthly_tab_volumes')} - Bio-Oil & Bio-Char Dynamics",
+                text=f"{t('econ_monthly_tab_volumes')} - Bio-Oil (gal) & Bio-Char (kg) Dynamics",
                 font=dict(size=14, color="#f8fafc")
             ),
             xaxis=dict(
@@ -1036,7 +1097,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 tickfont=dict(color="#94a3b8")
             ),
             yaxis=dict(
-                title="Volume / Volumen (gal)",
+                title="Quantity / Cantidad (gal / kg)",
                 gridcolor="#334155",
                 tickfont=dict(color="#94a3b8"),
                 tickformat=",~f"
@@ -1083,7 +1144,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         p_char = price_char * mult if param == 'char' else price_char
         
         res = run_financial_model(
-            p_capex, sludge_treated_gal, oil_produced_gal, char_produced_gal, gas_produced_m3,
+            p_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
             fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
             p_handling, p_fuel, p_elec, p_aux, p_gen_fuel,
             p_labor, p_maint, p_ins,
@@ -1122,7 +1183,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         orientation='h',
         name='+20% Variation',
         marker=dict(color='#10b981', line=dict(color='#047857', width=1)),
-        hovertemplate='NPV at +20%: $%{x:,.2f}<extra></extra>'
+        hovertemplate='NPV at +20%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
     ))
     
     # Add +10% variation bar
@@ -1133,7 +1194,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         orientation='h',
         name='+10% Variation',
         marker=dict(color='#6ee7b7', line=dict(color='#34d399', width=1)),
-        hovertemplate='NPV at +10%: $%{x:,.2f}<extra></extra>'
+        hovertemplate='NPV at +10%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
     ))
     
     # Add -10% variation bar
@@ -1144,7 +1205,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         orientation='h',
         name='-10% Variation',
         marker=dict(color='#fca5a5', line=dict(color='#f87171', width=1)),
-        hovertemplate='NPV at -10%: $%{x:,.2f}<extra></extra>'
+        hovertemplate='NPV at -10%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
     ))
     
     # Add -20% variation bar
@@ -1155,22 +1216,21 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         orientation='h',
         name='-20% Variation',
         marker=dict(color='#ef4444', line=dict(color='#dc2626', width=1)),
-        hovertemplate='NPV at -20%: $%{x:,.2f}<extra></extra>'
+        hovertemplate='NPV at -20%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
     ))
     
     # Vertical line representing base case NPV
-    fig_sens.add_vline(x=base_npv, line_width=2, line_dash="dash", line_color="#f8fafc", annotation_text=f"Base Case NPV: ${base_npv:,.2f}")
+    fig_sens.add_vline(x=base_npv, line_width=2, line_dash="dash", line_color="#f8fafc", annotation_text=f"Base Case NPV: {curr_sym}{base_npv:,.2f}")
     
     fig_sens.update_layout(
         title=dict(
-            text="NPV Sensitivity Tornado Chart ($)",
+            text=f"NPV Sensitivity Tornado Chart ({curr_sym})",
             font=dict(size=14, color="#f8fafc")
         ),
         xaxis=dict(
-            title="Net Present Value (NPV)",
+            title=f"Net Present Value (NPV) ({curr_sym})",
             gridcolor="#334155",
-            tickfont=dict(color="#94a3b8"),
-            tickformat="$,.0f"
+            tickfont=dict(color="#94a3b8")
         ),
         yaxis=dict(
             tickfont=dict(color="#94a3b8")
@@ -1200,14 +1260,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     
     proj_data = {
         "Year / Año": m['years'],
-        "CAPEX ($)": [m['net_flows'][0] if yr == 0 else 0.0 for yr in m['years']],
-        "Revenue / Ingresos ($)": m['rev_flows'],
-        "OPEX ($)": m['opex_flows'],
-        "Depreciation ($)": m['depr_flows'],
-        "Taxes / Impuestos ($)": m['tax_flows'],
-        "Net Cash Flow ($)": m['net_flows'],
-        "Discounted Cash Flow ($)": m['disc_flows'],
-        "Cumulative NPV ($)": cum_discounted
+        f"CAPEX ({curr_sym})": [m['net_flows'][0] if yr == 0 else 0.0 for yr in m['years']],
+        f"Revenue / Ingresos ({curr_sym})": m['rev_flows'],
+        f"OPEX ({curr_sym})": m['opex_flows'],
+        f"Depreciation ({curr_sym})": m['depr_flows'],
+        f"Taxes / Impuestos ({curr_sym})": m['tax_flows'],
+        f"Net Cash Flow ({curr_sym})": m['net_flows'],
+        f"Discounted Cash Flow ({curr_sym})": m['disc_flows'],
+        f"Cumulative NPV ({curr_sym})": cum_discounted
     }
     
     df_proj = pd.DataFrame(proj_data)
@@ -1215,7 +1275,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     
     for col in df_proj_disp.columns:
         if col != "Year / Año":
-            df_proj_disp[col] = df_proj_disp[col].map(lambda x: f"${x:,.2f}" if x >= 0 else f"-${abs(x):,.2f}")
+            df_proj_disp[col] = df_proj_disp[col].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
             
     st.dataframe(df_proj_disp, width='stretch')
     
@@ -1244,10 +1304,12 @@ def render_sustainability_tab(summary, solver_inputs):
     is_continuous = (st.session_state.get('mode_option', 'Continuous Operation') == "Continuous Operation")
     annual_days = st.session_state.get('annual_days', 246)
     
-    # Financial keys retrieval
-    price_carbon = st.session_state.get('price_carbon', 20.0)
-    rate_carbon_offset = st.session_state.get('rate_carbon_offset', 4.84)
-    char_density = 500.0
+    # Financial keys & currency retrieval
+    curr_opt = st.session_state.get('curr_opt', 'USD ($)')
+    curr_sym = "RD$" if curr_opt == "DOP (RD$)" else "$"
+    
+    price_carbon = st.session_state.get('price_carbon', 1200.0 if curr_sym == "RD$" else 20.0)
+    rate_carbon_offset = st.session_state.get('rate_carbon_offset', 2.2)
     
     if is_continuous:
         annual_hours = annual_days * 24.0
@@ -1261,8 +1323,7 @@ def render_sustainability_tab(summary, solver_inputs):
         batches_per_year = np.floor((annual_days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
         char_produced_kg = summary['char_yield_kg'] * batches_per_year
         
-    char_produced_gal = (char_produced_kg / char_density) * 264.172
-    co2_tons = (char_produced_gal * rate_carbon_offset) / 1000.0
+    co2_tons = (char_produced_kg * rate_carbon_offset) / 1000.0
     trees_planted = co2_tons / 0.022
     cars_removed = co2_tons / 4.6
     
@@ -1272,7 +1333,7 @@ def render_sustainability_tab(summary, solver_inputs):
         st.metric(
             label=t('econ_co2_sequestered_annually'),
             value=f"{co2_tons:,.2f} t CO2e/yr",
-            delta=f"${co2_tons * price_carbon:,.2f}/yr"
+            delta=f"{curr_sym}{co2_tons * price_carbon:,.2f}/yr"
         )
     with col2:
         st.metric(
@@ -1286,7 +1347,7 @@ def render_sustainability_tab(summary, solver_inputs):
         )
         
     # Visual green impact description
-    st.markdown("""
+    st.markdown(f"""
     <div style="
         background: linear-gradient(135deg, #1e3a2f 0%, #064e3b 100%);
         padding: 22px;
@@ -1298,9 +1359,9 @@ def render_sustainability_tab(summary, solver_inputs):
     ">
         <h4 style="margin: 0 0 10px 0; color: #a7f3d0; font-size: 16px; font-weight: 600;">🌿 Bio-Char & Carbon Capture Sequestration</h4>
         <p style="margin: 0; font-size: 13.5px; line-height: 1.6; color: #d1fae5;">
-            Pyrolysis converts organic waste sludge into bio-char, locking the carbon in a highly stable solid form. 
+            Pyrolysis converts organic waste sludge into bio-char, locking carbon in a highly stable solid form. 
             Unlike decomposition, which releases CO2 and methane, bio-char stores carbon safely in soils for hundreds of years.
-            Each gallon of bio-char prevents approx 4.84 kg of atmospheric CO2 equivalents from warming the planet.
+            Each kilogram of bio-char prevents approx {rate_carbon_offset:.2f} kg of atmospheric CO2 equivalents from warming the planet.
         </p>
     </div>
     """, unsafe_allow_html=True)
