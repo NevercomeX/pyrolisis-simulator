@@ -309,6 +309,16 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         t_cycle_min = t_heat_min + t_hold_min
         default_gen_consumption = float(default_motor_kw * (t_cycle_min / 60.0) * 0.08)
     
+    # Callback for applying industrial CAPEX ratios
+    def _apply_capex_ratios_cb():
+        eq_val = st.session_state.get('capex_equip', default_equip)
+        st.session_state['capex_install'] = float(round(eq_val * 0.35, 2))
+        st.session_state['capex_civil'] = float(round(eq_val * 0.25, 2))
+        st.session_state['capex_piping_elec'] = float(round(eq_val * 0.25, 2))
+        st.session_state['capex_eng'] = float(round(eq_val * 0.15, 2))
+        st.session_state['capex_permits'] = float(round(eq_val * 0.05, 2))
+        st.session_state['capex_cont'] = float(round(eq_val * 0.10, 2))
+
     # Columns for parameters (using expanders)
     col_param_l, col_param_r = st.columns(2)
     
@@ -325,15 +335,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 capex_permits = st.number_input(t('econ_input_permits'), min_value=0.0, value=float(st.session_state.get('capex_permits', default_permits)), step=50000.0, key='capex_permits')
             capex_cont = st.number_input(t('econ_input_contingency'), min_value=0.0, value=float(st.session_state.get('capex_cont', default_contingency)), step=50000.0, key='capex_cont')
             
-            if st.button(t('econ_btn_apply_ratios'), key='btn_apply_capex_ratios'):
-                eq_val = st.session_state.get('capex_equip', default_equip)
-                st.session_state['capex_install'] = float(round(eq_val * 0.35, 2))
-                st.session_state['capex_civil'] = float(round(eq_val * 0.25, 2))
-                st.session_state['capex_piping_elec'] = float(round(eq_val * 0.25, 2))
-                st.session_state['capex_eng'] = float(round(eq_val * 0.15, 2))
-                st.session_state['capex_permits'] = float(round(eq_val * 0.05, 2))
-                st.session_state['capex_cont'] = float(round(eq_val * 0.10, 2))
-                st.rerun()
+            st.button(t('econ_btn_apply_ratios'), key='btn_apply_capex_ratios', on_click=_apply_capex_ratios_cb)
 
         with st.expander(f"⚙️ {t('econ_section_opex')}", expanded=True):
             col_ox1, col_ox2 = st.columns(2)
