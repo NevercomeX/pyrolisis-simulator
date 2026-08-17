@@ -258,98 +258,47 @@ def run_financial_model(
     }
 
 def render_economics_tab(mode_option, results, summary, solver_inputs):
-    """Renders the interactive Economic Viability tab."""
+    """Renders the interactive Economic Viability tab (Standardized in DOP - RD$)."""
     lang = get_lang()
     
     st.markdown(f"### 💸 {t('econ_title')}")
     st.markdown(t('econ_desc'))
-    
-    # Currency Selection Header
-    curr_opt = st.radio(
-        t('econ_currency_label'),
-        ["USD ($)", "DOP (RD$)"],
-        index=0 if st.session_state.get('curr_opt', 'USD ($)') == "USD ($)" else 1,
-        horizontal=True,
-        key='curr_opt'
-    )
-    is_dop = (curr_opt == "DOP (RD$)")
-    curr_sym = "RD$" if is_dop else "$"
-    
-    # Handle currency change to automatically reset input defaults for selected currency
-    if st.session_state.get('prev_curr_opt') != curr_opt:
-        st.session_state['prev_curr_opt'] = curr_opt
-        for k in ['capex_equip', 'capex_install', 'capex_civil', 'capex_piping_elec', 'capex_eng', 'capex_permits', 'capex_cont',
-                  'opex_handling', 'opex_electricity', 'price_generator_fuel', 'opex_labor', 'opex_fuel', 'opex_aux_utilities',
-                  'opex_tipping', 'price_oil', 'price_char', 'price_gas', 'price_carbon', 'discount_rate', 'inflation_rate']:
-            if k in st.session_state:
-                del st.session_state[k]
-
     st.markdown("---")
     
-    # Default values based on operational mode and selected currency
+    curr_sym = "RD$"
+    
+    # Default values based on operational mode (Standardized in DOP RD$)
     is_continuous = (mode_option == "Continuous Operation")
-    if is_dop:
-        default_equip = 9000000.0 if is_continuous else 4800000.0
-        default_install = 3150000.0 if is_continuous else 1680000.0
-        default_civil = 2250000.0 if is_continuous else 1200000.0
-        default_piping_elec = 2250000.0 if is_continuous else 1200000.0
-        default_eng = 1350000.0 if is_continuous else 720000.0
-        default_permits = 450000.0
-        default_contingency = 900000.0
-        
-        default_handling = 3.00
-        default_tipping = 9.00
-        default_fuel_price = 180.00
-        default_electricity = 7.50
-        default_aux_utilities = 300000.0
-        default_gen_fuel_price = 262.80
-        default_labor = 3000000.0
-        default_maint_rate = 3.0
-        default_insurance_tax = 1.0
-        
-        default_oil_price = 120.00
-        default_char_price = 21.00
-        default_gas_price = 3.60
-        default_price_carbon = 1200.0
-        default_rate_carbon_offset = 2.2
-        
-        default_discount = 14.0
-        default_lifetime = 10
-        default_days = 246
-        default_motor_kw = 15.0 if is_continuous else 7.5
-        default_tax_rate = 25.0
-        default_inflation_rate = 4.0
-    else:
-        default_equip = 150000.0 if is_continuous else 80000.0
-        default_install = 52500.0 if is_continuous else 28000.0
-        default_civil = 37500.0 if is_continuous else 20000.0
-        default_piping_elec = 37500.0 if is_continuous else 20000.0
-        default_eng = 22500.0 if is_continuous else 12000.0
-        default_permits = 7500.0
-        default_contingency = 15000.0
-        
-        default_handling = 0.05
-        default_tipping = 0.15
-        default_fuel_price = 3.00
-        default_electricity = 0.12
-        default_aux_utilities = 5000.0
-        default_gen_fuel_price = 3.80
-        default_labor = 50000.0
-        default_maint_rate = 3.0
-        default_insurance_tax = 1.0
-        
-        default_oil_price = 2.00
-        default_char_price = 0.35
-        default_gas_price = 0.06
-        default_price_carbon = 20.0
-        default_rate_carbon_offset = 2.2
-        
-        default_discount = 10.0
-        default_lifetime = 10
-        default_days = 246
-        default_motor_kw = 15.0 if is_continuous else 7.5
-        default_tax_rate = 25.0
-        default_inflation_rate = 2.5
+    default_equip = 9000000.0 if is_continuous else 4800000.0
+    default_install = 3150000.0 if is_continuous else 1680000.0
+    default_civil = 2250000.0 if is_continuous else 1200000.0
+    default_piping_elec = 2250000.0 if is_continuous else 1200000.0
+    default_eng = 1350000.0 if is_continuous else 720000.0
+    default_permits = 450000.0
+    default_contingency = 900000.0
+    
+    default_handling = 3.00
+    default_tipping = 9.00
+    default_fuel_price = 180.00
+    default_electricity = 7.50
+    default_aux_utilities = 300000.0
+    default_gen_fuel_price = 262.80
+    default_labor = 3000000.0
+    default_maint_rate = 3.0
+    default_insurance_tax = 1.0
+    
+    default_oil_price = 120.00
+    default_char_price = 21.00
+    default_gas_price = 3.60
+    default_price_carbon = 1200.0
+    default_rate_carbon_offset = 2.2
+    
+    default_discount = 14.0
+    default_lifetime = 10
+    default_days = 246
+    default_motor_kw = 15.0 if is_continuous else 7.5
+    default_tax_rate = 25.0
+    default_inflation_rate = 4.0
 
     # Precalculate default generator consumption based on mode
     if is_continuous:
@@ -367,14 +316,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         with st.expander(f"🏗️ {t('econ_section_capex')}", expanded=True):
             col_cx1, col_cx2 = st.columns(2)
             with col_cx1:
-                capex_equip = st.number_input(f"{t('econ_input_reactor_cost')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_equip', default_equip)), step=5000.0 if not is_dop else 250000.0, key='capex_equip')
-                capex_civil = st.number_input(f"{t('econ_input_civil_works')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_civil', default_civil)), step=2000.0 if not is_dop else 100000.0, key='capex_civil')
-                capex_eng = st.number_input(f"{t('econ_input_engineering')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_eng', default_eng)), step=2000.0 if not is_dop else 100000.0, key='capex_eng')
+                capex_equip = st.number_input(t('econ_input_reactor_cost'), min_value=0.0, value=float(st.session_state.get('capex_equip', default_equip)), step=250000.0, key='capex_equip')
+                capex_civil = st.number_input(t('econ_input_civil_works'), min_value=0.0, value=float(st.session_state.get('capex_civil', default_civil)), step=100000.0, key='capex_civil')
+                capex_eng = st.number_input(t('econ_input_engineering'), min_value=0.0, value=float(st.session_state.get('capex_eng', default_eng)), step=100000.0, key='capex_eng')
             with col_cx2:
-                capex_install = st.number_input(f"{t('econ_input_installation')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_install', default_install)), step=2000.0 if not is_dop else 100000.0, key='capex_install')
-                capex_piping_elec = st.number_input(f"{t('econ_input_piping_elec')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_piping_elec', default_piping_elec)), step=2000.0 if not is_dop else 100000.0, key='capex_piping_elec')
-                capex_permits = st.number_input(f"{t('econ_input_permits')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_permits', default_permits)), step=1000.0 if not is_dop else 50000.0, key='capex_permits')
-            capex_cont = st.number_input(f"{t('econ_input_contingency')} ({curr_sym})", min_value=0.0, value=float(st.session_state.get('capex_cont', default_contingency)), step=1000.0 if not is_dop else 50000.0, key='capex_cont')
+                capex_install = st.number_input(t('econ_input_installation'), min_value=0.0, value=float(st.session_state.get('capex_install', default_install)), step=100000.0, key='capex_install')
+                capex_piping_elec = st.number_input(t('econ_input_piping_elec'), min_value=0.0, value=float(st.session_state.get('capex_piping_elec', default_piping_elec)), step=100000.0, key='capex_piping_elec')
+                capex_permits = st.number_input(t('econ_input_permits'), min_value=0.0, value=float(st.session_state.get('capex_permits', default_permits)), step=50000.0, key='capex_permits')
+            capex_cont = st.number_input(t('econ_input_contingency'), min_value=0.0, value=float(st.session_state.get('capex_cont', default_contingency)), step=50000.0, key='capex_cont')
             
             if st.button(t('econ_btn_apply_ratios'), key='btn_apply_capex_ratios'):
                 eq_val = st.session_state.get('capex_equip', default_equip)
@@ -389,13 +338,13 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         with st.expander(f"⚙️ {t('econ_section_opex')}", expanded=True):
             col_ox1, col_ox2 = st.columns(2)
             with col_ox1:
-                opex_handling = st.number_input(f"{t('econ_input_handling')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=0.01 if not is_dop else 0.5, key='opex_handling')
-                opex_electricity = st.number_input(f"{t('econ_input_electricity')} ({curr_sym}/kWh)", min_value=0.0, value=float(st.session_state.get('opex_electricity', default_electricity)), step=0.01 if not is_dop else 0.5, key='opex_electricity')
-                price_generator_fuel = st.number_input(f"{t('econ_input_gen_fuel')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=0.1 if not is_dop else 5.0, key='price_generator_fuel')
-                opex_labor = st.number_input(f"{t('econ_input_labor')} ({curr_sym}/year)", min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=5000.0 if not is_dop else 250000.0, key='opex_labor')
+                opex_handling = st.number_input(t('econ_input_handling'), min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=0.5, key='opex_handling')
+                opex_electricity = st.number_input(t('econ_input_electricity'), min_value=0.0, value=float(st.session_state.get('opex_electricity', default_electricity)), step=0.5, key='opex_electricity')
+                price_generator_fuel = st.number_input(t('econ_input_gen_fuel'), min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=5.0, key='price_generator_fuel')
+                opex_labor = st.number_input(t('econ_input_labor'), min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=250000.0, key='opex_labor')
             with col_ox2:
-                opex_fuel = st.number_input(f"{t('econ_input_fuel')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=0.1 if not is_dop else 5.0, key='opex_fuel')
-                opex_aux_utilities = st.number_input(f"{t('econ_input_aux_utilities')} ({curr_sym}/year)", min_value=0.0, value=float(st.session_state.get('opex_aux_utilities', default_aux_utilities)), step=500.0 if not is_dop else 25000.0, key='opex_aux_utilities')
+                opex_fuel = st.number_input(t('econ_input_fuel'), min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=5.0, key='opex_fuel')
+                opex_aux_utilities = st.number_input(t('econ_input_aux_utilities'), min_value=0.0, value=float(st.session_state.get('opex_aux_utilities', default_aux_utilities)), step=25000.0, key='opex_aux_utilities')
                 if is_continuous:
                     gen_diesel_rate = st.number_input(t('econ_input_gen_fuel_rate'), min_value=0.0, value=float(st.session_state.get('gen_diesel_rate', default_gen_consumption)), step=0.1, key='gen_diesel_rate')
                 else:
@@ -405,14 +354,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             
     with col_param_r:
         with st.expander(f"🏷️ {t('econ_section_revenue')}", expanded=True):
-            opex_tipping = st.number_input(f"{t('econ_input_tipping')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('opex_tipping', default_tipping)), step=0.05 if not is_dop else 1.0, key='opex_tipping')
+            opex_tipping = st.number_input(t('econ_input_tipping'), min_value=0.0, value=float(st.session_state.get('opex_tipping', default_tipping)), step=1.0, key='opex_tipping')
             col_rv1, col_rv2 = st.columns(2)
             with col_rv1:
-                price_oil = st.number_input(f"{t('econ_input_price_oil')} ({curr_sym}/gal)", min_value=0.0, value=float(st.session_state.get('price_oil', default_oil_price)), step=0.05 if not is_dop else 5.0, key='price_oil')
-                price_char = st.number_input(f"{t('econ_input_price_char')} ({curr_sym}/kg)", min_value=0.0, value=float(st.session_state.get('price_char', default_char_price)), step=0.05 if not is_dop else 1.0, key='price_char')
+                price_oil = st.number_input(t('econ_input_price_oil'), min_value=0.0, value=float(st.session_state.get('price_oil', default_oil_price)), step=5.0, key='price_oil')
+                price_char = st.number_input(t('econ_input_price_char'), min_value=0.0, value=float(st.session_state.get('price_char', default_char_price)), step=1.0, key='price_char')
             with col_rv2:
-                price_gas = st.number_input(f"{t('econ_input_price_gas')} ({curr_sym}/m³)", min_value=0.0, value=float(st.session_state.get('price_gas', default_gas_price)), step=0.01 if not is_dop else 0.5, key='price_gas')
-                price_carbon = st.number_input(f"{t('econ_input_carbon_price')} ({curr_sym}/ton CO2e)", min_value=0.0, value=float(st.session_state.get('price_carbon', default_price_carbon)), step=1.0 if not is_dop else 50.0, key='price_carbon')
+                price_gas = st.number_input(t('econ_input_price_gas'), min_value=0.0, value=float(st.session_state.get('price_gas', default_gas_price)), step=0.5, key='price_gas')
+                price_carbon = st.number_input(t('econ_input_carbon_price'), min_value=0.0, value=float(st.session_state.get('price_carbon', default_price_carbon)), step=50.0, key='price_carbon')
             rate_carbon_offset = st.number_input(t('econ_input_carbon_rate'), min_value=0.0, value=float(st.session_state.get('rate_carbon_offset', default_rate_carbon_offset)), step=0.1, key='rate_carbon_offset')
             
         with st.expander(f"📈 {t('econ_section_params')}", expanded=True):
@@ -1304,11 +1253,9 @@ def render_sustainability_tab(summary, solver_inputs):
     is_continuous = (st.session_state.get('mode_option', 'Continuous Operation') == "Continuous Operation")
     annual_days = st.session_state.get('annual_days', 246)
     
-    # Financial keys & currency retrieval
-    curr_opt = st.session_state.get('curr_opt', 'USD ($)')
-    curr_sym = "RD$" if curr_opt == "DOP (RD$)" else "$"
-    
-    price_carbon = st.session_state.get('price_carbon', 1200.0 if curr_sym == "RD$" else 20.0)
+    # Financial keys & currency retrieval (Standardized in DOP - RD$)
+    curr_sym = "RD$"
+    price_carbon = st.session_state.get('price_carbon', 1200.0)
     rate_carbon_offset = st.session_state.get('rate_carbon_offset', 2.2)
     
     if is_continuous:
