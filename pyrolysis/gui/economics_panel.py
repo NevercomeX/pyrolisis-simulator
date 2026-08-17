@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import io
+import json
 from pyrolysis import TRANSLATIONS
 
 def get_lang():
@@ -261,8 +262,41 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     """Renders the interactive Economic Viability tab (Standardized in DOP - RD$)."""
     lang = get_lang()
     
-    st.markdown(f"### 💸 {t('econ_title')}")
-    st.markdown(t('econ_desc'))
+    # Callback for saving current financial parameters to browser LocalStorage & JSON file
+    def _save_econ_to_ls_cb():
+        from pyrolysis.gui.config_manager import DEFAULT_PARAMS, CONFIG_FILE
+        full_config_data = {}
+        for k in DEFAULT_PARAMS.keys():
+            if k in st.session_state:
+                full_config_data[k] = st.session_state[k]
+            else:
+                full_config_data[k] = DEFAULT_PARAMS.get(k)
+        try:
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(full_config_data, f, indent=4)
+        except Exception:
+            pass
+        st.session_state['trigger_save_ls'] = True
+        st.session_state['econ_saved_flag'] = True
+
+    # Header with LocalStorage Save Button
+    col_hdr_txt, col_hdr_btn = st.columns([3, 2])
+    with col_hdr_txt:
+        st.markdown(f"### 💸 {t('econ_title')}")
+        st.markdown(t('econ_desc'))
+    with col_hdr_btn:
+        st.button(t('econ_save_ls_btn'), key='btn_save_econ_ls', on_click=_save_econ_to_ls_cb, use_container_width=True)
+
+    if st.session_state.get('trigger_save_ls', False):
+        from pyrolysis.gui.config_manager import DEFAULT_PARAMS
+        from pyrolysis.gui.local_storage import local_storage_set
+        full_config_data = {k: st.session_state.get(k, DEFAULT_PARAMS.get(k)) for k in DEFAULT_PARAMS.keys()}
+        res = local_storage_set("pyrolysis_config", full_config_data, key_suffix="econ_save")
+        if res is True or st.session_state.get('econ_saved_flag', False):
+            st.session_state['trigger_save_ls'] = False
+            st.session_state['econ_saved_flag'] = False
+            st.success(t('econ_save_ls_success'))
+
     st.markdown("---")
     
     curr_sym = "RD$"
