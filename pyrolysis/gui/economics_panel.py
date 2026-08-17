@@ -873,6 +873,191 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     )
 
     # ----------------------------------------------------
+    # MONTHLY VISUALIZATION CHARTS
+    # ----------------------------------------------------
+    st.markdown("---")
+    st.markdown(f"#### {t('econ_monthly_chart_title')}")
+    st.markdown(t('econ_monthly_chart_desc'))
+
+    m_cum_flow = np.cumsum(m_net_flow).tolist()
+    month_labels = [f"M{i+1:02d}" for i in range(12)]
+
+    tab_m_fin, tab_m_vol = st.tabs([t('econ_monthly_tab_financial'), t('econ_monthly_tab_volumes')])
+
+    with tab_m_fin:
+        fig_m_fin = go.Figure()
+
+        # Monthly Revenue Bar
+        fig_m_fin.add_trace(go.Bar(
+            x=month_labels,
+            y=m_revenues,
+            name=t('econ_monthly_rev_label'),
+            marker_color="#10b981",
+            opacity=0.85,
+            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+        ))
+
+        # Monthly OPEX Bar
+        fig_m_fin.add_trace(go.Bar(
+            x=month_labels,
+            y=m_opex,
+            name=t('econ_monthly_opex_label'),
+            marker_color="#ef4444",
+            opacity=0.85,
+            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+        ))
+
+        # Monthly Net Cash Flow Line
+        fig_m_fin.add_trace(go.Scatter(
+            x=month_labels,
+            y=m_net_flow,
+            name=t('econ_monthly_net_label'),
+            line=dict(color="#3b82f6", width=3),
+            mode='lines+markers',
+            marker=dict(size=7),
+            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+        ))
+
+        # Cumulative Net Cash Flow Line
+        fig_m_fin.add_trace(go.Scatter(
+            x=month_labels,
+            y=m_cum_flow,
+            name=t('econ_monthly_cum_label'),
+            line=dict(color="#f59e0b", width=2.5, dash='dash'),
+            mode='lines+markers',
+            marker=dict(size=6),
+            hovertemplate='%{x}: $%{y:,.2f}<extra></extra>'
+        ))
+
+        # Zero reference line
+        fig_m_fin.add_hline(y=0, line_width=1, line_dash="solid", line_color="#64748b")
+
+        fig_m_fin.update_layout(
+            title=dict(
+                text=f"{t('econ_monthly_chart_title')}",
+                font=dict(size=14, color="#f8fafc")
+            ),
+            xaxis=dict(
+                title="Month / Mes",
+                gridcolor="#334155",
+                tickfont=dict(color="#94a3b8")
+            ),
+            yaxis=dict(
+                title="Amount / Monto ($)",
+                gridcolor="#334155",
+                tickfont=dict(color="#94a3b8"),
+                tickformat="$,.0f"
+            ),
+            barmode='group',
+            paper_bgcolor="#0f172a",
+            plot_bgcolor="#0f172a",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.35,
+                xanchor="center",
+                x=0.5,
+                font=dict(color="#94a3b8", size=10)
+            ),
+            margin=dict(l=50, r=40, t=40, b=50),
+            height=400
+        )
+        st.plotly_chart(fig_m_fin, use_container_width=True)
+
+    with tab_m_vol:
+        fig_m_vol = go.Figure()
+
+        # Bio-Oil Production vs Sales vs Inventory
+        fig_m_vol.add_trace(go.Bar(
+            x=month_labels,
+            y=m_oil_prod,
+            name=t('econ_monthly_oil_prod'),
+            marker_color="#8b5cf6",
+            opacity=0.85,
+            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+        ))
+
+        fig_m_vol.add_trace(go.Bar(
+            x=month_labels,
+            y=m_oil_sold,
+            name=t('econ_monthly_oil_sold'),
+            marker_color="#a7f3d0",
+            opacity=0.85,
+            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+        ))
+
+        fig_m_vol.add_trace(go.Scatter(
+            x=month_labels,
+            y=m_oil_inv,
+            name=t('econ_monthly_oil_inv'),
+            line=dict(color="#f43f5e", width=2.5, dash='dash'),
+            mode='lines+markers',
+            marker=dict(size=6),
+            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+        ))
+
+        # Bio-Char Production vs Sales vs Inventory
+        fig_m_vol.add_trace(go.Bar(
+            x=month_labels,
+            y=m_char_prod,
+            name=t('econ_monthly_char_prod'),
+            marker_color="#0ea5e9",
+            opacity=0.85,
+            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+        ))
+
+        fig_m_vol.add_trace(go.Bar(
+            x=month_labels,
+            y=m_char_sold,
+            name=t('econ_monthly_char_sold'),
+            marker_color="#fde047",
+            opacity=0.85,
+            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+        ))
+
+        fig_m_vol.add_trace(go.Scatter(
+            x=month_labels,
+            y=m_char_inv,
+            name=t('econ_monthly_char_inv'),
+            line=dict(color="#d97706", width=2.5, dash='dash'),
+            mode='lines+markers',
+            marker=dict(size=6),
+            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
+        ))
+
+        fig_m_vol.update_layout(
+            title=dict(
+                text=f"{t('econ_monthly_tab_volumes')} - Bio-Oil & Bio-Char Dynamics",
+                font=dict(size=14, color="#f8fafc")
+            ),
+            xaxis=dict(
+                title="Month / Mes",
+                gridcolor="#334155",
+                tickfont=dict(color="#94a3b8")
+            ),
+            yaxis=dict(
+                title="Volume / Volumen (gal)",
+                gridcolor="#334155",
+                tickfont=dict(color="#94a3b8"),
+                tickformat=",~f"
+            ),
+            barmode='group',
+            paper_bgcolor="#0f172a",
+            plot_bgcolor="#0f172a",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.35,
+                xanchor="center",
+                x=0.5,
+                font=dict(color="#94a3b8", size=9)
+            ),
+            margin=dict(l=50, r=40, t=40, b=50),
+            height=420
+        )
+        st.plotly_chart(fig_m_vol, use_container_width=True)
+
+    # ----------------------------------------------------
     # TORNADO CHART (SENSITIVITY ANALYSIS)
     # ----------------------------------------------------
     st.markdown("---")
