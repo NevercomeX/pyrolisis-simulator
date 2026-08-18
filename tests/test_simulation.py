@@ -1,6 +1,6 @@
 import unittest
 import numpy as np
-from pyrolysis import PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, blend_feedstocks, ContinuousReactorSimulation, BatchReactorSimulation
+from pyrolysis import PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, Feedstock, blend_feedstocks, ContinuousReactorSimulation, BatchReactorSimulation
 
 class TestPyrolysisSimulation(unittest.TestCase):
     
@@ -194,5 +194,24 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertEqual(blend.volatile, expected_vol)
         self.assertEqual(blend.E_a, expected_Ea)
 
+    def test_char_yield_sensitivity(self):
+        """Verify that increasing feedstock yield_char increases produced bio-char."""
+        feed1 = Feedstock("LowChar", moisture=10.0, volatile=60.0, fixed_carbon=10.0, ash=20.0,
+                          E_a=1e5, A=1e7, yield_oil=0.60, yield_gas=0.35, yield_char=0.05)
+        feed2 = Feedstock("HighChar", moisture=10.0, volatile=60.0, fixed_carbon=10.0, ash=20.0,
+                          E_a=1e5, A=1e7, yield_oil=0.60, yield_gas=0.15, yield_char=0.25)
+        
+        sim1 = BatchReactorSimulation(feed1, batch_load_kg=100.0, length=5.0, diameter=0.5, rpm=3.0,
+                                      T_start_C=20.0, heating_rate_cmin=20.0, T_hold_C=600.0, hold_time_min=60.0)
+        sim2 = BatchReactorSimulation(feed2, batch_load_kg=100.0, length=5.0, diameter=0.5, rpm=3.0,
+                                      T_start_C=20.0, heating_rate_cmin=20.0, T_hold_C=600.0, hold_time_min=60.0)
+        
+        res1 = sim1.simulate(dt_sec=2.0)['summary']
+        res2 = sim2.simulate(dt_sec=2.0)['summary']
+        
+        self.assertGreater(res2['char_yield_kg'], res1['char_yield_kg'])
+        self.assertLess(res2['gas_yield_kg'], res1['gas_yield_kg'])
+
 if __name__ == "__main__":
     unittest.main()
+

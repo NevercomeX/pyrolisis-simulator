@@ -218,7 +218,20 @@ class BatchReactorSimulation(BaseReactorSimulation):
                 
             d_volatile = r_slug * dt_sec
             d_oil_primary = k1_eff * m_volatile * dt_sec
-            d_gas_primary = k2_eff * m_volatile * dt_sec
+            d_non_oil = k2_eff * m_volatile * dt_sec
+            
+            y_gas = getattr(self.feedstock, 'yield_gas', 0.25)
+            y_char = getattr(self.feedstock, 'yield_char', 0.15)
+            y_non_oil = y_gas + y_char
+            if y_non_oil > 0:
+                frac_gas = y_gas / y_non_oil
+                frac_char = y_char / y_non_oil
+            else:
+                frac_gas = 1.0
+                frac_char = 0.0
+                
+            d_gas_primary = d_non_oil * frac_gas
+            d_char_prod = d_non_oil * frac_char
             
             # Craqueo secundario limitado al tiempo de residencia local del vapor
             tau_gas = 2.0  # Tiempo de residencia del vapor caliente (segundos)
@@ -226,9 +239,6 @@ class BatchReactorSimulation(BaseReactorSimulation):
             
             d_oil_prod = d_oil_primary - d_oil_cracked
             d_gas_prod = d_gas_primary + d_oil_cracked
-            
-            # Char no se produce directamente a partir de volátiles en esta cinética de 3 especies
-            d_char_prod = 0.0
             
             # Calor consumido por la pirólisis endotérmica en este paso (J)
             H_rxn = d_volatile * self.dH_pyro  
