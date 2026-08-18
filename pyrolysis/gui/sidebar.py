@@ -185,14 +185,22 @@ def render_sidebar():
             st.session_state['c_a'] = c_a
             
             st.sidebar.markdown(t("pyro_yields"))
-            c_y_oil = st.sidebar.slider(t("bio_oil_yield"), 10.0, 90.0, float(st.session_state.get('c_y_oil', 60.0)), 5.0) / 100.0
-            c_y_gas = st.sidebar.slider(t("syngas_yield"), 10.0, 90.0, float(st.session_state.get('c_y_gas', 25.0)), 5.0) / 100.0
-            c_y_char = st.sidebar.slider(t("char_yield"), 0.0, 50.0, float(st.session_state.get('c_y_char', 15.0)), 5.0) / 100.0
+            c_y_oil = st.sidebar.slider(t("bio_oil_yield"), 10.0, 90.0, float(st.session_state.get('c_y_oil', 60.0)), 1.0) / 100.0
+            c_y_gas = st.sidebar.slider(t("syngas_yield"), 10.0, 90.0, float(st.session_state.get('c_y_gas', 25.0)), 1.0) / 100.0
+            c_y_char = st.sidebar.slider(t("char_yield"), 0.0, 50.0, float(st.session_state.get('c_y_char', 15.0)), 1.0) / 100.0
+            
+            y_sum = c_y_oil + c_y_gas + c_y_char
+            if y_sum > 0:
+                c_y_oil_norm = c_y_oil / y_sum
+                c_y_gas_norm = c_y_gas / y_sum
+                c_y_char_norm = c_y_char / y_sum
+            else:
+                c_y_oil_norm, c_y_gas_norm, c_y_char_norm = 0.60, 0.25, 0.15
             
             c_ea1 = c_ea
-            c_a1 = c_a * c_y_oil
+            c_a1 = c_a * c_y_oil_norm
             c_ea2 = c_ea
-            c_a2 = c_a * (c_y_gas + c_y_char)
+            c_a2 = c_a * (c_y_gas_norm + c_y_char_norm)
             c_ea3 = 100.0 * 1000.0
             c_a3 = 5e5
             
@@ -253,6 +261,15 @@ def render_sidebar():
         float(st.session_state.get('bio_oil_density', 750.0)),
         10.0,
         key="bio_oil_density"
+    )
+
+    bio_char_density = st.sidebar.slider(
+        t("bio_char_density"),
+        300.0,
+        1500.0,
+        float(st.session_state.get('bio_char_density', 500.0)),
+        10.0,
+        key="bio_char_density"
     )
 
     # Reactor geometry

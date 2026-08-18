@@ -59,6 +59,7 @@ DEFAULT_PARAMS = {
     'custom_cp_char': 1000.0,
     'custom_cp_ash': 800.0,
     'bio_oil_density': 750.0,
+    'bio_char_density': 500.0,
     'capex_equip': 9000000.0,
     'capex_install': 3150000.0,
     'capex_civil': 2250000.0,

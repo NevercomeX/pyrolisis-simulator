@@ -129,6 +129,7 @@ TRANSLATIONS = {
         'steel_alloy': "Refractory Alloy Steel",
         'nominal_heating_rate_info': "Nominal Heating Rate: {:.2f} °C/min",
         'bio_oil_density': "Bio-Oil Density (kg/m³)",
+        'bio_char_density': "Bio-Char Density (kg/m³)",
         
         'warn_high_fill': "⚠️ **Warning: High Filling Degree (>15%)** - Reactor overloading risk. Consider reducing feed rate or increasing RPM/slope.",
         'warn_low_fill': "ℹ️ **Low Filling Degree (<2%)** - Reactor operates below optimal load.",
@@ -462,6 +463,7 @@ TRANSLATIONS = {
         'steel_alloy': "Acero Aleado / Refractario",
         'nominal_heating_rate_info': "Tasa de Calentamiento Nominal: {:.2f} °C/min",
         'bio_oil_density': "Densidad del Bio-Crudo (kg/m³)",
+        'bio_char_density': "Densidad del Bio-Carbón (kg/m³)",
         
         'warn_high_fill': "⚠️ **Advertencia: Alto Grado de Llenado (>15%)** - Riesgo de sobrecarga del reactor. Considere reducir tasa de alimentación o aumentar RPM/pendiente.",
         'warn_low_fill': "ℹ️ **Bajo Grado de Llenado (<2%)** - El reactor opera por debajo de la carga óptima.",

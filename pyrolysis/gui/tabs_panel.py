@@ -66,11 +66,12 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         load_val = feed_rate_kgh
         sludge_density = float(st.session_state.get('sludge_density', 900.0))
         oil_density = float(st.session_state.get('bio_oil_density', 750.0))
+        char_density = float(st.session_state.get('bio_char_density', 500.0))
         
         load_val_gal = (load_val / sludge_density) * 264.172
         oil_gal_h = (summary['oil_yield_kgh'] / oil_density) * 264.172
         gas_m3_h = summary['gas_yield_kgh'] / 1.15
-        char_gal_h = (summary['char_yield_kgh'] / 500.0) * 264.172
+        char_gal_h = (summary['char_yield_kgh'] / char_density) * 264.172
         water_gal_h = (summary['water_yield_kgh'] / 1000.0) * 264.172
         
         feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
@@ -238,11 +239,12 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         load_val = batch_load_kg
         sludge_density = float(st.session_state.get('sludge_density', 900.0))
         oil_density = float(st.session_state.get('bio_oil_density', 750.0))
+        char_density = float(st.session_state.get('bio_char_density', 500.0))
         
         load_val_gal = (load_val / sludge_density) * 264.172
         oil_gal = (summary['oil_yield_kg'] / oil_density) * 264.172
         gas_m3 = summary['gas_yield_kg'] / 1.15
-        char_gal = (summary['char_yield_kg'] / 500.0) * 264.172
+        char_gal = (summary['char_yield_kg'] / char_density) * 264.172
         water_gal = (summary['water_yield_kg'] / 1000.0) * 264.172
         
         feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
