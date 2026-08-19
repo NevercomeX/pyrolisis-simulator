@@ -439,4 +439,58 @@ def render_charts_panel(mode_option, results):
         )
         st.plotly_chart(fig_burner_power, width='stretch')
 
+        # PROENERGETICOS Chart: Autogenous Pressure & Air Displacement
+        if 'pressure_psig' in results and 'air_disp_m3' in results:
+            fig_pres = go.Figure()
+            fig_pres.add_trace(go.Scatter(
+                x=x_data,
+                y=results['pressure_psig'],
+                name=t("auto_pressure_metric") + " (psig)",
+                line=dict(color='#ff9f1c', width=3)
+            ))
+            fig_pres.add_trace(go.Scatter(
+                x=x_data,
+                y=results['air_disp_m3'],
+                name="Desplazamiento Aire / Air Displaced (m³)",
+                line=dict(color='#3a86ff', width=2.5, dash='dash'),
+                yaxis="y2"
+            ))
+            fig_pres.update_layout(
+                title="Evolución de Presión Autógena y Desplazamiento de Aire (Sin N₂)",
+                xaxis_title=x_label,
+                yaxis_title="Presión / Pressure (psig)",
+                yaxis2=dict(
+                    title="Volumen Aire Desplazado / Displaced Air (m³)",
+                    overlaying="y",
+                    side="right",
+                    showgrid=False
+                ),
+                hovermode="x unified",
+                margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_pres, width='stretch')
+
+            # PROENERGETICOS Chart: Manifold Velocities (8" main vs 4x 4" lines)
+            fig_vel = go.Figure()
+            fig_vel.add_trace(go.Scatter(
+                x=x_data,
+                y=results['v_main_ms'],
+                name="Manifold Principal 8'' (m/s)",
+                line=dict(color='#e63946', width=2.5)
+            ))
+            fig_vel.add_trace(go.Scatter(
+                x=x_data,
+                y=results['v_branch_ms'],
+                name="Líneas Secundarias 4x 4'' (m/s)",
+                line=dict(color='#457b9d', width=2.5, dash='dot')
+            ))
+            fig_vel.update_layout(
+                title="Velocidad del Vapor en Manifold de 8'' y 4 Líneas Secundarias de 4''",
+                xaxis_title=x_label,
+                yaxis_title="Velocidad de Vapor / Gas Velocity (m/s)",
+                hovermode="x unified",
+                margin=dict(l=20, r=20, t=40, b=20)
+            )
+            st.plotly_chart(fig_vel, width='stretch')
+
 

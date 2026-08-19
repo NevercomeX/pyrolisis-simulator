@@ -278,6 +278,24 @@ def render_metrics_panel(mode_option, summary, results):
             st.metric(t("initial_humidity"), f"{summary['initial_humidity_pct']:.1f} wt.%")
         with dcol6:
             st.metric(t("final_humidity"), f"{summary['final_humidity_pct']:.1f} wt.%")
+
+        # PROENERGETICOS Industrial Plant Specs Metrics
+        if 'peak_pressure_kpa' in summary:
+            st.markdown("---")
+            st.markdown(f"### ⚙️ {t('proenergeticos_title')}")
+            pcol1, pcol2, pcol3, pcol4, pcol5, pcol6 = st.columns(6)
+            with pcol1:
+                st.metric(t("auto_pressure_metric"), f"{summary.get('peak_pressure_kpa', 101.3):.1f} kPa", f"{summary.get('peak_pressure_psig', 0.0):.2f} psig")
+            with pcol2:
+                st.metric(t("air_disp_time_metric"), f"{summary.get('air_disp_complete_min', 0.0):.1f} min")
+            with pcol3:
+                st.metric(t("manifold_velocity_metric"), f"{summary.get('max_v_main_ms', 0.0):.2f} m/s", "8'' Manifold / 4x4''")
+            with pcol4:
+                st.metric(t("syngas_flare_metric"), f"{summary.get('syngas_flare_m3', 0.0):.1f} m³", f"{summary.get('syngas_flare_kg', 0.0):.1f} kg")
+            with pcol5:
+                st.metric(t("astm_hhv_metric"), f"{summary.get('hhv_oil_mj_kg', 38.0):.1f} MJ/kg", f"Factor x{summary.get('energy_enhancement_factor', 2.0):.2f}")
+            with pcol6:
+                st.metric(t("astm_viscosity_metric"), f"{summary.get('viscosity_40c_cst', 25.0):.1f} cSt", f"°API {summary.get('api_gravity', 30.0):.1f}")
             
         fill_deg = summary['filling_degree_pct']
         if fill_deg > 50.0:

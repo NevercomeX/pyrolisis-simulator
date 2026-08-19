@@ -89,7 +89,12 @@ DEFAULT_PARAMS = {
     'motor_power': 15.0,
     'batch_turnaround_h': 1.0,
     'tax_rate': 25.0,
-    'inflation_rate': 4.0
+    'inflation_rate': 4.0,
+    'manifold_main_dia_in': 8.0,
+    'manifold_branch_dia_in': 4.0,
+    'manifold_num_branches': 4,
+    'cooling_tank_gal': 28000.0,
+    'autogenous_purge': True
 }
 
 CONFIG_FILE = "pyrolysis_config.json"

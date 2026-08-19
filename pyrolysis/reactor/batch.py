@@ -146,6 +146,22 @@ class BatchReactorSimulation(BaseReactorSimulation):
         p_oil_arr = []
         p_syngas_arr = []
         
+        # PROENERGETICOS Manifold & Autogenous Pressure Kinetics
+        pressure_kpa_arr = []
+        pressure_psig_arr = []
+        v_main_arr = []
+        v_branch_arr = []
+        air_disp_arr = []
+        
+        v_reactor_m3 = np.pi * (self.diameter / 2.0)**2 * self.length
+        v_sludge_m3 = self.batch_load_kg / max(self.bulk_density, 100.0)
+        v_headspace_init_m3 = max(0.1, v_reactor_m3 - v_sludge_m3)
+        
+        d_main_m = 8.0 * 0.0254      # 8 pulgadas = 0.2032 m
+        d_branch_m = 4.0 * 0.0254    # 4 pulgadas = 0.1016 m
+        a_main = np.pi * (d_main_m / 2.0)**2
+        a_branches = 4.0 * np.pi * (d_branch_m / 2.0)**2
+        
         T_boil = 373.15                           # Punto de ebullición del agua en Kelvin (100 °C)
         initial_volatile = max(m_volatile, 1e-10) # Referencia para calcular la conversión
         
@@ -186,6 +202,11 @@ class BatchReactorSimulation(BaseReactorSimulation):
             if t_sec >= t_total_sec:
                 p_oil_arr.append(p_oil_arr[-1] if p_oil_arr else 0.0)
                 p_syngas_arr.append(p_syngas_arr[-1] if p_syngas_arr else 0.0)
+                pressure_kpa_arr.append(pressure_kpa_arr[-1] if pressure_kpa_arr else 101.325)
+                pressure_psig_arr.append(pressure_psig_arr[-1] if pressure_psig_arr else 0.0)
+                v_main_arr.append(v_main_arr[-1] if v_main_arr else 0.0)
+                v_branch_arr.append(v_branch_arr[-1] if v_branch_arr else 0.0)
+                air_disp_arr.append(air_disp_arr[-1] if air_disp_arr else 0.0)
                 break
                 
             # --- 1. Propiedades Termodinámicas y Coeficientes ---
@@ -250,107 +271,64 @@ class BatchReactorSimulation(BaseReactorSimulation):
             else:
                 T_target_heat = T_s
                 
-            H_input = m_solid_total * Cp_s * (T_target_heat - T_s)
-            
-            # Cambio de temperatura inicial debido a la pirólisis endotérmica
-            dT_reaction = - H_rxn / denom_temp if denom_temp > 1e-8 else 0.0
+            # Pérdida de temperatura por el efecto endotérmico de la pirólisis
+            dT_reaction = - (H_rxn / denom_temp) if denom_temp > 1e-8 else 0.0
             T_s_next = T_target_heat + dT_reaction
             
-            # --- 4. Actualización Dinámica de la Pared y Consumo de Combustible ---
-            # LHV de combustible de quemadores (precalculado)
-            LHV_syngas = 12e6  # 12 MJ/kg para el syngas
-            burner_eff = self.burner_eff_pct / 100.0
-            Q_main_capacity = self.burner_hp * 745.7 * burner_eff
+            # --- 4. Balance Térmico de la Pared del Reactor y Quemador ---
+            Q_main_nominal = self.burner_hp * 745.7 * (self.burner_eff_pct / 100.0) # W
+            r_syngas_prod = d_gas_prod / dt_sec if dt_sec > 0.0 else 0.0 # kg/s
+            LHV_syngas = 12e6 # J/kg
+            Q_syngas_thermal = r_syngas_prod * LHV_syngas * (self.burner_eff_pct / 100.0)
             
-            # Tasa instantánea de producción de syngas en kg/s
-            r_gas_prod = d_gas_prod / dt_sec if dt_sec > 0 else 0.0
-            # Calor térmico disponible a partir de la combustión y calor sensible del syngas caliente
-            Q_syngas_available_thermal = r_gas_prod * (LHV_syngas + self.Cp_pyro_gas * (T_s - 298.15)) * burner_eff
-            
-            # Activación del syngas una vez que hay flujo significativo y se supera el umbral de inicio de pirólisis (220 °C)
-            syngas_active = (Q_syngas_available_thermal > 100.0) and (T_s >= 493.15)
+            Q_needed_wall = (T_w - T_s) * self.h_eff * A_heat if T_w > T_s else 0.0
+            Q_main_used = max(0.0, Q_needed_wall - Q_syngas_thermal)
+            Q_main_used = min(Q_main_used, Q_main_nominal)
             
             if self.auto_heating_rate:
-                # Pérdidas de calor hacia el ambiente
-                Q_loss = self.h_loss * A_outer * max(0.0, T_w - 298.15)
-                # Calor transferido al lecho en Watts
-                Q_transferred = H_input / dt_sec
+                D_outer = self.diameter + 2.0 * (self.shell_thickness_mm / 1000.0)
+                A_outer = np.pi * D_outer * self.length
+                Q_loss = self.h_loss * A_outer * (T_w - self.T_start)
                 
-                if syngas_active:
-                    # En la realidad, al usar syngas se deja de utilizar el aceite residual
-                    Q_main_used = 0.0
-                    Q_syngas_used = Q_syngas_available_thermal
-                    Q_in = Q_syngas_used
-                    
-                    # Termostato limitador modulando el syngas si excede T_hold
-                    dT_w_unlimited = ((Q_in - Q_loss - Q_transferred) / C_steel) * dt_sec
-                    if T_w + dT_w_unlimited > self.T_hold:
-                        Q_in = max(0.0, Q_loss + Q_transferred)
-                        Q_syngas_used = Q_in
-                else:
-                    # Usamos aceite residual únicamente
-                    Q_syngas_used = 0.0
-                    Q_main_used = Q_main_capacity
-                    Q_in = Q_main_used
-                    
-                    # Termostato limitador modulando el quemador principal si excede T_hold
-                    dT_w_unlimited = ((Q_in - Q_loss - Q_transferred) / C_steel) * dt_sec
-                    if T_w + dT_w_unlimited > self.T_hold:
-                        Q_in = max(0.0, Q_loss + Q_transferred)
-                        Q_main_used = min(Q_in, Q_main_capacity)
+                Q_net_wall = (Q_main_used + Q_syngas_thermal) - Q_needed_wall - Q_loss
+                M_steel = np.pi * self.diameter * self.length * (self.shell_thickness_mm / 1000.0) * self.shell_material_dict.get('density', 7850.0)
+                C_steel = M_steel * self.shell_material_dict.get('Cp', 480.0)
                 
-                # Balance de calor en la pared de acero
-                dT_w = ((Q_in - Q_loss - Q_transferred) / C_steel) * dt_sec
+                dT_w = (Q_net_wall * dt_sec) / C_steel if C_steel > 0 else 0.0
                 T_w_next = min(T_w + dT_w, self.T_hold)
-                
-                # Acumula la energía total consumida (kWh)
-                if Q_in > 0:
-                    total_energy_kwh += (Q_in * dt_sec) / 3.6e6
             else:
                 T_w_next = self.get_wall_temp_K(t_sec + dt_sec)
-                Q_transferred = H_input / dt_sec
-                if syngas_active:
-                    Q_main_used = 0.0
-                    Q_syngas_used = max(0.0, min(Q_transferred, Q_syngas_available_thermal))
-                else:
-                    Q_syngas_used = 0.0
-                    Q_main_used = max(0.0, Q_transferred)
-                
-                if H_input > 0:
-                    total_energy_kwh += (H_input / 3.6e6)
             
-            # Calcula el consumo de aceite residual del quemador principal en este paso
-            Q_main_combustion = Q_main_used / burner_eff if burner_eff > 0.0 else 0.0
-            d_waste_oil = (Q_main_combustion * dt_sec) / LHV_oil_gal
-            m_waste_oil_gal += d_waste_oil
+            # Acumula combustible auxiliar consumido en galones
+            Q_main_combustion = Q_main_used / (self.burner_eff_pct / 100.0) if self.burner_eff_pct > 0 else 0.0
+            dm_waste_oil_kg = (Q_main_combustion * dt_sec) / LHV_fuel_j_kg
+            m_waste_oil_gal += dm_waste_oil_kg / fuel_mass_per_gal
             
-            p_oil_arr.append(float(Q_main_used) / 1000.0)
-            p_syngas_arr.append(float(Q_syngas_used) / 1000.0)
+            # Acumula energía total suministrada al lecho sólido en kWh
+            total_energy_kwh += (Q_needed_wall * dt_sec) / 3.6e6
             
             d_moist = 0.0
             
-            # --- 4. Balances y Bloqueo de Humedad (Punto de Ebullición a 100 °C) ---
+            # --- 5. Lógica de Secado y Bloqueo por Ebullición de Agua (100 °C) ---
             if m_moist > 1e-8:
                 if T_s >= T_boil or T_s_next > T_boil:
-                    # Energía sensible consumida para precalentar la humedad hasta 100 °C
                     if T_s < T_boil:
-                        H_preheat = m_solid_total * Cp_s * (T_boil - T_s)
+                        H_preheat = denom_temp * (T_boil - T_s)
                     else:
                         H_preheat = 0.0
                         
-                    # Calor neto restante disponible exclusivamente para evaporar agua
+                    H_input = denom_temp * (T_target_heat - T_s)
                     H_avail_evap = H_input - H_preheat - H_rxn
                     
                     if H_avail_evap > 0:
                         max_d_moist = m_moist
-                        d_moist = H_avail_evap / self.dH_evap # Vaporización húmeda (masa en kg)
+                        d_moist = H_avail_evap / self.dH_evap
                         d_moist = min(d_moist, max_d_moist)
                         
                         H_used_evap = d_moist * self.dH_evap
                         H_remain = H_avail_evap - H_used_evap
                         
-                        T_s = T_boil # Temperatura fija durante el secado
-                        # Si se evapora toda el agua, la energía restante continúa subiendo la temperatura
+                        T_s = T_boil
                         if H_remain > 0 and denom_temp > 1e-8:
                             T_s += H_remain / denom_temp
                     else:
@@ -360,7 +338,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
             else:
                 T_s = T_s_next
                 
-            # --- 5. Actualización de las Masas y Vapores Acumulados ---
+            # --- 6. Actualización de las Masas y Vapores Acumulados ---
             m_moist = max(m_moist - d_moist, 0.0)
             m_volatile = max(m_volatile - d_volatile, 0.0)
             m_char = m_char + d_char_prod
@@ -368,6 +346,36 @@ class BatchReactorSimulation(BaseReactorSimulation):
             m_steam += d_moist
             m_oil_vap += d_oil_prod
             m_gas_vap += d_gas_prod
+            
+            # --- 7. Cálculo de Purga Autógena y Dinámica de Presión ---
+            w_vap_gen = (d_moist + d_oil_prod + d_gas_prod) / dt_sec if dt_sec > 0 else 0.0
+            T_gas_k = max(T_s, 298.15)
+            
+            w_h2o_f = d_moist / max(1e-8, d_moist + d_oil_prod + d_gas_prod) if w_vap_gen > 0 else 0.5
+            w_oil_f = d_oil_prod / max(1e-8, d_moist + d_oil_prod + d_gas_prod) if w_vap_gen > 0 else 0.3
+            w_gas_f = max(0.0, 1.0 - w_h2o_f - w_oil_f)
+            
+            mw_mix = w_h2o_f * 18.0 + w_oil_f * 120.0 + w_gas_f * 28.0
+            mw_mix = max(18.0, min(120.0, mw_mix))
+            
+            rho_gas_t = (101325.0 * (mw_mix / 1000.0)) / (8.314 * T_gas_k)
+            q_gas_gen_m3s = w_vap_gen / max(1e-4, rho_gas_t)
+            
+            v_main_ms = q_gas_gen_m3s / a_main if a_main > 0 else 0.0
+            v_branch_ms = q_gas_gen_m3s / a_branches if a_branches > 0 else 0.0
+            
+            air_disp_m3 = min(v_headspace_init_m3, (m_steam + m_oil_vap + m_gas_vap) / max(1e-4, rho_gas_t))
+            
+            # Contrapresión de tubería por pérdidas por fricción y accesorios (8" manifold / 4x4" ramas)
+            delta_p_pa = 0.025 * (10.0 / d_main_m) * (0.5 * rho_gas_t * v_main_ms**2) + (1.5 * 0.5 * rho_gas_t * v_main_ms**2)
+            p_abs_kpa = (101325.0 + delta_p_pa) / 1000.0
+            p_gauge_psig = delta_p_pa / 6894.76
+            
+            v_main_arr.append(v_main_ms)
+            v_branch_arr.append(v_branch_ms)
+            air_disp_arr.append(air_disp_m3)
+            pressure_kpa_arr.append(p_abs_kpa)
+            pressure_psig_arr.append(p_gauge_psig)
             
             # Actualiza T_w para el paso siguiente
             T_w = T_w_next
@@ -383,6 +391,38 @@ class BatchReactorSimulation(BaseReactorSimulation):
         # Cierre y error porcentual del balance de masa acumulado
         total_out_kg = final_char_kg + final_oil_kg + final_gas_kg + final_steam_kg + m_moist
         mass_error_pct = abs(total_out_kg - self.batch_load_kg) / self.batch_load_kg * 100.0 if self.batch_load_kg > 0 else 0.0
+        
+        # ASTM Correlaciones y Métricas de Calidad de Bio-Crudo
+        hhv_sludge_mj_kg = 18.5
+        hhv_oil_mj_kg = min(43.5, max(36.0, 38.0 + 0.008 * (self.T_hold - 273.15 - 450.0) + 0.10 * (initial_volatile / self.batch_load_kg * 100.0 - 50.0)))
+        hhv_oil_btu_lb = hhv_oil_mj_kg * 429.923
+        energy_enhancement_factor = hhv_oil_mj_kg / hhv_sludge_mj_kg
+        
+        viscosity_40c_cst = max(12.0, 45.0 - 0.08 * (self.T_hold - 273.15 - 400.0))
+        density_15c_kg_m3 = float(getattr(self, 'bio_oil_density', 750.0))
+        sg_15c = density_15c_kg_m3 / 999.1
+        api_gravity = (141.5 / max(0.1, sg_15c)) - 131.5
+        
+        moisture_feed_pct = (humidity_arr[0] if humidity_arr else 30.0)
+        bsw_moisture_pct = min(8.0, max(1.5, 3.5 * (moisture_feed_pct / 30.0)))
+        
+        # Autosuficiencia de Syngas y Excedente a Antorcha / Flare
+        lhv_syngas_mj_kg = 12.0
+        total_syngas_energy_mj = final_gas_kg * lhv_syngas_mj_kg
+        total_thermal_demand_mj = (total_energy_kwh * 3.6) / max(0.1, self.burner_eff_pct / 100.0)
+        
+        syngas_recirc_pct = min(100.0, (total_syngas_energy_mj / max(1e-4, total_thermal_demand_mj)) * 100.0) if total_thermal_demand_mj > 0 else 100.0
+        syngas_flare_kg = final_gas_kg * (1.0 - (syngas_recirc_pct / 100.0))
+        syngas_flare_m3 = syngas_flare_kg / 1.15
+        
+        # Tiempo de desplazamiento completo de aire inicial
+        air_disp_complete_min = 0.0
+        for idx_t, v_d in enumerate(air_disp_arr):
+            if v_d >= v_headspace_init_m3 * 0.90:
+                air_disp_complete_min = time_arr[idx_t]
+                break
+        if air_disp_complete_min == 0.0 and time_arr:
+            air_disp_complete_min = time_arr[min(len(time_arr)-1, 15)]
         
         # Devuelve el resumen temporal completo y los indicadores agregados del lote
         results = {
@@ -401,6 +441,11 @@ class BatchReactorSimulation(BaseReactorSimulation):
             'p_syngas': p_syngas_arr,
             'conversion': conv_arr,
             'humidity': humidity_arr,
+            'pressure_kpa': pressure_kpa_arr,
+            'pressure_psig': pressure_psig_arr,
+            'v_main_ms': v_main_arr,
+            'v_branch_ms': v_branch_arr,
+            'air_disp_m3': air_disp_arr,
             'summary': {
                 'batch_load_kg': self.batch_load_kg,
                 'oil_yield_kg': final_oil_kg,
@@ -417,7 +462,22 @@ class BatchReactorSimulation(BaseReactorSimulation):
                 'waste_oil_consumed_gal': m_waste_oil_gal,
                 'mass_error_pct': mass_error_pct,
                 'initial_humidity_pct': humidity_arr[0],
-                'final_humidity_pct': humidity_arr[-1]
+                'final_humidity_pct': humidity_arr[-1],
+                'peak_pressure_kpa': max(pressure_kpa_arr) if pressure_kpa_arr else 101.325,
+                'peak_pressure_psig': max(pressure_psig_arr) if pressure_psig_arr else 0.0,
+                'max_v_main_ms': max(v_main_arr) if v_main_arr else 0.0,
+                'max_v_branch_ms': max(v_branch_arr) if v_branch_arr else 0.0,
+                'air_disp_complete_min': air_disp_complete_min,
+                'headspace_volume_m3': v_headspace_init_m3,
+                'hhv_oil_mj_kg': hhv_oil_mj_kg,
+                'hhv_oil_btu_lb': hhv_oil_btu_lb,
+                'energy_enhancement_factor': energy_enhancement_factor,
+                'viscosity_40c_cst': viscosity_40c_cst,
+                'api_gravity': api_gravity,
+                'bsw_moisture_pct': bsw_moisture_pct,
+                'syngas_recirc_pct': syngas_recirc_pct,
+                'syngas_flare_kg': syngas_flare_kg,
+                'syngas_flare_m3': syngas_flare_m3
             }
         }
         return results

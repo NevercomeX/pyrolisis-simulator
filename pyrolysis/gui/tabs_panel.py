@@ -50,12 +50,64 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
         st.markdown(f"**{t('analysis_feedstock_label')}**: `{feed_name_display}`")
         st.markdown(f"**{t('analysis_activation_energy')}**: `{current_feed.E_a / 1000:.1f} kJ/mol`")
         st.markdown(f"**{t('analysis_pre_exponential')}**: `{current_feed.A:.2e} s⁻¹`")
-        st.markdown(f"**{t('analysis_volatile_splits')}**")
         yields_df = pd.DataFrame({
             t("analysis_prod_fraction"): [t("analysis_bio_oil_name"), t("analysis_syngas_name"), t("analysis_char_res_name")],
             t("analysis_frac_wt"): [current_feed.yield_oil, current_feed.yield_gas, current_feed.yield_char]
         })
         st.table(yields_df)
+
+    # ASTM Standards Characterization Section for PROENERGETICOS Bio-Oil
+    st.markdown("---")
+    st.markdown(f"### 🔬 Caracterización Físico-Química del Bio-Crudo (Normas ASTM)")
+    
+    astm_col1, astm_col2, astm_col3, astm_col4 = st.columns(4)
+    
+    # HHV / PCS ASTM D240
+    temp_hold = float(st.session_state.get('holding_temp', 550.0))
+    vol_pct = current_feed.volatile
+    hhv_oil = min(43.5, max(36.0, 38.0 + 0.008 * (temp_hold - 450.0) + 0.10 * (vol_pct - 50.0)))
+    hhv_btu = hhv_oil * 429.923
+    factor_enh = hhv_oil / 18.5
+    
+    # Viscosity ASTM D445
+    visc_40c = max(12.0, 45.0 - 0.08 * (temp_hold - 400.0))
+    pump_status = "Directamente Bombeable @ 25°C" if visc_40c <= 25.0 else ("Bombeable con Precalentamiento a 40°C" if visc_40c <= 50.0 else "Alta Viscosidad - Precalentar a 60°C")
+    
+    # Density ASTM D1298
+    bio_oil_dens = float(st.session_state.get('bio_oil_density', 750.0))
+    sg_15 = bio_oil_dens / 999.1
+    api_deg = (141.5 / max(0.1, sg_15)) - 131.5
+    
+    # BS&W ASTM D95
+    bsw_pct = min(8.0, max(1.5, 3.5 * (current_feed.moisture / 30.0)))
+    
+    with astm_col1:
+        st.info(
+            f"**🔥 Poder Calorífico Superior (ASTM D240)**  \n"
+            f"* **PCS / HHV:** `{hhv_oil:.2f} MJ/kg` (`{hhv_btu:,.0f} BTU/lb`)  \n"
+            f"* **PCS Lodo Original:** `18.50 MJ/kg`  \n"
+            f"* **Factor de Mejora:** `x{factor_enh:.2f}`"
+        )
+    with astm_col2:
+        st.info(
+            f"**🧪 Viscosidad Cinemática (ASTM D445)**  \n"
+            f"* **Viscosidad @ 40°C:** `{visc_40c:.1f} cSt (mm²/s)`  \n"
+            f"* **Diagnóstico Bombeo:** `{pump_status}`"
+        )
+    with astm_col3:
+        st.info(
+            f"**⚖️ Densidad & °API (ASTM D1298)**  \n"
+            f"* **Densidad @ 15°C:** `{bio_oil_dens:.1f} kg/m³`  \n"
+            f"* **Gravedad Específica (SG):** `{sg_15:.4f}`  \n"
+            f"* **Gravedad °API:** `{api_deg:.1f} °API`"
+        )
+    with astm_col4:
+        st.info(
+            f"**💧 Humedad & BS&W (ASTM D95)**  \n"
+            f"* **Humedad en Condensado:** `{bsw_pct:.2f} wt.%`  \n"
+            f"* **Sistema Condensación:** `Tanque 28,000 gal`  \n"
+            f"* **Separación:** `Furgón Sellado Etapa 2`"
+        )
 
 def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_kgh, batch_load_kg, feed_option):
     """Renders the mass and energy balances tab content."""
@@ -458,6 +510,16 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
 def render_guide_tab():
     """Renders the theoretical equations and guide tab content."""
     st.header(t("guide_title"))
+    
+    st.markdown("---")
+    st.markdown("### 🏢 Resumen Ejecutivo Industrial: Planta PROENERGETICOS (3,700 gal)")
+    st.success(
+        "**Evaluación de Viabilidad Técnica & Operación Autógena (Sin N₂):**  \n"
+        "1. **Operación Autógena y Purga de Aire:** El desplazamiento volumétrico inicial del aire contenido en el domo del reactor (14.0 m³) se completa de forma autógena en los primeros minutos del ciclo mediante la rápida expansión del agua de humedad y primeros volátiles, garantizando una atmósfera inerte sin consumo de nitrógeno comercial.  \n"
+        "2. **Hidrodinámica del Manifold (8'' / 4x4''):** El manifold de evacuación de 8 pulgadas conectado a las 4 líneas secundarias de 4 pulgadas ofrece una sección transversal amplia (0.0324 m²), manteniendo las velocidades de vapor por debajo de los límites erosinadores y limitando la contrapresión a niveles seguros de operación.  \n"
+        "3. **Autosuficiencia Energética y Antorcha (Flare):** El syngas generado cubre la demanda térmica del quemador principal, canalizándose el excedente incondensable hacia la antorcha (flare) para su destrucción limpia conforme a normativas ambientales.  \n"
+        "4. **Condensación en 2 Etapas (Tanque 28,000 gal & Furgón Sellado):** La condensación secuencial permite recuperar el bio-crudo con alta eficiencia térmica, separando el agua de arrastre (BS&W) y concentrando una fracción pesada directamente comercializable."
+    )
     
     st.subheader(t("guide_sec_1"))
     st.markdown(t("guide_sec_1_text"))

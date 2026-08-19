@@ -489,6 +489,24 @@ def render_sidebar():
             f"**{info_lhv}:** `{LHV_eff:.2f} MJ/kg`"
         )
 
+    # PROENERGETICOS Industrial Plant Specs expander in the sidebar
+    with st.sidebar.expander(t("proenergeticos_title"), expanded=False):
+        manifold_main_dia_in = st.number_input(
+            t("manifold_main_dia"), 2.0, 24.0, float(st.session_state.get('manifold_main_dia_in', 8.0)), 1.0, key='manifold_main_dia_in'
+        )
+        manifold_branch_dia_in = st.number_input(
+            t("manifold_branch_dia"), 1.0, 12.0, float(st.session_state.get('manifold_branch_dia_in', 4.0)), 0.5, key='manifold_branch_dia_in'
+        )
+        manifold_num_branches = st.number_input(
+            t("manifold_num_branches"), 1, 16, int(st.session_state.get('manifold_num_branches', 4)), 1, key='manifold_num_branches'
+        )
+        cooling_tank_gal = st.number_input(
+            t("cooling_tank_cap"), 1000.0, 100000.0, float(st.session_state.get('cooling_tank_gal', 28000.0)), 1000.0, key='cooling_tank_gal'
+        )
+        autogenous_purge = st.checkbox(
+            t("autogenous_purge_opt"), value=bool(st.session_state.get('autogenous_purge', True)), key='autogenous_purge'
+        )
+
     # Pre-declare/initialize heating params to avoid unbound variables
     T_wall_type_str = "uniform"
     T_wall_params = {}
