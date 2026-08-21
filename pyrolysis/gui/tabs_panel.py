@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from pyrolysis import TRANSLATIONS
-from pyrolysis.pdf_generator import generate_thesis_pdf
+from pyrolysis.pdf_generator import generate_thesis_pdf, REPORTLAB_AVAILABLE
 
 def get_lang():
     lang_opt = st.session_state.get('lang_option', 'Español')
@@ -545,7 +545,9 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
         st.markdown("### 🎓 Reporte de Tesis (PDF)")
         st.info(t("export_pdf_desc"))
         
-        if solver_inputs is not None:
+        if not REPORTLAB_AVAILABLE:
+            st.warning("⚠️ **La librería `reportlab` no está instalada en el entorno de Python de su servidor.**\n\nPara habilitar la generación y descarga del reporte de tesis en PDF, ejecute en su servidor / consola:\n```bash\npip install reportlab\n```")
+        elif solver_inputs is not None:
             if config_dict is None:
                 config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
             

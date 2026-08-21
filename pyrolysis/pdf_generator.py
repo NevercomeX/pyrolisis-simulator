@@ -6,21 +6,29 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether, PageBreak, HRFlowable
-)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.pdfgen import canvas
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether, PageBreak, HRFlowable
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.pdfgen import canvas
+    REPORTLAB_AVAILABLE = True
+    base_canvas_class = canvas.Canvas
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    base_canvas_class = object
 
-class NumberedCanvas(canvas.Canvas):
+class NumberedCanvas(base_canvas_class):
     """
     Custom canvas that performs two passes to add running headers and 
     page numbers formatted as 'Página X de Y' on all pages except the cover.
     """
     def __init__(self, *args, **kwargs):
+        if not REPORTLAB_AVAILABLE:
+            return
         super().__init__(*args, **kwargs)
         self._saved_page_states = []
 
@@ -200,6 +208,9 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     Returns:
         bytes: PDF content.
     """
+    if not REPORTLAB_AVAILABLE:
+        raise ImportError("La librería 'reportlab' no está instalada en el entorno de Python. Ejecute 'pip install reportlab' para instalarla.")
+        
     buffer = io.BytesIO()
     is_continuous = (mode_option == "Continuous Operation")
     
