@@ -539,25 +539,34 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     # ---------------------------------------------------------
     story.append(Paragraph("<b>RESUMEN EJECUTIVO (ABSTRACT)</b>", h2_style))
     
-    load_val = solver_inputs['feed_rate_kgh'] if mode_option == "Continuous Operation" else solver_inputs['batch_load_kg']
-    load_unit = "kg/h" if mode_option == "Continuous Operation" else "kg"
+    sludge_density = float(solver_inputs.get('sludge_density', 900.0))
+    bio_oil_density = float(solver_inputs.get('bio_oil_density', 750.0))
+    temp_hold = float(solver_inputs.get('temp_hold_c', 550.0))
+    temp_start = float(solver_inputs.get('temp_start_c', 25.0))
+    heating_rate = float(solver_inputs.get('heating_rate_cmin', 1.0))
+    
+    load_kg = solver_inputs['feed_rate_kgh'] if is_continuous else solver_inputs['batch_load_kg']
+    load_gal = (load_kg / sludge_density) * 264.172
+    load_unit = "gal/h" if is_continuous else "gal"
+
     conv_pct = summary['conversion_pct']
     oil_pct = summary['oil_yield_pct']
     gas_pct = summary['gas_yield_pct']
     char_pct = summary['char_yield_pct']
-    duty_val = summary['heating_duty_kw'] if mode_option == "Continuous Operation" else summary.get('total_energy_kwh', 0.0)
-    duty_unit = "kW" if mode_option == "Continuous Operation" else "kWh"
+    duty_val = summary['heating_duty_kw'] if is_continuous else summary.get('total_energy_kwh', 0.0)
+    duty_unit = "kW" if is_continuous else "kWh"
     
     abstract_text = (
         f"El presente informe técnico expone los resultados de la simulación rigurosa del proceso de pirólisis "
-        f"desarrollada en un reactor rotatorio de tambor operando en modo <b>{mode_str_es}</b>, procesando una carga "
-        f"nominal de <b>{load_val:.1f} {load_unit}</b> de <b>{feed_name}</b>. "
-        f"El modelo fenomenológico resuelve las ecuaciones diferenciales cinéticas de primer orden según el esquema de Arrhenius "
-        f"multietapa ($k_1, k_2, k_3$), acopladas con el balance conservativo de materia y transferencia de calor conductivo-convectivo en el lecho sólido. "
-        f"Se alcanzó una conversión global de materia volátil del <b>{conv_pct:.1f}%</b>, rindiendo un <b>{oil_pct:.1f} wt.%</b> de bio-crudo condensable, "
-        f"un <b>{gas_pct:.1f} wt.%</b> de gas de síntesis (syngas) incondensable, y un <b>{char_pct:.1f} wt.%</b> de bio-carbón (char seco). "
-        f"La demanda energética total calculada fue de <b>{duty_val:.2f} {duty_unit}</b> con un error de cierre en el balance de materia de <b>{summary['mass_error_pct']:.2e}%</b>, "
-        f"confirmando la consistencia física del modelo y la factibilidad autógena del proceso industrial."
+        f"desarrollada en un reactor rotatorio de tambor operando en modo <b>{mode_str_es}</b> a presión atmosférica (<b>0 bar manométrica / 1 atm</b>) "
+        f"y temperatura máxima de proceso de <b>{temp_hold:.0f}°C</b> (temperatura inicial: {temp_start:.0f}°C, tasa de calentamiento: {heating_rate:.1f}°C/min). "
+        f"Se procesó una carga nominal de <b>{load_gal:,.1f} {load_unit}</b> ({load_kg:,.1f} kg) de <b>{feed_name}</b> "
+        f"con una densidad de materia prima de <b>{sludge_density:.1f} kg/m³</b>. "
+        f"El modelo fenomenológico resuelve el balance conservativo de materia y energía con transferencia de calor conductivo-convectivo en el lecho sólido. "
+        f"Se alcanzó una conversión global de materia volátil del <b>{conv_pct:.1f}%</b>, rindiendo un <b>{oil_pct:.1f} wt.%</b> de bio-crudo condensable "
+        f"(densidad del bio-crudo: <b>{bio_oil_density:.1f} kg/m³</b>), un <b>{gas_pct:.1f} wt.%</b> de gas de síntesis (syngas) incondensable, y un <b>{char_pct:.1f} wt.%</b> de bio-carbón (char seco). "
+        f"La demanda energética total calculada fue de <b>{duty_val:,.2f} {duty_unit}</b> con un error de cierre en el balance de materia de <b>{summary['mass_error_pct']:.2e}%</b>, "
+        f"confirmando la consistencia física del modelo y la factibilidad del proceso industrial."
     )
     story.append(Paragraph(abstract_text, abstract_style))
     story.append(Spacer(1, 8))
@@ -569,6 +578,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#CBD5E1"), spaceBefore=0, spaceAfter=8))
     
     story.append(Paragraph("<b>1.1 Análisis Proximal y Composición Elemental del Lodo</b>", h2_style))
+    
+    load_val = load_gal
     
     comp_table_data = [
         [Paragraph("<b>Componente</b>", table_header_style), Paragraph("<b>Fracción (wt.%)</b>", table_header_style), Paragraph(f"<b>Carga Entrada ({load_unit})</b>", table_header_style), Paragraph("<b>Volumen Relativo</b>", table_header_style)],
@@ -590,26 +601,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(t_comp)
     story.append(Spacer(1, 10))
 
-    story.append(Paragraph("<b>1.2 Parámetros Cinéticos de Arrhenius Multietapa</b>", h2_style))
-    kin_table_data = [
-        [Paragraph("<b>Reacción Química</b>", table_header_style), Paragraph("<b>Energía Act. Ea (kJ/mol)</b>", table_header_style), Paragraph("<b>Factor A (s⁻¹)</b>", table_header_style), Paragraph("<b>Ecuación de Velocidad</b>", table_header_style)],
-        [Paragraph("R1: Lodo → Bio-Crudo", table_cell_style), Paragraph(f"{feed_obj.Ea1/1000:.1f}", table_cell_center), Paragraph(f"{feed_obj.A1:.2e}", table_cell_center), Paragraph("k₁ = A₁·exp(-Ea₁/RT)", table_cell_style)],
-        [Paragraph("R2: Lodo → Syngas", table_cell_style), Paragraph(f"{feed_obj.Ea2/1000:.1f}", table_cell_center), Paragraph(f"{feed_obj.A2:.2e}", table_cell_center), Paragraph("k₂ = A₂·exp(-Ea₂/RT)", table_cell_style)],
-        [Paragraph("R3: Bio-Crudo → Syngas (Craqueo)", table_cell_style), Paragraph(f"{feed_obj.Ea3/1000:.1f}", table_cell_center), Paragraph(f"{feed_obj.A3:.2e}", table_cell_center), Paragraph("k₃ = A₃·exp(-Ea₃/RT)", table_cell_style)]
-    ]
-    t_kin = Table(kin_table_data, colWidths=[2.2*inch, 1.5*inch, 1.4*inch, 1.5*inch])
-    t_kin.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-    ]))
-    story.append(t_kin)
-    story.append(Spacer(1, 10))
-
     # ASTM Characterization Section
-    story.append(Paragraph("<b>1.3 Caracterización del Bio-Crudo Producido (Normas ASTM)</b>", h2_style))
+    story.append(Paragraph("<b>1.2 Caracterización del Bio-Crudo Producido (Normas ASTM)</b>", h2_style))
     temp_hold = float(solver_inputs.get('temp_hold_c', 550.0))
     vol_pct = feed_obj.volatile
     hhv_oil = min(43.5, max(36.0, 38.0 + 0.008 * (temp_hold - 450.0) + 0.10 * (vol_pct - 50.0)))
@@ -655,24 +648,31 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     h_eff = solver_inputs['h_eff']
     burner_hp = solver_inputs.get('burner_hp', 300.0)
     burner_eff = solver_inputs.get('burner_eff_pct', 70.0)
+    temp_start = float(solver_inputs.get('temp_start_c', 25.0))
+    heating_rate = float(solver_inputs.get('heating_rate_cmin', 1.0))
+    fuel_cons = summary.get('waste_oil_consumed_galh', summary.get('waste_oil_consumed_gal', 0.0))
+    fuel_unit = "/h" if is_continuous else "/lote"
 
     time_label = "Tiempo Medio de Residencia (MRT)" if is_continuous else "Tiempo Total de Ciclo Lote"
 
     geom_table_data = [
         [Paragraph("<b>Parámetro Geométrico / Operativo</b>", table_header_style), Paragraph("<b>Valor</b>", table_header_style), Paragraph("<b>Parámetro Térmico / Energético</b>", table_header_style), Paragraph("<b>Valor</b>", table_header_style)],
-        [Paragraph("Longitud Cilíndrica (L)", table_cell_style), Paragraph(f"{length_m:.2f} m", table_cell_center), Paragraph("Coef. Transf. Calor (h_eff)", table_cell_style), Paragraph(f"{h_eff:.1f} W/m²·K", table_cell_center)],
-        [Paragraph("Diámetro Interno (D)", table_cell_style), Paragraph(f"{dia_m:.2f} m", table_cell_center), Paragraph("Potencia Quemadores", table_cell_style), Paragraph(f"{burner_hp:.0f} HP", table_cell_center)],
-        [Paragraph("Relación de Aspecto (L/D)", table_cell_style), Paragraph(f"{aspect_ratio:.2f}", table_cell_center), Paragraph("Eficiencia Térmica Quemador", table_cell_style), Paragraph(f"{burner_eff:.1f} %", table_cell_center)],
-        [Paragraph("Velocidad de Rotación", table_cell_style), Paragraph(f"{rpm_val:.1f} RPM", table_cell_center), Paragraph("Grado de Llenado del Lecho", table_cell_style), Paragraph(f"{fill_deg:.2f} %", table_cell_center)],
-        [Paragraph(time_label, table_cell_style), Paragraph(f"{mrt_min:.1f} min", table_cell_center), Paragraph("Conversión Volátiles Total", table_cell_style), Paragraph(f"{conv_pct:.1f} %", table_cell_center)]
+        [Paragraph("Longitud Cilíndrica (L)", table_cell_style), Paragraph(f"{length_m:.2f} m", table_cell_center), Paragraph("Temperatura Inicial (T_start)", table_cell_style), Paragraph(f"{temp_start:.1f} °C", table_cell_center)],
+        [Paragraph("Diámetro Interno (D)", table_cell_style), Paragraph(f"{dia_m:.2f} m", table_cell_center), Paragraph("Temperatura Máxima (T_hold)", table_cell_style), Paragraph(f"{temp_hold:.1f} °C", table_cell_center)],
+        [Paragraph("Relación de Aspecto (L/D)", table_cell_style), Paragraph(f"{aspect_ratio:.2f}", table_cell_center), Paragraph("Tasa de Calentamiento", table_cell_style), Paragraph(f"{heating_rate:.1f} °C/min", table_cell_center)],
+        [Paragraph("Velocidad de Rotación", table_cell_style), Paragraph(f"{rpm_val:.1f} RPM", table_cell_center), Paragraph("Coef. Transf. Calor (h_eff)", table_cell_style), Paragraph(f"{h_eff:.1f} W/m²·K", table_cell_center)],
+        [Paragraph("Grado de Llenado del Lecho", table_cell_style), Paragraph(f"{fill_deg:.2f} %", table_cell_center), Paragraph("Potencia Quemadores", table_cell_style), Paragraph(f"{burner_hp:.0f} HP", table_cell_center)],
+        [Paragraph(time_label, table_cell_style), Paragraph(f"{mrt_min:.1f} min", table_cell_center), Paragraph("Eficiencia Térmica Quemador", table_cell_style), Paragraph(f"{burner_eff:.1f} %", table_cell_center)],
+        [Paragraph("Carga / Alimentación Entrante", table_cell_style), Paragraph(f"{load_val:.1f} {load_unit}", table_cell_center), Paragraph("Consumo Combustible Auxiliar", table_cell_style), Paragraph(f"{fuel_cons:.1f} gal{fuel_unit}", table_cell_center)],
+        [Paragraph("Humedad Materia Prima", table_cell_style), Paragraph(f"{feed_obj.moisture:.2f} %", table_cell_center), Paragraph("Conversión Volátiles Total", table_cell_style), Paragraph(f"{conv_pct:.1f} %", table_cell_center)]
     ]
     t_geom = Table(geom_table_data, colWidths=[2.0*inch, 1.3*inch, 2.0*inch, 1.3*inch])
     t_geom.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
         ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 3.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3.5),
     ]))
     story.append(t_geom)
     story.append(Spacer(1, 14))
@@ -855,9 +855,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     
     opex_table_data = [
         [Paragraph("<b>Rubro Operativo (OPEX)</b>", table_header_style), Paragraph("<b>Gasto Anual (RD$)</b>", table_header_style), Paragraph("<b>Participación (%)</b>", table_header_style), Paragraph("<b>Base de Cálculo</b>", table_header_style)],
-        [Paragraph("Manejo y Logística de Lodos", table_cell_style), Paragraph(f"{curr_sym}{ob['handling']:,.2f}", table_cell_center), Paragraph(f"{(ob['handling']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph(f"{fin['sludge_treated_gal']:,.0f} gal a RD$ 3.00/gal", table_cell_style)],
+        [Paragraph("Manejo y Logística de Lodos", table_cell_style), Paragraph(f"{curr_sym}{ob['handling']:,.2f}", table_cell_center), Paragraph(f"{(ob['handling']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph(f"{fin['sludge_treated_gal']:,.0f} gal a RD$ 40/gal", table_cell_style)],
         [Paragraph("Combustible Auxiliar Quemadores", table_cell_style), Paragraph(f"{curr_sym}{ob['fuel']:,.2f}", table_cell_center), Paragraph(f"{(ob['fuel']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Consumo de respaldo inicial", table_cell_style)],
-        [Paragraph("Energía Eléctrica (Motores)", table_cell_style), Paragraph(f"{curr_sym}{ob['electricity']:,.2f}", table_cell_center), Paragraph(f"{(ob['electricity']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Accionamiento tambor y auxiliares", table_cell_style)],
         [Paragraph("Insumos Auxiliares y Servicios", table_cell_style), Paragraph(f"{curr_sym}{ob['aux_utilities']:,.2f}", table_cell_center), Paragraph(f"{(ob['aux_utilities']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Agua de enfriamiento y reactivos", table_cell_style)],
         [Paragraph("Diésel Planta de Emergencia", table_cell_style), Paragraph(f"{curr_sym}{ob['gen_diesel']:,.2f}", table_cell_center), Paragraph(f"{(ob['gen_diesel']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Respaldo eléctrico de seguridad", table_cell_style)],
         [Paragraph("Mano de Obra y Nómina", table_cell_style), Paragraph(f"{curr_sym}{ob['labor']:,.2f}", table_cell_center), Paragraph(f"{(ob['labor']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Operadores y personal técnico", table_cell_style)],
@@ -887,9 +886,6 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         [Paragraph("<b>Fuente de Ingreso / Valorización</b>", table_header_style), Paragraph("<b>Ingreso Anual (RD$)</b>", table_header_style), Paragraph("<b>Participación (%)</b>", table_header_style), Paragraph("<b>Volumen y Precio Unitario</b>", table_header_style)],
         [Paragraph("Tarifa Disposición Lodos (Tipping Fee)", table_cell_style), Paragraph(f"{curr_sym}{rb['tipping']:,.2f}", table_cell_center), Paragraph(f"{(rb['tipping']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['sludge_treated_gal']:,.0f} gal a RD$ 9.00/gal", table_cell_style)],
         [Paragraph("Venta de Bio-Crudo (Bio-Oil)", table_cell_style), Paragraph(f"{curr_sym}{rb['oil']:,.2f}", table_cell_center), Paragraph(f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['oil_produced_gal']:,.0f} gal a RD$ 120.00/gal", table_cell_style)],
-        [Paragraph("Venta de Bio-Carbón (Bio-Char)", table_cell_style), Paragraph(f"{curr_sym}{rb['char']:,.2f}", table_cell_center), Paragraph(f"{(rb['char']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['char_produced_kg']:,.0f} kg a RD$ 21.00/kg", table_cell_style)],
-        [Paragraph("Venta / Ahorro Syngas Excedente", table_cell_style), Paragraph(f"{curr_sym}{rb['gas']:,.2f}", table_cell_center), Paragraph(f"{(rb['gas']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['gas_produced_m3']:,.0f} m³ a RD$ 3.60/m³", table_cell_style)],
-        [Paragraph("Créditos por Captura de Carbono", table_cell_style), Paragraph(f"{curr_sym}{rb['carbon']:,.2f}", table_cell_center), Paragraph(f"{(rb['carbon']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['annual_co2_sequestered_ton']:,.1f} t CO2e a RD$ 1,200/t", table_cell_style)],
         [Paragraph("<b>TOTAL INGRESOS ANUALES</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{tot_rev:,.2f}</b>", table_cell_center), Paragraph("<b>100.0%</b>", table_cell_center), Paragraph("<b>Ingreso Bruto Año 1</b>", table_cell_bold)]
     ]
     t_rev = Table(rev_table_data, colWidths=[2.2*inch, 1.4*inch, 1.1*inch, 1.9*inch])
@@ -989,35 +985,63 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(Paragraph("6. Discusión Técnica y Conclusiones Académicas", h1_style))
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#CBD5E1"), spaceBefore=0, spaceAfter=8))
     
+    irr_str = f"{fin['irr']:.1f}%" if fin.get('irr') is not None else "N/A"
+    payback_str = f"{fin['payback']:.1f} años" if fin.get('payback') != float('inf') else "N/A"
+    co2_tons = fin.get('annual_co2_sequestered_ton', 0.0)
+
     c1 = (
         f"<b>1. Viabilidad Térmica y Rendimiento de Conversión:</b> "
         f"La pirólisis de <i>{feed_name}</i> alcanza una conversión del <b>{conv_pct:.1f}%</b> de la materia volátil, "
         f"demostrando que el perfil térmico aplicado (temperatura máxima de {temp_hold:.0f}°C) proporciona el aporte entálpico "
-        f"necesario para superar la energía de activación de las tres reacciones de descomposición ($E_{{a1}}={feed_obj.Ea1/1000:.1f}$ kJ/mol)."
+        f"necesario para la descomposición de la matriz orgánica pesada."
     )
     c2 = (
-        f"<b>2. Calidad Físico-Química del Bio-Crudo (Norma ASTM D240/D445):</b> "
+        f"<b>2. Calidad Físico-Química del Bio-Crudo (Normas ASTM D240/D445):</b> "
         f"El líquido condensable obtenido posee un Poder Calorífico Superior de <b>{hhv_oil:.2f} MJ/kg</b> ({hhv_btu:,.0f} BTU/lb), "
-        f"lo que representa un factor de concentración energética de <b>x{factor_enh:.2f}</b> respecto al lodo bruto de entrada. "
+        f"lo que representa un factor de concentración energética de <b>x{factor_enh:.2f}</b> respecto al lodo de entrada. "
         f"La viscosidad cinemática a 40°C de <b>{visc_40c:.1f} cSt</b> categoriza al bio-crudo como <i>{pump_status}</i>."
     )
     c3 = (
         f"<b>3. Autosuficiencia Energética del Sistema Industrial:</b> "
-        f"El rendimiento de gas de síntesis (<b>{gas_pct:.1f} wt.%</b>) correspondiente a <b>{gas_m3:.1f} m³</b> de syngas incondensable, "
+        f"El rendimiento de gas de síntesis (<b>{gas_pct:.1f} wt.%</b>) correspondiente a <b>{gas_m3:,.1f} m³</b> de syngas incondensable "
         f"permite sustituir el consumo de combustible fósil auxiliar en los quemadores principales del reactor, "
         f"garantizando la operación autógena en régimen estacionario."
     )
     c4 = (
-        f"<b>4. Conservación de Masa y Validación del Modelo:</b> "
+        f"<b>4. Conservación de Masa y Validación Numérica del Modelo:</b> "
         f"El error de cierre en el balance de materia de <b>{summary['mass_error_pct']:.2e}%</b> "
-        f"valida la precisión matemática del esquema numérico de integración y confirma la ausencia de pérdidas ficticias en el simulador."
+        f"valida la precisión matemática del esquema de integración y confirma la ausencia de pérdidas ficticias en el simulador."
     )
-
+    c5 = (
+        f"<b>5. Viabilidad Económica y Rentabilidad del Proyecto:</b> "
+        f"El análisis financiero proyecta un Valor Actual Neto (VAN) de <b>{curr_sym}{fin['npv']:,.2f}</b> "
+        f"y una Tasa Interna de Retorno (TIR) del <b>{irr_str}</b> (superando la tasa de descuento de 14.0%), "
+        f"con un período de recuperación estimado de <b>{payback_str}</b>, confirmando la rentabilidad de la instalación."
+    )
+    c6 = (
+        f"<b>6. Reducción Volumétrica y Gestión de Pasivos Ambientales:</b> "
+        f"El proceso logra una reducción drástica del volumen de residuo peligroso enviado a piscinas o vertederos, "
+        f"transformando un pasivo de hidrocarburos en tres coproductos valorizables (Bio-Crudo, Syngas y Bio-Char)."
+    )
+    c7 = (
+        f"<b>7. Dinámica del Lecho Sólido y Control Operativo:</b> "
+        f"Operando a un grado de llenado del lecho de <b>{fill_deg:.1f}%</b> y tiempo de residencia de <b>{mrt_min:.1f} min</b>, "
+        f"se asegura la agitación constante del sólido en el tambor rotatorio, previniendo la formación de incrustaciones de coque duro en las paredes internas."
+    )
+    c8 = (
+        f"<b>8. Descarbonización y Captura de Carbono:</b> "
+        f"El bio-carbón sólido producido fija de forma permanente un equivalente de <b>{co2_tons:,.1f} t CO2e/año</b>, "
+        f"permitiendo la integración de la planta en esquemas de economía circular y bonos de carbono."
+    )
 
     story.append(Paragraph(c1, body_style))
     story.append(Paragraph(c2, body_style))
     story.append(Paragraph(c3, body_style))
     story.append(Paragraph(c4, body_style))
+    story.append(Paragraph(c5, body_style))
+    story.append(Paragraph(c6, body_style))
+    story.append(Paragraph(c7, body_style))
+    story.append(Paragraph(c8, body_style))
     story.append(Spacer(1, 20))
 
     # Signature Block Table

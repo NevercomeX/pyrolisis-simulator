@@ -212,7 +212,7 @@ def render_sidebar():
             st.session_state['c_a3'] = c_a3
             
         current_feed = Feedstock(
-            name="Custom Sludge" if lang == 'en' else "Lodo Personalizado",
+            name="Custom Sludge" if lang == 'en' else "Lodo Petróleo/Hidrocarburos",
             moisture=c_moist,
             volatile=c_vol,
             fixed_carbon=c_fc,
