@@ -1,8 +1,14 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from pyrolysis import TRANSLATIONS
+from pyrolysis import TRANSLATIONS, generate_word_report
 from pyrolysis.pdf_generator import generate_thesis_pdf, REPORTLAB_AVAILABLE
+
+try:
+    import docx
+    PYTHON_DOCX_AVAILABLE = True
+except ImportError:
+    PYTHON_DOCX_AVAILABLE = False
 
 def get_lang():
     lang_opt = st.session_state.get('lang_option', 'Español')
@@ -539,7 +545,7 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
     st.subheader(t("export_title"))
     st.markdown(t("export_desc"))
     
-    col_pdf, col_csv = st.columns(2)
+    col_pdf, col_word, col_csv = st.columns(3)
     
     with col_pdf:
         st.markdown("### 🎓 Reporte de Tesis (PDF)")
@@ -565,6 +571,31 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                 st.error(f"Error al generar el reporte de Tesis PDF: {e}")
         else:
             st.warning("Complete la simulación para habilitar la descarga del reporte en PDF.")
+
+    with col_word:
+        st.markdown("### 📝 Reporte Técnico (Word)")
+        st.info("Descargue el informe técnico completo editable en formato Microsoft Word (.docx).")
+        
+        if not PYTHON_DOCX_AVAILABLE:
+            st.warning("⚠️ **La librería `python-docx` no está instalada en el entorno.**\n\nEjecute:\n```bash\npip install python-docx\n```")
+        elif solver_inputs is not None:
+            if config_dict is None:
+                config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+            
+            try:
+                docx_bytes = generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
+                word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio_PROENERGETICOS.docx"
+                st.download_button(
+                    label="📥 Descargar Informe en Word (.docx)",
+                    data=docx_bytes,
+                    file_name=word_filename,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    type="primary"
+                )
+            except Exception as e:
+                st.error(f"Error al generar el reporte en Word: {e}")
+        else:
+            st.warning("Complete la simulación para habilitar la descarga del reporte en Word.")
 
     with col_csv:
         st.markdown("### 📊 Datos de Perfil (CSV)")

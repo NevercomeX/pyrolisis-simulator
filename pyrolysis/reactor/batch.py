@@ -222,24 +222,36 @@ class BatchReactorSimulation(BaseReactorSimulation):
             else:
                 beta = 0.0
                 
-            # --- 2. Cinética y Reacción de Pirólisis (Primer Orden) ---
+            # --- 2. Cinética y Reacción de Pirólisis (Modelo Multicomponente de Destilación) ---
             # Constantes y tasas de reacción locales
             k1, k2, k3, r_slug, r_medios, r_gases = self.calculate_first_order_kinetics(T_s, m_volatile, m_oil_vap)
             
-            # Capa la reacción del lodo para no consumir más de lo disponible en el paso dt_sec
-            max_r_slug = m_volatile / dt_sec if dt_sec > 0.0 else 0.0
-            if r_slug > max_r_slug:
-                scale = max_r_slug / r_slug
-                k1_eff = k1 * scale
-                k2_eff = k2 * scale
-                r_slug = max_r_slug
+            # En lodos de hidrocarburos multicomponente, la desvolatilización se distribuye en el rango 296°C (569.15 K) a 370°C (643.15 K)
+            T_onset_K = 296.0 + 273.15
+            T_end_boil_K = 370.0 + 273.15
+            
+            if T_s >= T_onset_K:
+                # Modulación continua por fracción destilable a la temperatura actual T_s
+                f_distillable = min(1.0, max(0.05, (T_s - T_onset_K) / (T_end_boil_K - T_onset_K)))
+                r_slug = r_slug * f_distillable
             else:
-                k1_eff = k1
-                k2_eff = k2
-                
-            d_volatile = r_slug * dt_sec
-            d_oil_primary = k1_eff * m_volatile * dt_sec
-            d_non_oil = k2_eff * m_volatile * dt_sec
+                r_slug = 0.0
+                k1 = 0.0
+                k2 = 0.0
+
+            # Capa la reacción del lodo para no consumir más de lo disponible en el paso dt_sec
+            d_volatile = min(r_slug * dt_sec, m_volatile)
+            
+            k_sum = k1 + k2
+            if k_sum > 0:
+                frac_k1 = k1 / k_sum
+                frac_k2 = k2 / k_sum
+            else:
+                frac_k1 = getattr(self.feedstock, 'yield_oil', 0.60)
+                frac_k2 = 1.0 - frac_k1
+
+            d_oil_primary = d_volatile * frac_k1
+            d_non_oil = d_volatile * frac_k2
             
             y_gas = getattr(self.feedstock, 'yield_gas', 0.25)
             y_char = getattr(self.feedstock, 'yield_char', 0.15)
@@ -264,16 +276,19 @@ class BatchReactorSimulation(BaseReactorSimulation):
             # Calor consumido por la pirólisis endotérmica en este paso (J)
             H_rxn = d_volatile * self.dH_pyro  
 
-            # --- 3. Integración Térmica ---
+            # --- 3. Integración Térmica Gradual ---
             # Calor sensible absorbido desde la pared en este paso (J)
             if beta > 0:
                 T_target_heat = T_w - (T_w - T_s) * np.exp(-beta * dt_sec)
             else:
                 T_target_heat = T_s
                 
-            # Pérdida de temperatura por el efecto endotérmico de la pirólisis
-            dT_reaction = - (H_rxn / denom_temp) if denom_temp > 1e-8 else 0.0
-            T_s_next = T_target_heat + dT_reaction
+            # Moderación endotérmica continua: el calor de reacción atenúa el calentamiento pero permite un ascenso continuo de 300°C a 370°C
+            dT_input = T_target_heat - T_s
+            dT_endothermic = (H_rxn / denom_temp) if denom_temp > 1e-8 else 0.0
+            # Garantiza un progreso térmico positivo hacia T_w durante la destilación
+            dT_net = max(0.05 * dT_input, dT_input - dT_endothermic)
+            T_s_next = T_s + dT_net
             
             # --- 4. Balance Térmico de la Pared del Reactor y Quemador ---
             Q_main_nominal = self.burner_hp * 745.7 * (self.burner_eff_pct / 100.0) # W

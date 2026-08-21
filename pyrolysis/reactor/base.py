@@ -62,7 +62,11 @@ class BaseReactorSimulation:
         Returns:
             (k_pyro, r_pyro): reaction rate constant (1/s) and reaction rate (kg/s).
         """
-        k_pyro = self.feedstock.A * np.exp(-self.feedstock.E_a / (self.R * T_s))
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 296.0 + 273.15)
+        if T_s < T_onset_K:
+            k_pyro = 0.0
+        else:
+            k_pyro = self.feedstock.A * np.exp(-self.feedstock.E_a / (self.R * T_s))
         r_pyro = k_pyro * m_volatile
         return k_pyro, r_pyro
 
@@ -87,10 +91,17 @@ class BaseReactorSimulation:
         A3 = getattr(self.feedstock, 'A3', 5e5)
         Ea3 = getattr(self.feedstock, 'Ea3', 100000.0)
         
-        # Calculate rate constants
-        k1 = A1 * np.exp(-Ea1 / (self.R * T_s))
-        k2 = A2 * np.exp(-Ea2 / (self.R * T_s))
-        k3 = A3 * np.exp(-Ea3 / (self.R * T_s))
+        # Physical activation threshold for heavy sludge pyrolysis devolatilization (Onset = 296°C)
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 296.0 + 273.15)
+        if T_s < T_onset_K:
+            k1 = 0.0
+            k2 = 0.0
+            k3 = 0.0
+        else:
+            # Calculate rate constants
+            k1 = A1 * np.exp(-Ea1 / (self.R * T_s))
+            k2 = A2 * np.exp(-Ea2 / (self.R * T_s))
+            k3 = A3 * np.exp(-Ea3 / (self.R * T_s))
         
         # Calculate rates
         # dC_slug/dt = -(k1 + k2) * C_slug -> rate of consumption of C_slug is (k1 + k2)*C_slug

@@ -341,7 +341,10 @@ def render_sidebar():
             10.0
         )
         
-        burner_eff_pct = st.slider(
+        if 'burner_eff_pct' not in st.session_state or st.session_state.get('burner_eff_pct') == 95.0:
+            st.session_state['burner_eff_pct'] = 70.0
+
+        burner_eff_pct = st.sidebar.slider(
             t("burner_eff"),
             10.0, 100.0,
             float(st.session_state.get('burner_eff_pct', 70.0)),
