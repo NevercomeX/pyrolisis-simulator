@@ -175,4 +175,4 @@ with tab_guide:
     render_guide_tab()
 
 with tab_export:
-    render_export_tab(mode_option, results, summary)
+    render_export_tab(mode_option, results, summary, solver_inputs, config_dict)

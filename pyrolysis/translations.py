@@ -237,9 +237,11 @@ TRANSLATIONS = {
         'guide_sec_4_text': "Volatiles thermal cracking rate (kg/s):\n$$r_{pyro} = k_{pyro} \\cdot M_{volatile}$$\n$$k_{pyro} = A \\cdot \\exp\\left( -\\frac{E_a}{R \\cdot T_s} \\right)$$\nThe reaction is endothermic (consumes $\\Delta H_{pyro} = 600$ kJ/kg of volatiles reacted). Pyrolyzed volatiles are split into Bio-Oil, Syngas, and solid Char residue.",
         
         # Export
-        'export_title': "📥 Export Sim Profile Data",
-        'export_desc': "Download the computed profiles for further analytical processing in Excel, Python, or Matlab.",
-        'export_button': "📥 Download CSV Profile",
+        'export_title': "📥 Export Sim Profile & Thesis Report",
+        'export_desc': "Download the computed profiles or generate a formal academic thesis report in PDF format.",
+        'export_button': "📊 Download CSV Profile",
+        'export_pdf_button': "🎓 Download Thesis PDF Report",
+        'export_pdf_desc': "Generates a publication-grade academic thesis PDF report with institutional header, abstract, ASTM standards, kinetic matrices, mass/energy balance tables, high-res figures, and conclusions.",
         'export_summary_title': "📋 Sim Summary Parameters",
         'timeline_header': "⏱️ Process Timeline & Milestones",
         'timeline_drying_end': "Drying / Dehydration complete",
@@ -589,9 +591,11 @@ TRANSLATIONS = {
         'guide_sec_4_text': "Tasa de descomposición térmica de volátiles (kg/s):\n$$r_{pyro} = k_{pyro} \\cdot M_{volatile}$$\n$$k_{pyro} = A \\cdot \\exp\\left( -\\frac{E_a}{R \\cdot T_s} \\right)$$\nLa reacción es endotérmica (consume $\\Delta H_{pyro} = 600$ kJ/kg de volátiles reaccionados). Los volátiles pirolizados se separan en Bio-Crudo, Syngas y Carbón sólido.",
         
         # Export
-        'export_title': "📥 Exportar Datos de Perfil",
-        'export_desc': "Descargue los perfiles calculados para procesamiento analítico en Excel, Python o Matlab.",
-        'export_button': "📥 Descargar Perfil en CSV",
+        'export_title': "📥 Exportar Datos de Perfil y Reporte de Tesis",
+        'export_desc': "Descargue los perfiles calculados en CSV o genere el informe completo formal de tesis en PDF.",
+        'export_button': "📊 Descargar Perfil en CSV",
+        'export_pdf_button': "🎓 Descargar Reporte Formato Tesis (PDF)",
+        'export_pdf_desc': "Genera un documento PDF formal con calidad de tesis académica, con portada institucional, resumen ejecutivo, normas ASTM (D240, D445, D1298, D95), cinética de Arrhenius, balances de materia y energía, figuras de alta resolución y conclusiones técnicas.",
         'export_summary_title': "📋 Parámetros de Resumen",
         'timeline_header': "⏱️ Cronología e Hitos del Proceso",
         'timeline_drying_end': "Fin de la evaporación del agua (Secado)",

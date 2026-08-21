@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from pyrolysis import TRANSLATIONS
+from pyrolysis.pdf_generator import generate_thesis_pdf
 
 def get_lang():
     lang_opt = st.session_state.get('lang_option', 'Español')
@@ -533,53 +534,83 @@ def render_guide_tab():
     st.subheader(t("guide_sec_4"))
     st.markdown(t("guide_sec_4_text"))
 
-def render_export_tab(mode_option, results, summary):
-    """Renders the data export tab content."""
+def render_export_tab(mode_option, results, summary, solver_inputs=None, config_dict=None):
+    """Renders the data export tab content including Thesis PDF generation."""
     st.subheader(t("export_title"))
     st.markdown(t("export_desc"))
     
-    if mode_option == "Continuous Operation":
-        export_df = pd.DataFrame({
-            'Length_z_m': results['z'],
-            'T_Wall_C': results['T_wall'],
-            'T_Solids_C': results['T_solid'],
-            'T_Gas_C': results['T_gas'],
-            'Moisture_Flow_kgh': results['moisture'],
-            'Volatiles_Flow_kgh': results['volatile'],
-            'Char_Flow_kgh': results['char'],
-            'Ash_Flow_kgh': results['ash'],
-            'Oil_Vapor_Flow_kgh': results['oil'],
-            'Syngas_Flow_kgh': results['gas'],
-            'Steam_Flow_kgh': results['steam'],
-            'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
-            'Bed_Humidity_pct': results['humidity']
-        })
-        file_name_out = "pyrolysis_continuous_reactor_profile.csv"
-    else:
-        export_df = pd.DataFrame({
-            'Time_min': results['time'],
-            'T_Wall_C': results['T_wall'],
-            'T_Solids_C': results['T_solid'],
-            'Moisture_kg': results['moisture'],
-            'Volatiles_kg': results['volatile'],
-            'Char_kg': results['char'],
-            'Ash_kg': results['ash'],
-            'Oil_Produced_kg': results['oil'],
-            'Syngas_Produced_kg': results['gas'],
-            'Steam_Produced_kg': results['steam'],
-            'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
-            'Bed_Humidity_pct': results['humidity']
-        })
-        file_name_out = "pyrolysis_batch_reactor_profile.csv"
-        
-    csv_data = export_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label=t("export_button"),
-        data=csv_data,
-        file_name=file_name_out,
-        mime="text/csv"
-    )
+    col_pdf, col_csv = st.columns(2)
     
+    with col_pdf:
+        st.markdown("### 🎓 Reporte de Tesis (PDF)")
+        st.info(t("export_pdf_desc"))
+        
+        if solver_inputs is not None:
+            if config_dict is None:
+                config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+            
+            try:
+                pdf_bytes = generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict)
+                pdf_filename = "Tesis_Simulacion_Pirolisis_Reactor_Rotatorio.pdf"
+                st.download_button(
+                    label=t("export_pdf_button"),
+                    data=pdf_bytes,
+                    file_name=pdf_filename,
+                    mime="application/pdf",
+                    type="primary"
+                )
+            except Exception as e:
+                st.error(f"Error al generar el reporte de Tesis PDF: {e}")
+        else:
+            st.warning("Complete la simulación para habilitar la descarga del reporte en PDF.")
+
+    with col_csv:
+        st.markdown("### 📊 Datos de Perfil (CSV)")
+        st.caption("Descargue las series temporales/espaciales de temperatura, masa y rendimiento.")
+        
+        if mode_option == "Continuous Operation":
+            export_df = pd.DataFrame({
+                'Length_z_m': results['z'],
+                'T_Wall_C': results['T_wall'],
+                'T_Solids_C': results['T_solid'],
+                'T_Gas_C': results['T_gas'],
+                'Moisture_Flow_kgh': results['moisture'],
+                'Volatiles_Flow_kgh': results['volatile'],
+                'Char_Flow_kgh': results['char'],
+                'Ash_Flow_kgh': results['ash'],
+                'Oil_Vapor_Flow_kgh': results['oil'],
+                'Syngas_Flow_kgh': results['gas'],
+                'Steam_Flow_kgh': results['steam'],
+                'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
+                'Bed_Humidity_pct': results['humidity']
+            })
+            file_name_out = "pyrolysis_continuous_reactor_profile.csv"
+        else:
+            export_df = pd.DataFrame({
+                'Time_min': results['time'],
+                'T_Wall_C': results['T_wall'],
+                'T_Solids_C': results['T_solid'],
+                'Moisture_kg': results['moisture'],
+                'Volatiles_kg': results['volatile'],
+                'Char_kg': results['char'],
+                'Ash_kg': results['ash'],
+                'Oil_Produced_kg': results['oil'],
+                'Syngas_Produced_kg': results['gas'],
+                'Steam_Produced_kg': results['steam'],
+                'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
+                'Bed_Humidity_pct': results['humidity']
+            })
+            file_name_out = "pyrolysis_batch_reactor_profile.csv"
+            
+        csv_data = export_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label=t("export_button"),
+            data=csv_data,
+            file_name=file_name_out,
+            mime="text/csv"
+        )
+    
+    st.markdown("---")
     st.subheader(t("export_summary_title"))
     st.write(summary)
 
