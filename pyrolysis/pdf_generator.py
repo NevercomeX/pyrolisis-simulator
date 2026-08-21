@@ -47,18 +47,16 @@ class NumberedCanvas(base_canvas_class):
     def draw_page_decorations(self, page_count):
         self.saveState()
         
-        # We don't draw running header/footer on page 1 if it's treated as pure cover, 
-        # but for a formal thesis report we add top/bottom border rules on pages >= 2.
         if self._pageNumber > 1:
             # Header
             self.setFont("Helvetica-Bold", 8)
             self.setFillColor(colors.HexColor("#1E3A8A")) # Deep Navy
-            self.drawString(36, 756, "TESIS DE GRADO & SIMULACIÓN TERMOQUÍMICA DE PIRÓLISIS")
+            self.drawString(36, 756, "PROENERGETICO S.R.L. | INGENIERÍA DE PROCESOS Y ENERGÍA")
             self.setFont("Helvetica-Oblique", 8)
             self.setFillColor(colors.HexColor("#64748B"))
-            self.drawRightString(576, 756, "PROENERGETICOS - Reactor Rotatorio")
+            self.drawRightString(576, 756, "Simulador Termoquímico de Pirólisis v2.0")
             
-            self.setStrokeColor(colors.HexColor("#CBD5E1"))
+            self.setStrokeColor(colors.HexColor("#1E3A8A"))
             self.setLineWidth(0.75)
             self.line(36, 750, 576, 750)
             
@@ -69,18 +67,18 @@ class NumberedCanvas(base_canvas_class):
             
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748B"))
-            self.drawString(36, 32, "Documento Generado Automáticamente por Simulador Pyrolysis v2.0")
+            self.drawString(36, 32, "PROENERGETICOS S.R.L. — Reporte Técnico de Ingeniería & Evaluaciones de Factibilidad | Confidencial")
             page_text = f"Página {self._pageNumber} de {page_count}"
             self.drawRightString(576, 32, page_text)
         else:
-            # Page 1 Footer only
+            # Page 1 Footer
             self.setStrokeColor(colors.HexColor("#CBD5E1"))
             self.setLineWidth(0.75)
             self.line(36, 45, 576, 45)
             
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748B"))
-            self.drawString(36, 32, "Informe Académico - Proyecto de Tesis de Ingeniería")
+            self.drawString(36, 32, "PROENERGETICOS S.R.L. — Reporte Técnico de Ingeniería & Evaluaciones de Factibilidad | Confidencial")
             page_text = f"Página 1 de {page_count}"
             self.drawRightString(576, 32, page_text)
 
@@ -322,6 +320,21 @@ def _calculate_financials(mode_option, summary, solver_inputs):
     fin_results['total_capex'] = total_capex
     fin_results['total_rev_base'] = sum(fin_results['revenue_breakdown'].values()) if 'revenue_breakdown' in fin_results else 0.0
     fin_results['total_opex_base'] = sum(fin_results['opex_breakdown'].values()) if 'opex_breakdown' in fin_results else 0.0
+    fin_results['capex_breakdown'] = {
+        'equip': capex_equip,
+        'install': capex_install,
+        'civil': capex_civil,
+        'piping_elec': capex_piping_elec,
+        'eng': capex_eng,
+        'permits': capex_permits,
+        'cont': capex_cont
+    }
+    fin_results['annual_days'] = annual_days
+    fin_results['sludge_treated_kg'] = sludge_treated_kg
+    fin_results['sludge_treated_gal'] = sludge_treated_gal
+    fin_results['oil_produced_gal'] = oil_produced_gal
+    fin_results['char_produced_kg'] = char_produced_kg
+    fin_results['gas_produced_m3'] = gas_produced_m3
 
     return fin_results
 
@@ -479,13 +492,13 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     # ---------------------------------------------------------
     # 1. ACADEMIC COVER HEADER & TITLE
     # ---------------------------------------------------------
-    story.append(Paragraph("UNIVERSIDAD / CENTRO DE INVESTIGACIÓN DE INGENIERÍA QUÍMICA", ParagraphStyle('InstHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.HexColor("#64748B"), alignment=1)))
-    story.append(Paragraph("DEPARTAMENTO DE TERMODINÁMICA Y INGENIERÍA DE PROCESOS", ParagraphStyle('SubInstHeader', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor("#94A3B8"), alignment=1, spaceAfter=12)))
+    story.append(Paragraph("PROENERGETICO S.R.L. — INGENIERÍA Y CONSULTORÍA ENERGÉTICA", ParagraphStyle('InstHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.HexColor("#1E3A8A"), alignment=1)))
+    story.append(Paragraph("DEPARTAMENTO DE INGENIERÍA DE PROCESOS Y EVALUACIÓN TERMOQUÍMICA", ParagraphStyle('SubInstHeader', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor("#64748B"), alignment=1, spaceAfter=12)))
     
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#1E3A8A"), spaceBefore=0, spaceAfter=12))
     
     mode_str_es = "CONTINUO" if mode_option == "Continuous Operation" else "POR LOTES (BATCH)"
-    story.append(Paragraph("TESIS DE GRADO - INFORME TÉCNICO DE SIMULACIÓN", ParagraphStyle('DocTag', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=colors.HexColor("#D97706"), alignment=1, spaceAfter=4)))
+    story.append(Paragraph("INFORME TÉCNICO DE INGENIERÍA & EVALUACIÓN DE FACTIBILIDAD", ParagraphStyle('DocTag', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=colors.HexColor("#D97706"), alignment=1, spaceAfter=4)))
     story.append(Paragraph(f"EVALUACIÓN TERMOQUÍMICA Y BALANCES DE MATERIA Y ENERGÍA EN REACTOR ROTATORIO DE PIRÓLISIS ({mode_str_es})", title_style))
     story.append(Paragraph("Modelado Cinético Multietapa, Caracterización ASTM del Bio-Crudo y Evaluación de Autosuficiencia Energética", subtitle_style))
 
@@ -496,7 +509,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     
     meta_data = [
         [
-            Paragraph("<b>Autor / Tesista:</b>", table_cell_style), Paragraph("Ing. Proyecto PROENERGETICOS", table_cell_style),
+            Paragraph("<b>Empresa / Cliente:</b>", table_cell_style), Paragraph("PROENERGETICO S.R.L.", table_cell_style),
             Paragraph("<b>Fecha de Emisión:</b>", table_cell_style), Paragraph(current_date, table_cell_style)
         ],
         [
@@ -798,44 +811,142 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     # ---------------------------------------------------------
     # 5. EVALUACIÓN DE VIABILIDAD ECONÓMICA Y SOSTENIBILIDAD
     # ---------------------------------------------------------
+    story.append(PageBreak())
     story.append(Paragraph("5. Evaluación de Viabilidad Económica y Sostenibilidad Ambiental", h1_style))
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#CBD5E1"), spaceBefore=0, spaceAfter=8))
     
     fin = _calculate_financials(mode_option, summary, solver_inputs)
     curr_sym = "RD$"
     
+    cb = fin['capex_breakdown']
+    tot_cap = fin['total_capex']
+
+    # --- 5.1 Estructura de Inversión de Capital (CAPEX) ---
+    story.append(Paragraph("<b>5.1 Estructura de Inversión de Capital (CAPEX)</b>", h2_style))
+    
+    capex_table_data = [
+        [Paragraph("<b>Rubro de Inversión (CAPEX)</b>", table_header_style), Paragraph("<b>Monto (RD$)</b>", table_header_style), Paragraph("<b>Participación (%)</b>", table_header_style), Paragraph("<b>Descripción del Activo</b>", table_header_style)],
+        [Paragraph("Equipamiento Principal del Reactor", table_cell_style), Paragraph(f"{curr_sym}{cb['equip']:,.2f}", table_cell_center), Paragraph(f"{(cb['equip']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Tambor cilíndrico rotatorio y quemadores", table_cell_style)],
+        [Paragraph("Instalación Mecánica y Montaje", table_cell_style), Paragraph(f"{curr_sym}{cb['install']:,.2f}", table_cell_center), Paragraph(f"{(cb['install']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Ensamblaje, alineación y accionamiento", table_cell_style)],
+        [Paragraph("Obras Civiles y Cimentaciones", table_cell_style), Paragraph(f"{curr_sym}{cb['civil']:,.2f}", table_cell_center), Paragraph(f"{(cb['civil']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Bases de concreto, losas y contención", table_cell_style)],
+        [Paragraph("Tuberías y Redes Eléctricas", table_cell_style), Paragraph(f"{curr_sym}{cb['piping_elec']:,.2f}", table_cell_center), Paragraph(f"{(cb['piping_elec']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Manifold 8'', interconexiones y control", table_cell_style)],
+        [Paragraph("Ingeniería y Supervisión", table_cell_style), Paragraph(f"{curr_sym}{cb['eng']:,.2f}", table_cell_center), Paragraph(f"{(cb['eng']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Diseño conceptual, detalle y HAZOP", table_cell_style)],
+        [Paragraph("Permisos Ambientales y Legales", table_cell_style), Paragraph(f"{curr_sym}{cb['permits']:,.2f}", table_cell_center), Paragraph(f"{(cb['permits']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Licencia ambiental y permisos op.", table_cell_style)],
+        [Paragraph("Fondo de Contingencias", table_cell_style), Paragraph(f"{curr_sym}{cb['cont']:,.2f}", table_cell_center), Paragraph(f"{(cb['cont']/tot_cap*100):.1f}%", table_cell_center), Paragraph("Imprevistos de construcción (10%)", table_cell_style)],
+        [Paragraph("<b>TOTAL INVERSIÓN (CAPEX)</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{tot_cap:,.2f}</b>", table_cell_center), Paragraph("<b>100.0%</b>", table_cell_center), Paragraph("<b>Inversión Inicial Total</b>", table_cell_bold)]
+    ]
+    t_capex = Table(capex_table_data, colWidths=[2.2*inch, 1.4*inch, 1.1*inch, 1.9*inch])
+    t_capex.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor("#F1F5F9")),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+    ]))
+    story.append(t_capex)
+    story.append(Spacer(1, 10))
+
+    # --- 5.2 Estructura de Costos Operativos (OPEX Anual Base) ---
+    ob = fin['opex_breakdown']
+    tot_op = fin['total_opex_base']
+    
+    story.append(Paragraph("<b>5.2 Estructura de Costos Operativos Anuales (OPEX Base)</b>", h2_style))
+    
+    opex_table_data = [
+        [Paragraph("<b>Rubro Operativo (OPEX)</b>", table_header_style), Paragraph("<b>Gasto Anual (RD$)</b>", table_header_style), Paragraph("<b>Participación (%)</b>", table_header_style), Paragraph("<b>Base de Cálculo</b>", table_header_style)],
+        [Paragraph("Manejo y Logística de Lodos", table_cell_style), Paragraph(f"{curr_sym}{ob['handling']:,.2f}", table_cell_center), Paragraph(f"{(ob['handling']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph(f"{fin['sludge_treated_gal']:,.0f} gal a RD$ 3.00/gal", table_cell_style)],
+        [Paragraph("Combustible Auxiliar Quemadores", table_cell_style), Paragraph(f"{curr_sym}{ob['fuel']:,.2f}", table_cell_center), Paragraph(f"{(ob['fuel']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Consumo de respaldo inicial", table_cell_style)],
+        [Paragraph("Energía Eléctrica (Motores)", table_cell_style), Paragraph(f"{curr_sym}{ob['electricity']:,.2f}", table_cell_center), Paragraph(f"{(ob['electricity']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Accionamiento tambor y auxiliares", table_cell_style)],
+        [Paragraph("Insumos Auxiliares y Servicios", table_cell_style), Paragraph(f"{curr_sym}{ob['aux_utilities']:,.2f}", table_cell_center), Paragraph(f"{(ob['aux_utilities']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Agua de enfriamiento y reactivos", table_cell_style)],
+        [Paragraph("Diésel Planta de Emergencia", table_cell_style), Paragraph(f"{curr_sym}{ob['gen_diesel']:,.2f}", table_cell_center), Paragraph(f"{(ob['gen_diesel']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Respaldo eléctrico de seguridad", table_cell_style)],
+        [Paragraph("Mano de Obra y Nómina", table_cell_style), Paragraph(f"{curr_sym}{ob['labor']:,.2f}", table_cell_center), Paragraph(f"{(ob['labor']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Operadores y personal técnico", table_cell_style)],
+        [Paragraph("Mantenimiento Planta (3% CAPEX)", table_cell_style), Paragraph(f"{curr_sym}{ob['maintenance']:,.2f}", table_cell_center), Paragraph(f"{(ob['maintenance']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Repuestos y mantenimiento preventivo", table_cell_style)],
+        [Paragraph("Seguros y licencias (1% CAPEX)", table_cell_style), Paragraph(f"{curr_sym}{ob['insurance_tax']:,.2f}", table_cell_center), Paragraph(f"{(ob['insurance_tax']/max(1,tot_op)*100):.1f}%", table_cell_center), Paragraph("Póliza contra incendios y licencias", table_cell_style)],
+        [Paragraph("<b>TOTAL OPERACIÓN (OPEX)</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{tot_op:,.2f}</b>", table_cell_center), Paragraph("<b>100.0%</b>", table_cell_center), Paragraph("<b>Gasto Operativo Anual Base</b>", table_cell_bold)]
+    ]
+    t_opex = Table(opex_table_data, colWidths=[2.2*inch, 1.4*inch, 1.1*inch, 1.9*inch])
+    t_opex.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0D9488")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor("#F1F5F9")),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+    ]))
+    story.append(t_opex)
+    story.append(Spacer(1, 10))
+
+    # --- 5.3 Estructura de Ingresos por Productos ---
+    rb = fin['revenue_breakdown']
+    tot_rev = fin['total_rev_base']
+    
+    story.append(Paragraph("<b>5.3 Estructura de Ingresos Anuales (Año 1)</b>", h2_style))
+    
+    rev_table_data = [
+        [Paragraph("<b>Fuente de Ingreso / Valorización</b>", table_header_style), Paragraph("<b>Ingreso Anual (RD$)</b>", table_header_style), Paragraph("<b>Participación (%)</b>", table_header_style), Paragraph("<b>Volumen y Precio Unitario</b>", table_header_style)],
+        [Paragraph("Tarifa Disposición Lodos (Tipping Fee)", table_cell_style), Paragraph(f"{curr_sym}{rb['tipping']:,.2f}", table_cell_center), Paragraph(f"{(rb['tipping']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['sludge_treated_gal']:,.0f} gal a RD$ 9.00/gal", table_cell_style)],
+        [Paragraph("Venta de Bio-Crudo (Bio-Oil)", table_cell_style), Paragraph(f"{curr_sym}{rb['oil']:,.2f}", table_cell_center), Paragraph(f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['oil_produced_gal']:,.0f} gal a RD$ 120.00/gal", table_cell_style)],
+        [Paragraph("Venta de Bio-Carbón (Bio-Char)", table_cell_style), Paragraph(f"{curr_sym}{rb['char']:,.2f}", table_cell_center), Paragraph(f"{(rb['char']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['char_produced_kg']:,.0f} kg a RD$ 21.00/kg", table_cell_style)],
+        [Paragraph("Venta / Ahorro Syngas Excedente", table_cell_style), Paragraph(f"{curr_sym}{rb['gas']:,.2f}", table_cell_center), Paragraph(f"{(rb['gas']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['gas_produced_m3']:,.0f} m³ a RD$ 3.60/m³", table_cell_style)],
+        [Paragraph("Créditos por Captura de Carbono", table_cell_style), Paragraph(f"{curr_sym}{rb['carbon']:,.2f}", table_cell_center), Paragraph(f"{(rb['carbon']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['annual_co2_sequestered_ton']:,.1f} t CO2e a RD$ 1,200/t", table_cell_style)],
+        [Paragraph("<b>TOTAL INGRESOS ANUALES</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{tot_rev:,.2f}</b>", table_cell_center), Paragraph("<b>100.0%</b>", table_cell_center), Paragraph("<b>Ingreso Bruto Año 1</b>", table_cell_bold)]
+    ]
+    t_rev = Table(rev_table_data, colWidths=[2.2*inch, 1.4*inch, 1.1*inch, 1.9*inch])
+    t_rev.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#059669")),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor("#FEF3C7")),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+    ]))
+    story.append(t_rev)
+    story.append(Spacer(1, 10))
+
+    # --- 5.4 Evaluación de Indicadores Financieros Clave (KPIs) ---
     irr_str = f"{fin['irr']:.1f}%" if fin['irr'] is not None else "N/A"
     payback_str = f"{fin['payback']:.1f} años" if fin['payback'] != float('inf') else "N/A"
     disc_payback_str = f"{fin['disc_payback']:.1f} años" if fin['disc_payback'] != float('inf') else "N/A"
 
-    story.append(Paragraph("<b>5.1 Indicadores Financieros Clave (KPIs)</b>", h2_style))
+    be_tipping_val = f"{curr_sym}{fin['breakeven_tipping']:.2f} / gal"
+    if fin['breakeven_tipping'] <= 0:
+        be_tipping_eval = "Autosostenible (Superávit por venta de subproductos)"
+    else:
+        be_tipping_eval = "Tarifa mínima requerida para VAN = 0"
+
+    ebitda_base = tot_rev - tot_op
+    margin_ebitda = (ebitda_base / max(1, tot_rev)) * 100.0
+
+    story.append(Paragraph("<b>5.4 Evaluación de Indicadores Financieros (KPIs)</b>", h2_style))
     
     kpi_table_data = [
         [Paragraph("<b>Métrica Financiera</b>", table_header_style), Paragraph("<b>Valor Proyectado</b>", table_header_style), Paragraph("<b>Criterio / Evaluación</b>", table_header_style)],
-        [Paragraph("Inversión Inicial Total (CAPEX)", table_cell_style), Paragraph(f"{curr_sym}{fin['total_capex']:,.2f}", table_cell_center), Paragraph("Inversión de capital fija", table_cell_style)],
-        [Paragraph("Ingresos Anuales Base (Año 1)", table_cell_style), Paragraph(f"{curr_sym}{fin['total_rev_base']:,.2f}", table_cell_center), Paragraph("Venta productos + Tipping Fee", table_cell_style)],
-        [Paragraph("Costos Anuales OPEX (Año 1)", table_cell_style), Paragraph(f"{curr_sym}{fin['total_opex_base']:,.2f}", table_cell_center), Paragraph("Manejo, insumos, nómina y mant.", table_cell_style)],
-        [Paragraph("<b>Valor Actual Neto (VAN / NPV)</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{fin['npv']:,.2f}</b>", table_cell_center), Paragraph("<b>Viable si VAN > 0</b>", table_cell_style)],
-        [Paragraph("<b>Tasa Interna de Retorno (TIR / IRR)</b>", table_cell_bold), Paragraph(f"<b>{irr_str}</b>", table_cell_center), Paragraph("Tasa de descuento: 14.0%", table_cell_style)],
+        [Paragraph("Inversión Inicial Total (CAPEX)", table_cell_style), Paragraph(f"{curr_sym}{tot_cap:,.2f}", table_cell_center), Paragraph("Inversión fija inicial", table_cell_style)],
+        [Paragraph("Ingresos Anuales Base (Año 1)", table_cell_style), Paragraph(f"{curr_sym}{tot_rev:,.2f}", table_cell_center), Paragraph("Venta productos + Tipping Fee", table_cell_style)],
+        [Paragraph("Costos Anuales OPEX (Año 1)", table_cell_style), Paragraph(f"{curr_sym}{tot_op:,.2f}", table_cell_center), Paragraph("Manejo, insumos, nómina y mant.", table_cell_style)],
+        [Paragraph("EBITDA Estimado Año 1", table_cell_style), Paragraph(f"{curr_sym}{ebitda_base:,.2f}", table_cell_center), Paragraph(f"Margen EBITDA: {margin_ebitda:.1f}%", table_cell_style)],
+        [Paragraph("<b>Valor Actual Neto (VAN / NPV)</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{fin['npv']:,.2f}</b>", table_cell_center), Paragraph("<b>Proyecto Altamente Viable (VAN > 0)</b>", table_cell_style)],
+        [Paragraph("<b>Tasa Interna de Retorno (TIR / IRR)</b>", table_cell_bold), Paragraph(f"<b>{irr_str}</b>", table_cell_center), Paragraph("Tasa de descuento exigida: 14.0%", table_cell_style)],
         [Paragraph("Período Recuperación Simple", table_cell_style), Paragraph(payback_str, table_cell_center), Paragraph("Recuperación de capital inicial", table_cell_style)],
-        [Paragraph("Período Recuperación Descontado", table_cell_style), Paragraph(disc_payback_str, table_cell_center), Paragraph("Recuperación con tasa desc.", table_cell_style)],
-        [Paragraph("Índice de Rentabilidad (PI)", table_cell_style), Paragraph(f"{fin['pi']:.2f}", table_cell_center), Paragraph("PI > 1.0 indica valor neto positivo", table_cell_style)],
-        [Paragraph("Tarifa Equilibrio (Break-Even Tipping)", table_cell_style), Paragraph(f"{curr_sym}{fin['breakeven_tipping']:.2f} / gal", table_cell_center), Paragraph("Tarifa mínima para VAN = 0", table_cell_style)]
+        [Paragraph("Período Recuperación Descontado", table_cell_style), Paragraph(disc_payback_str, table_cell_center), Paragraph("Recuperación considerando r=14%", table_cell_style)],
+        [Paragraph("Índice de Rentabilidad (PI)", table_cell_style), Paragraph(f"{fin['pi']:.2f}", table_cell_center), Paragraph("PI > 1.0 confirma valor neto positivo", table_cell_style)],
+        [Paragraph("Tarifa Equilibrio (Break-Even Tipping)", table_cell_style), Paragraph(be_tipping_val, table_cell_center), Paragraph(be_tipping_eval, table_cell_style)]
     ]
     t_kpi = Table(kpi_table_data, colWidths=[2.5*inch, 2.0*inch, 2.1*inch])
     t_kpi.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1E3A8A")),
         ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
         ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('BACKGROUND', (0,4), (-1,5), colors.HexColor("#FEF3C7")),
+        ('BACKGROUND', (0,5), (-1,6), colors.HexColor("#FEF3C7")),
         ('TOPPADDING', (0,0), (-1,-1), 3),
         ('BOTTOMPADDING', (0,0), (-1,-1), 3),
     ]))
     story.append(t_kpi)
     story.append(Spacer(1, 10))
 
-    # Financial Projections Table (Years 0 to 5)
-    story.append(Paragraph("<b>5.2 Flujos de Caja Proyectados (Años 0 a 5)</b>", h2_style))
+    # --- 5.5 Estado de Resultados y Proyección Financiera a 10 Años ---
+    story.append(Paragraph("<b>5.5 Estado de Resultados y Proyección Financiera (Años 0 a 10)</b>", h2_style))
     
     proj_table_headers = [
         Paragraph("<b>Año</b>", table_header_style),
@@ -848,55 +959,29 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     ]
     
     proj_rows = [proj_table_headers]
-    for yr in range(min(6, len(fin['years']))):
+    for yr in range(len(fin['years'])):
         n_cf = fin['net_flows'][yr]
         cum_v = fin['cum_flows'][yr]
         proj_rows.append([
             Paragraph(f"Año {yr}", table_cell_center),
-            Paragraph(f"{curr_sym}{-fin['total_capex']:,.0f}" if yr == 0 else f"{curr_sym}{n_cf:,.0f}", table_cell_center),
+            Paragraph(f"{curr_sym}{-tot_cap:,.0f}" if yr == 0 else f"{curr_sym}{n_cf:,.0f}", table_cell_center),
             Paragraph(f"{curr_sym}{fin['rev_flows'][yr]:,.0f}", table_cell_center),
             Paragraph(f"{curr_sym}{fin['opex_flows'][yr]:,.0f}", table_cell_center),
             Paragraph(f"{curr_sym}{fin['depr_flows'][yr]:,.0f}", table_cell_center),
             Paragraph(f"{curr_sym}{n_cf:,.0f}", table_cell_center),
             Paragraph(f"{curr_sym}{cum_v:,.0f}", table_cell_center)
         ])
-        
+
     t_proj = Table(proj_rows, colWidths=[0.8*inch, 1.0*inch, 1.0*inch, 1.0*inch, 0.9*inch, 1.0*inch, 0.9*inch])
     t_proj.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#0D9488")),
         ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
         ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('TOPPADDING', (0,0), (-1,-1), 2.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
     ]))
     story.append(t_proj)
     story.append(Spacer(1, 10))
-
-    # Sustainability & Carbon Sequestration
-    story.append(Paragraph("<b>5.3 Sostenibilidad Ambiental y Captura de Carbono</b>", h2_style))
-    
-    co2_tons = fin['annual_co2_sequestered_ton']
-    trees_eq = int(co2_tons / 0.022)
-    cars_eq = int(co2_tons / 4.6)
-    carbon_rev = co2_tons * 1200.0
-
-    sust_table_data = [
-        [Paragraph("<b>Métrica Ambiental</b>", table_header_style), Paragraph("<b>Valor Anual</b>", table_header_style), Paragraph("<b>Equivalencia de Impacto</b>", table_header_style)],
-        [Paragraph("Carbono Fijo Secuestrado (Bio-Char)", table_cell_style), Paragraph(f"{co2_tons:,.2f} t CO2e/año", table_cell_center), Paragraph("Captura permanente en sólidos", table_cell_style)],
-        [Paragraph("Ingresos por Créditos de Carbono", table_cell_style), Paragraph(f"{curr_sym}{carbon_rev:,.2f}/año", table_cell_center), Paragraph("Basado en RD$ 1,200/t CO2e", table_cell_style)],
-        [Paragraph("Equivalente en Árboles Sembrados", table_cell_style), Paragraph(f"{trees_eq:,} árboles", table_cell_center), Paragraph("Absorción equivalente anual", table_cell_style)],
-        [Paragraph("Equivalente en Autos Retirados", table_cell_style), Paragraph(f"{cars_eq:,} vehículos", table_cell_center), Paragraph("Emisiones evitadas de combustión", table_cell_style)]
-    ]
-    t_sust = Table(sust_table_data, colWidths=[2.5*inch, 2.0*inch, 2.1*inch])
-    t_sust.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#059669")),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#CBD5E1")),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-    ]))
-    story.append(t_sust)
-    story.append(Spacer(1, 14))
 
     # ---------------------------------------------------------
     # 6. DISCUSIÓN TÉCNICA Y CONCLUSIONES ACADÉMICAS
@@ -927,19 +1012,12 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         f"El error de cierre en el balance de materia de <b>{summary['mass_error_pct']:.2e}%</b> "
         f"valida la precisión matemática del esquema numérico de integración y confirma la ausencia de pérdidas ficticias en el simulador."
     )
-    c5 = (
-        f"<b>5. Viabilidad Económica y Rentabilidad del Proyecto:</b> "
-        f"El análisis financiero proyecta un Valor Actual Neto (VAN) de <b>{curr_sym}{fin['npv']:,.2f}</b> "
-        f"y una Tasa Interna de Retorno (TIR) del <b>{irr_str}</b> (superando la tasa de descuento del 14.0%), "
-        f"con un período de recuperación estimado en <b>{payback_str}</b> y una captura de carbono de <b>{co2_tons:,.2f} t CO2e/año</b>, "
-        f"confirmando la sólida rentabilidad económica y sostenibilidad ambiental de la instalación."
-    )
+
 
     story.append(Paragraph(c1, body_style))
     story.append(Paragraph(c2, body_style))
     story.append(Paragraph(c3, body_style))
     story.append(Paragraph(c4, body_style))
-    story.append(Paragraph(c5, body_style))
     story.append(Spacer(1, 20))
 
     # Signature Block Table

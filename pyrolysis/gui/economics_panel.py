@@ -525,11 +525,19 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         )
         
     with col_kpi5:
+        be_val_str = f"{curr_sym}{m['breakeven_tipping']:.2f}/gal"
+        if m['breakeven_tipping'] <= 0:
+            be_sub = "Autosostenible (Venta productos cubre costos)" if lang == 'es' else "Self-sustaining (Product sales cover costs)"
+            is_pos = True
+        else:
+            be_sub = "Tarifa equilibrio (VAN=0)" if lang == 'es' else "Tipping fee for NPV=0"
+            is_pos = (m['breakeven_tipping'] < opex_tipping)
+            
         render_kpi_card(
             t('econ_metric_breakeven_tipping'),
-            f"{curr_sym}{m['breakeven_tipping']:.4f}/gal",
-            "Tipping fee for NPV=0 / Tarifa equilibrio",
-            is_positive=(m['breakeven_tipping'] < opex_tipping)
+            be_val_str,
+            be_sub,
+            is_positive=is_pos
         )
 
     # ----------------------------------------------------
