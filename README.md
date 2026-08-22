@@ -15,8 +15,22 @@ The model is integrated with a beautiful, theme-aware **Streamlit Web Dashboard*
    ```
 3. Install the required libraries:
    ```bash
-   pip install numpy scipy pandas streamlit matplotlib plotly
+   pip install -r requirements.txt
    ```
+
+### 🔄 Updating the Project
+To pull the latest changes from Git and install/update dependencies automatically:
+
+- **Linux / macOS**:
+  ```bash
+  ./update.sh
+  # or: python3 update.py
+  ```
+- **Windows**:
+  ```cmd
+  update.bat
+  # or: python update.py
+  ```
 
 ---
 
