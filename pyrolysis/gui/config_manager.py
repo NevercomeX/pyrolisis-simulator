@@ -174,7 +174,10 @@ def render_config_manager(current_config_data):
             full_config_data[k] = st.session_state[k]
         else:
             full_config_data[k] = DEFAULT_PARAMS[k]
-        st.session_state[k] = full_config_data[k]
+        try:
+            st.session_state[k] = full_config_data[k]
+        except Exception:
+            pass
 
     # Auto-save configuration to browser localStorage whenever any parameter changes
     if st.session_state.get('local_storage_loaded', False):

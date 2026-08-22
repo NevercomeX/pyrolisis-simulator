@@ -696,9 +696,12 @@ def render_sidebar():
         if k not in config_dict:
             config_dict[k] = st.session_state.get(k, v)
 
-    # Sync all config_dict parameters into st.session_state
+    # Sync all config_dict parameters into st.session_state safely
     for k, v in config_dict.items():
-        st.session_state[k] = v
+        try:
+            st.session_state[k] = v
+        except Exception:
+            pass
 
     # Also build inputs for solvers
     solver_inputs = {
