@@ -73,6 +73,28 @@ def run_update():
     else:
         print("[WARNING] requirements.txt was not found. Skipping dependency installation.")
 
+    # Step 3: Restart systemd service if available (Linux server)
+    if sys.platform != "win32":
+        print("\n[3/3] Restarting systemd service 'pyrolysis'...")
+        try:
+            # Check if systemctl exists
+            check_sysctl = subprocess.run(["which", "systemctl"], capture_output=True)
+            if check_sysctl.returncode == 0:
+                res = subprocess.run(["systemctl", "restart", "pyrolysis"], capture_output=True, text=True)
+                if res.returncode == 0:
+                    print("[OK] Service 'pyrolysis' restarted successfully.")
+                else:
+                    # Fallback with sudo if permission denied or non-root user
+                    res_sudo = subprocess.run(["sudo", "systemctl", "restart", "pyrolysis"], capture_output=True, text=True)
+                    if res_sudo.returncode == 0:
+                        print("[OK] Service 'pyrolysis' restarted successfully (via sudo).")
+                    else:
+                        print(f"[WARNING] Could not restart 'pyrolysis' service: {res.stderr.strip() or res_sudo.stderr.strip()}")
+            else:
+                print("[INFO] 'systemctl' not found. Skipping service restart.")
+        except Exception as e:
+            print(f"[WARNING] Service restart skipped: {e}")
+
     print("\n==================================================")
     print(" [SUCCESS] Update completed successfully!")
     print("==================================================")
