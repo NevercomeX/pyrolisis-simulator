@@ -128,6 +128,7 @@ def init_session_state():
                         st.session_state[k] = ls_config[k]
                 st.session_state['local_storage_loaded'] = True
                 st.session_state['fallback_loaded'] = True
+                st.session_state['_last_saved_config'] = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
                 st.rerun()
             elif isinstance(ls_config, dict) and ls_config.get("__empty__", False):
                 # The browser completed the check and found nothing. Try file fallback.
@@ -143,6 +144,7 @@ def init_session_state():
                             pass
                     st.session_state['fallback_loaded'] = True
                 st.session_state['local_storage_loaded'] = True
+                st.session_state['_last_saved_config'] = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
                 st.rerun()
         else:
             # First frame fallback - load from JSON file while localStorage is fetching
@@ -172,8 +174,22 @@ def render_config_manager(current_config_data):
             full_config_data[k] = st.session_state[k]
         else:
             full_config_data[k] = DEFAULT_PARAMS[k]
+        st.session_state[k] = full_config_data[k]
 
-    # Save to local storage (primary) and local file (fallback)
+    # Auto-save configuration to browser localStorage whenever any parameter changes
+    if st.session_state.get('local_storage_loaded', False):
+        last_saved = st.session_state.get('_last_saved_config', None)
+        if last_saved != full_config_data:
+            from pyrolysis.gui.local_storage import local_storage_set
+            local_storage_set("pyrolysis_config", full_config_data, key_suffix="auto_save")
+            st.session_state['_last_saved_config'] = dict(full_config_data)
+            try:
+                with open(CONFIG_FILE, 'w') as f:
+                    json.dump(full_config_data, f, indent=4)
+            except Exception:
+                pass
+
+    # Save to local storage (primary) and local file (fallback) manually
     if st.sidebar.button(t("save_config_default"), key="save_config_btn", use_container_width=True):
         st.session_state['trigger_save_ls'] = True
         try:

@@ -648,27 +648,57 @@ def render_sidebar():
         'custom_cp_char': float(custom_cp_char),
         'custom_cp_ash': float(custom_cp_ash),
         'bio_oil_density': float(bio_oil_density),
+        'bio_char_density': float(bio_char_density),
+        'fuel_type': st.session_state.get('fuel_type', DEFAULT_PARAMS['fuel_type']),
+        'fuel_lhv': float(st.session_state.get('fuel_lhv', DEFAULT_PARAMS['fuel_lhv'])),
+        'fuel_density': float(st.session_state.get('fuel_density', DEFAULT_PARAMS['fuel_density'])),
+        'fuel_moisture': float(st.session_state.get('fuel_moisture', DEFAULT_PARAMS['fuel_moisture'])),
+        'fuel_ash': float(st.session_state.get('fuel_ash', DEFAULT_PARAMS['fuel_ash'])),
+        'manifold_main_dia_in': float(manifold_main_dia_in),
+        'manifold_branch_dia_in': float(manifold_branch_dia_in),
+        'manifold_num_branches': int(manifold_num_branches),
+        'cooling_tank_gal': float(cooling_tank_gal),
+        'autogenous_purge': bool(autogenous_purge),
         'capex_equip': float(st.session_state.get('capex_equip', DEFAULT_PARAMS['capex_equip'])),
         'capex_install': float(st.session_state.get('capex_install', DEFAULT_PARAMS['capex_install'])),
+        'capex_civil': float(st.session_state.get('capex_civil', DEFAULT_PARAMS['capex_civil'])),
+        'capex_piping_elec': float(st.session_state.get('capex_piping_elec', DEFAULT_PARAMS['capex_piping_elec'])),
+        'capex_eng': float(st.session_state.get('capex_eng', DEFAULT_PARAMS['capex_eng'])),
         'capex_permits': float(st.session_state.get('capex_permits', DEFAULT_PARAMS['capex_permits'])),
         'capex_cont': float(st.session_state.get('capex_cont', DEFAULT_PARAMS['capex_cont'])),
         'opex_handling': float(st.session_state.get('opex_handling', DEFAULT_PARAMS['opex_handling'])),
         'opex_tipping': float(st.session_state.get('opex_tipping', DEFAULT_PARAMS['opex_tipping'])),
         'opex_fuel': float(st.session_state.get('opex_fuel', DEFAULT_PARAMS['opex_fuel'])),
+        'opex_electricity': float(st.session_state.get('opex_electricity', DEFAULT_PARAMS['opex_electricity'])),
+        'opex_aux_utilities': float(st.session_state.get('opex_aux_utilities', DEFAULT_PARAMS['opex_aux_utilities'])),
         'price_generator_fuel': float(st.session_state.get('price_generator_fuel', DEFAULT_PARAMS['price_generator_fuel'])),
         'gen_diesel_rate': float(st.session_state.get('gen_diesel_rate', DEFAULT_PARAMS['gen_diesel_rate'])),
         'gen_diesel_batch': float(st.session_state.get('gen_diesel_batch', DEFAULT_PARAMS['gen_diesel_batch'])),
         'opex_labor': float(st.session_state.get('opex_labor', DEFAULT_PARAMS['opex_labor'])),
         'opex_maint': float(st.session_state.get('opex_maint', DEFAULT_PARAMS['opex_maint'])),
+        'opex_insurance_tax': float(st.session_state.get('opex_insurance_tax', DEFAULT_PARAMS['opex_insurance_tax'])),
         'price_oil': float(st.session_state.get('price_oil', DEFAULT_PARAMS['price_oil'])),
         'price_char': float(st.session_state.get('price_char', DEFAULT_PARAMS['price_char'])),
         'price_gas': float(st.session_state.get('price_gas', DEFAULT_PARAMS['price_gas'])),
+        'price_carbon': float(st.session_state.get('price_carbon', DEFAULT_PARAMS['price_carbon'])),
+        'rate_carbon_offset': float(st.session_state.get('rate_carbon_offset', DEFAULT_PARAMS['rate_carbon_offset'])),
         'discount_rate': float(st.session_state.get('discount_rate', DEFAULT_PARAMS['discount_rate'])),
         'project_lifetime': int(st.session_state.get('project_lifetime', DEFAULT_PARAMS['project_lifetime'])),
         'annual_days': int(st.session_state.get('annual_days', DEFAULT_PARAMS['annual_days'])),
         'motor_power': float(st.session_state.get('motor_power', DEFAULT_PARAMS['motor_power'])),
-        'batch_turnaround_h': float(st.session_state.get('batch_turnaround_h', DEFAULT_PARAMS['batch_turnaround_h']))
+        'batch_turnaround_h': float(st.session_state.get('batch_turnaround_h', DEFAULT_PARAMS['batch_turnaround_h'])),
+        'tax_rate': float(st.session_state.get('tax_rate', DEFAULT_PARAMS['tax_rate'])),
+        'inflation_rate': float(st.session_state.get('inflation_rate', DEFAULT_PARAMS['inflation_rate']))
     }
+
+    # Populate any missing default parameters
+    for k, v in DEFAULT_PARAMS.items():
+        if k not in config_dict:
+            config_dict[k] = st.session_state.get(k, v)
+
+    # Sync all config_dict parameters into st.session_state
+    for k, v in config_dict.items():
+        st.session_state[k] = v
 
     # Also build inputs for solvers
     solver_inputs = {
