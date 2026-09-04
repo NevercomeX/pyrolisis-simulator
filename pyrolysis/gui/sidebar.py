@@ -590,7 +590,7 @@ def render_sidebar():
             
             st.sidebar.info(t("nominal_heating_rate_info").format(heating_rate_cmin))
         else:
-            heating_rate_cmin = st.sidebar.slider(t("heating_rate"), 1.0, 500.0, float(st.session_state.get('heating_rate', 10.0)), 1.0)
+            heating_rate_cmin = st.sidebar.slider(t("heating_rate"), 0.5, 50.0, float(st.session_state.get('heating_rate', 10.0)), 0.5)
             
         temp_hold_c = st.sidebar.slider(t("holding_temp"), 300.0, 800.0, float(st.session_state.get('holding_temp', 550.0)), 10.0)
         hold_time_min = st.sidebar.slider(t("holding_time"), 10.0, 3000.0, float(st.session_state.get('holding_time', 60.0)), 10.0)
