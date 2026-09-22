@@ -422,7 +422,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     # ----------------------------------------------------
     # CORE COMPUTATIONS PREPARATION
     # ----------------------------------------------------
-    sludge_density = float(st.session_state.get('sludge_density', 900.0))
+    sludge_density = float(st.session_state.get('sludge_density', 944.7))
     oil_density = float(st.session_state.get('bio_oil_density', 750.0))
     gas_density = 1.15
     

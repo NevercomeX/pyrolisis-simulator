@@ -15,7 +15,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
                  shell_material_dict: dict = None,
                  shell_thickness_mm: float = 15.0,
                  h_loss: float = 5.0,
-                 bulk_density: float = 900.0,
+                 bulk_density: float = 944.7,
                  Cp_volatile: float = 1800.0,
                  Cp_char: float = 1000.0,
                  Cp_ash: float = 800.0,
@@ -114,7 +114,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
         m_ash = self.batch_load_kg * fracs['ash']
         m_solid_total = m_moist + m_volatile + m_char + m_ash
         
-        # Estima el tiempo nominal de rampa para definir la duración del ensayo
+        # Estima el tiempo nominal de rampa y evaporación para definir la duración total requerida
         dT = self.T_hold - self.T_start
         if self.auto_heating_rate:
             Q_main_nominal = self.burner_hp * 745.7 * (self.burner_eff_pct / 100.0)
@@ -125,7 +125,15 @@ class BatchReactorSimulation(BaseReactorSimulation):
         else:
             t_ramp_sec = dT / self.heating_rate_csec if self.heating_rate_csec > 0 else 0.0
             
-        t_total_sec = t_ramp_sec + self.hold_time_min * 60.0 # Tiempo total de simulación en segundos
+        eta_fill = self.get_filling_degree_pct() / 100.0
+        A_heat_est = np.pi * self.diameter * self.length * max(0.05, eta_fill)
+        Q_dry_est = self.h_eff * A_heat_est * 150.0 # Salto térmico promedio durante secado (~150 K)
+        t_dry_est_sec = (m_moist * self.dH_evap) / max(Q_dry_est, 1.0) if m_moist > 0 else 0.0
+        
+        Q_pyro_est = self.h_eff * A_heat_est * 100.0
+        t_pyro_est_sec = (m_volatile * self.dH_pyro) / max(Q_pyro_est, 1.0) if m_volatile > 0 else 0.0
+        
+        t_total_sec = max(t_ramp_sec + self.hold_time_min * 60.0, t_dry_est_sec + t_pyro_est_sec + self.hold_time_min * 60.0)
         steps = int(t_total_sec / dt_sec)
         
         T_s = self.T_start
@@ -226,14 +234,19 @@ class BatchReactorSimulation(BaseReactorSimulation):
             # Constantes y tasas de reacción locales
             k1, k2, k3, r_slug, r_medios, r_gases = self.calculate_first_order_kinetics(T_s, m_volatile, m_oil_vap)
             
-            # En lodos de hidrocarburos multicomponente, la desvolatilización se distribuye en el rango 296°C (569.15 K) a 370°C (643.15 K)
-            T_onset_K = 296.0 + 273.15
-            T_end_boil_K = 370.0 + 273.15
+            # En lodos de hidrocarburos multicomponente, la desvolatilización se distribuye en el rango 250°C (523.15 K) a 520°C (793.15 K)
+            T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
+            T_end_boil_K = 520.0 + 273.15
             
             if T_s >= T_onset_K:
                 # Modulación continua por fracción destilable a la temperatura actual T_s
-                f_distillable = min(1.0, max(0.05, (T_s - T_onset_K) / (T_end_boil_K - T_onset_K)))
+                f_distillable = min(1.0, max(0.05, (T_s - T_onset_K) / max(1.0, T_end_boil_K - T_onset_K)))
                 r_slug = r_slug * f_distillable
+                
+                # Límite por suministro calórico térmico endotérmico
+                Q_avail_heat = (T_w - T_s) * self.h_eff * A_heat if T_w > T_s else 0.0
+                r_thermal_max = Q_avail_heat / self.dH_pyro if self.dH_pyro > 0 else r_slug
+                r_slug = min(r_slug, r_thermal_max)
             else:
                 r_slug = 0.0
                 k1 = 0.0
@@ -283,11 +296,10 @@ class BatchReactorSimulation(BaseReactorSimulation):
             else:
                 T_target_heat = T_s
                 
-            # Moderación endotérmica continua: el calor de reacción atenúa el calentamiento pero permite un ascenso continuo de 300°C a 370°C
+            # Moderación endotérmica continua: el calor de reacción atenúa el calentamiento pero permite un ascenso continuo
             dT_input = T_target_heat - T_s
             dT_endothermic = (H_rxn / denom_temp) if denom_temp > 1e-8 else 0.0
-            # Garantiza un progreso térmico positivo hacia T_w durante la destilación
-            dT_net = max(0.05 * dT_input, dT_input - dT_endothermic)
+            dT_net = max(0.02 * dT_input, dT_input - dT_endothermic)
             T_s_next = T_s + dT_net
             
             # --- 4. Balance Térmico de la Pared del Reactor y Quemador ---
@@ -312,7 +324,12 @@ class BatchReactorSimulation(BaseReactorSimulation):
                 dT_w = (Q_net_wall * dt_sec) / C_steel if C_steel > 0 else 0.0
                 T_w_next = min(T_w + dT_w, self.T_hold)
             else:
-                T_w_next = self.get_wall_temp_K(t_sec + dt_sec)
+                T_w_nominal = self.get_wall_temp_K(t_sec + dt_sec)
+                # Si hay presencia importante de agua libre, acopla la temperatura de pared para evitar choques térmicos irreales
+                if m_moist > 1.0:
+                    T_w_next = min(T_w_nominal, T_s + 250.0)
+                else:
+                    T_w_next = T_w_nominal
             
             # Acumula combustible auxiliar consumido en galones
             Q_main_combustion = Q_main_used / (self.burner_eff_pct / 100.0) if self.burner_eff_pct > 0 else 0.0

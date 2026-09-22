@@ -107,7 +107,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     run_habs.font.size = Pt(12)
     run_habs.font.color.rgb = RGBColor(30, 58, 138)
 
-    sludge_density = float(solver_inputs.get('sludge_density', 900.0))
+    sludge_density = float(solver_inputs.get('sludge_density', 944.7))
     bio_oil_density = float(solver_inputs.get('bio_oil_density', 750.0))
     temp_hold = float(solver_inputs.get('temp_hold_c', 550.0))
     temp_start = float(solver_inputs.get('temp_start_c', 25.0))
@@ -153,8 +153,8 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         "(ausencia de oxígeno libre) que convierte fracciones orgánicas de alto peso molecular (asfaltenos, resinas y cadenas parafínicas) "
         "en tres coproductos de alto valor agregado: vapores condensables (Bio-Crudo), gases incondensables (Syngas) y un residuo sólido seco (Bio-Carbón e inorgánicos). "
         "La evolución termodinámica comprende tres dominios principales: (i) Secado y Deshidratación a 100°C; "
-        "(ii) Destilación y Desvolatilización Multicomponente entre 296°C y 370°C; y "
-        "(iii) Policondensación y Coquización final por encima de 370°C, estabilizando el carbono fijo en la matriz sólida."
+        "(ii) Destilación y Desvolatilización Multicomponente entre 350°C y 450°C; y "
+        "(iii) Policondensación y Coquización final por encima de 450°C, estabilizando el carbono fijo en la matriz sólida."
     )
     run_t1.font.size = Pt(10)
 
@@ -204,14 +204,14 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     hhv_feed_mj = 18.50
     hhv_feed_btu = hhv_feed_mj * 429.923
     cp_feed_kj = 2.10
-    sludge_dens_kg = float(solver_inputs.get('sludge_density', 900.0))
+    sludge_dens_kg = float(solver_inputs.get('sludge_density', 944.7))
     sludge_dens_lbgal = (sludge_dens_kg / 999.1) * 8.345
 
-    t_fprop = doc.add_table(rows=7, cols=4)
+    t_fprop = doc.add_table(rows=11, cols=4)
     t_fprop.alignment = WD_TABLE_ALIGNMENT.CENTER
     set_table_borders(t_fprop, "CBD5E1")
 
-    headers_fprop = ["Propiedad Físico-Química", "Valor Característico", "Unidad", "Descripción Industrial"]
+    headers_fprop = ["Propiedad Físico-Química (Norma)", "Valor Certificado / Medido", "Unidad", "Descripción Industrial"]
     for c_idx, h in enumerate(headers_fprop):
         cell = t_fprop.cell(0, c_idx)
         set_cell_background(cell, "1E3A8A")
@@ -222,12 +222,16 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         run.font.size = Pt(9.5)
 
     rows_fprop = [
-        ["Densidad Bruta de Masa (Bulk Density)", f"{sludge_dens_kg:.1f} kg/m³ | {sludge_dens_lbgal:.2f} lb/gal", "kg/m³", "Dimensión de bombas y tolvas"],
-        ["Poder Calorífico Superior (HHV Lodo)", f"{hhv_feed_mj:.2f} MJ/kg ({hhv_feed_btu:,.0f} BTU/lb)", "MJ/kg", "Potencial energético inicial lodo"],
+        ["Densidad @ 15°C & Gravedad API (ASTM D4052)", f"{sludge_dens_kg:.1f} kg/m³ | 18.2 °API ({sludge_dens_lbgal:.2f} lb/gal)", "kg/m³ / °API", "Hidrocarburo pesado en tolvas y bombas"],
+        ["Viscosidad Cinemática @ 50°C (ASTM D445)", "138.7 mm²/s (cSt)", "cSt", "Reología y precalentamiento de alimentación"],
+        ["Contenido de Azufre Total (ASTM D4294)", "0.997 wt.%", "wt.%", "Azufre orgánico para balance de emisiones Syngas"],
+        ["Cenizas Promedio Inertes (ASTM D482)", f"{feed_obj.ash:.2f} wt.%", "wt.%", "Inorgánico residual en lecho y bio-char"],
+        ["Contenido de Agua / Humedad (ASTM D95)", f"{feed_obj.moisture:.2f} wt.%", "wt.%", "Agua libre para etapa de deshidratación"],
+        ["Punto de Inflamación Flash Point (ASTM D93)", "> 110.0 °C (> 230 °F)", "°C", "Umbral de seguridad operacional térmico"],
+        ["Metales e Impurezas Cat Fines (IP 470)", "Al+Si: 647 mg/kg | V: 117 mg/kg | Ca: 33 mg/kg", "mg/kg (ppm)", "Partículas minerales abrasivas y vanadio"],
+        ["Poder Calorífico Superior (HHV Lodo Bruto)", f"{hhv_feed_mj:.2f} MJ/kg ({hhv_feed_btu:,.0f} BTU/lb)", "MJ/kg", "Potencial energético de entrada"],
         ["Capacidad Calorífica Específica (Cp Lodo)", f"{cp_feed_kj:.2f} kJ/kg·K", "kJ/kg·K", "Requerimiento térmico de rampa"],
-        ["Ángulo de Reposo Sólido (Flujo)", f"{feed_obj.angle_of_repose:.1f}°", "grados (°)", "Velocidad de avance en cilindro"],
-        ["Análisis Elemental Estimado (Ultimate)", "C: 48.5% | H: 6.2% | O: 8.8% | N: 0.5% | S: 0.8%", "wt.% seco", "Base orgánica de hidrocarburos"],
-        ["Rendimiento Teórico (Base Volátiles)", "Bio-Crudo: 55% | Syngas: 20% | Char: 15%", "wt.% volát.", "Distribución nominal de fases"]
+        ["Ángulo de Reposo Sólido (Flujo)", f"{feed_obj.angle_of_repose:.1f}°", "grados (°)", "Velocidad de avance en cilindro"]
     ]
     for r_idx, r_data in enumerate(rows_fprop):
         for c_idx, val in enumerate(r_data):
@@ -341,8 +345,8 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
             if moist_arr[idx_dry] <= 0.005 * moist_arr[0]:
                 t_drying_end = float(t_arr[idx_dry])
 
-        idx_start = np.argmax((conv_pct_arr >= 1.0) | (temp_s_arr >= 296.0))
-        if idx_start < len(t_arr) and (conv_pct_arr[idx_start] >= 1.0 or temp_s_arr[idx_start] >= 296.0):
+        idx_start = np.argmax((conv_pct_arr >= 1.0) | (temp_s_arr >= 350.0))
+        if idx_start < len(t_arr) and (conv_pct_arr[idx_start] >= 1.0 or temp_s_arr[idx_start] >= 350.0):
             t_start_pyro = float(t_arr[idx_start])
         else:
             t_start_pyro = float(t_arr[0])
@@ -467,6 +471,17 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
                 run.bold = True
             run.font.size = Pt(9)
 
+    # Ecuación explícita del balance de masa en Word
+    p_meq = doc.add_paragraph()
+    r_meq = p_meq.add_run(
+        f"Ecuación de Conservación de Masa: M_entrada = M_bio-crudo + M_syngas + M_char + M_vapor\n"
+        f"Sustitución Numérica: {load_kg:.2f} kg{' / h' if is_continuous else ''} = "
+        f"{oil_kgh:.2f} kg + {gas_kgh:.2f} kg + {char_kgh:.2f} kg + {water_kgh:.2f} kg | "
+        f"Error de Cierre: {summary['mass_error_pct']:.4f}%"
+    )
+    r_meq.font.size = Pt(8.5)
+    r_meq.italic = True
+
     doc.add_paragraph()
 
     # 3.2 Balance de Energía
@@ -476,11 +491,20 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     p_t32 = doc.add_paragraph()
     run_t32 = p_t32.add_run(
-        "El balance entálpico global integra la demanda térmica del sistema dividida en tres contribuciones clave: "
-        "el calor sensible para elevar la temperatura de la carga, el calor latente consumido en la evaporación del agua (2,256 kJ/kg) "
-        "y la entalpía endotérmica requerida para la pirólisis de la matriz orgánica (~600 kJ/kg)."
+        "El balance térmico global discrimina con exactitud rigurosa los distintos destinos del calor suministrado: "
+        "(1) calor sensible para calentar el residuo carbonoso sólido, "
+        "(2) calor sensible para calentar los volátiles condensables (futuro Bio-Crudo líquido), "
+        "(3) calor sensible para elevar la temperatura del gas de síntesis, "
+        "(4) entalpía química de ruptura endotérmica de enlaces macromoleculares (ΔH_pyro = 600 kJ/kg), y "
+        "(5) energía latente y sobrecalentamiento del agua evaporada (ΔH_evap = 2,256 kJ/kg)."
     )
     run_t32.font.size = Pt(10)
+
+    cp_char_val = 1000.0
+    cp_oil_val = float(solver_inputs.get('custom_cp_oil', 1800.0))
+    cp_gas_val = 1500.0
+    dh_pyro_val = 600000.0
+    dh_evap_val = 2256000.0
 
     if is_continuous:
         F_char_s = char_kgh / 3600.0
@@ -490,41 +514,53 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         T_in = results['T_solid'][0]
         T_out = results['T_solid'][-1]
         T_gas_out = results['T_gas'][-1]
-        Q_char_kw = (F_char_s * 1000.0 * (T_out - T_in)) / 1000.0
-        Q_pyro_kw = ((F_oil_s + F_gas_s) * (1800.0 * (T_out - T_in) + 600000.0)) / 1000.0
+        dT = T_out - T_in
+
+        Q_char_kw = (F_char_s * cp_char_val * dT) / 1000.0
+        Q_oil_sens_kw = (F_oil_s * cp_oil_val * dT) / 1000.0
+        Q_gas_sens_kw = (F_gas_s * cp_gas_val * dT) / 1000.0
+        Q_rxn_kw = ((F_oil_s + F_gas_s) * dh_pyro_val) / 1000.0
         if T_in < 100.0:
-            Q_steam_kw = (F_steam_s * (4184.0 * (100.0 - T_in) + 2256000.0 + 2000.0 * (max(T_gas_out, 100.0) - 100.0))) / 1000.0
+            Q_steam_kw = (F_steam_s * (4184.0 * (100.0 - T_in) + dh_evap_val + 2000.0 * (max(T_gas_out, 100.0) - 100.0))) / 1000.0
         else:
-            Q_steam_kw = (F_steam_s * (2256000.0 + 2000.0 * (max(T_gas_out, T_in) - T_in))) / 1000.0
-        Q_total_kw = Q_char_kw + Q_pyro_kw + Q_steam_kw
+            Q_steam_kw = (F_steam_s * (dh_evap_val + 2000.0 * (max(T_gas_out, T_in) - T_in))) / 1000.0
+        Q_total_kw = Q_char_kw + Q_oil_sens_kw + Q_gas_sens_kw + Q_rxn_kw + Q_steam_kw
 
         rows_nrg = [
-            ["Calor Sensible del Sólido", f"{Q_char_kw:.2f} kW", f"{(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}%", "Conducción lecho-pared"],
-            ["Secado y Evaporación Humedad", f"{Q_steam_kw:.2f} kW", f"{(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}%", "Vaporización latente (100°C)"],
-            ["Reacción Endotérmica Pirólisis", f"{Q_pyro_kw:.2f} kW", f"{(Q_pyro_kw/max(0.001,Q_total_kw)*100):.1f}%", "Craqueo térmico volátiles"],
-            ["DEMANDA TÉRMICA TOTAL", f"{Q_total_kw:.2f} kW", "100.0%", "Potencia requerida"]
+            ["Calor Sensible del Sólido (Char)", f"{Q_char_kw:.2f} kW", f"{(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}%", "Conducción lecho carbón residual"],
+            ["Calor Sensible Bio-Crudo (Fase Líquida)", f"{Q_oil_sens_kw:.2f} kW", f"{(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", "Precalentamiento vapores condensables"],
+            ["Calor Sensible Syngas (Fase Gas)", f"{Q_gas_sens_kw:.2f} kW", f"{(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", "Precalentamiento gas incondensable"],
+            ["Reacción Química Endotérmica (Pirólisis)", f"{Q_rxn_kw:.2f} kW", f"{(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}%", "Craqueo térmico (ΔH=600 kJ/kg)"],
+            ["Secado y Evaporación Humedad", f"{Q_steam_kw:.2f} kW", f"{(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}%", "Vaporización latente (2,256 kJ/kg)"],
+            ["DEMANDA TÉRMICA TOTAL", f"{Q_total_kw:.2f} kW", "100.0%", "Potencia neta requerida"]
         ]
         nrg_header = ["Etapa de Transferencia Térmica", "Potencia (kW)", "Porcentaje (%)", "Mecanismo Principal"]
     else:
         T_start = results['T_solid'][0]
         T_hold = results['T_solid'][-1]
-        E_char_kwh = (char_kgh * 1000.0 * (T_hold - T_start)) / 3.6e6
-        E_pyro_kwh = ((oil_kgh + gas_kgh) * (1800.0 * (T_hold - T_start) + 600000.0)) / 3.6e6
+        dT = T_hold - T_start
+
+        E_char_kwh = (char_kgh * cp_char_val * dT) / 3.6e6
+        E_oil_sens_kwh = (oil_kgh * cp_oil_val * dT) / 3.6e6
+        E_gas_sens_kwh = (gas_kgh * cp_gas_val * dT) / 3.6e6
+        E_rxn_kwh = ((oil_kgh + gas_kgh) * dh_pyro_val) / 3.6e6
         if T_hold >= 100.0:
-            E_steam_kwh = (water_kgh * (4184.0 * (100.0 - T_start) + 2256000.0 + 2000.0 * (T_hold - 100.0))) / 3.6e6
+            E_steam_kwh = (water_kgh * (4184.0 * (100.0 - T_start) + dh_evap_val + 2000.0 * (T_hold - 100.0))) / 3.6e6
         else:
             E_steam_kwh = (water_kgh * (4184.0 * (T_hold - T_start))) / 3.6e6
-        E_total_kwh = E_char_kwh + E_pyro_kwh + E_steam_kwh
+        E_total_kwh = E_char_kwh + E_oil_sens_kwh + E_gas_sens_kwh + E_rxn_kwh + E_steam_kwh
 
         rows_nrg = [
-            ["Calor Sensible del Sólido", f"{E_char_kwh:.2f} kWh", f"{(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Conducción lecho-pared"],
-            ["Secado y Evaporación Humedad", f"{E_steam_kwh:.2f} kWh", f"{(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Vaporización latente (100°C)"],
-            ["Reacción Endotérmica Pirólisis", f"{E_pyro_kwh:.2f} kWh", f"{(E_pyro_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Craqueo térmico volátiles"],
+            ["Calor Sensible del Sólido (Char)", f"{E_char_kwh:.2f} kWh", f"{(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Conducción lecho carbón residual"],
+            ["Calor Sensible Bio-Crudo (Fase Líquida)", f"{E_oil_sens_kwh:.2f} kWh", f"{(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Precalentamiento vapores condensables"],
+            ["Calor Sensible Syngas (Fase Gas)", f"{E_gas_sens_kwh:.2f} kWh", f"{(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Precalentamiento gas incondensable"],
+            ["Reacción Química Endotérmica (Pirólisis)", f"{E_rxn_kwh:.2f} kWh", f"{(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Craqueo térmico (ΔH=600 kJ/kg)"],
+            ["Secado y Evaporación Humedad", f"{E_steam_kwh:.2f} kWh", f"{(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Vaporización latente (2,256 kJ/kg)"],
             ["ENERGÍA TÉRMICA TOTAL", f"{E_total_kwh:.2f} kWh", "100.0%", "Consumo total ciclo"]
         ]
         nrg_header = ["Etapa de Transferencia Térmica", "Energía (kWh)", "Porcentaje (%)", "Mecanismo Principal"]
 
-    t_nrg = doc.add_table(rows=5, cols=4)
+    t_nrg = doc.add_table(rows=len(rows_nrg) + 1, cols=4)
     t_nrg.alignment = WD_TABLE_ALIGNMENT.CENTER
     set_table_borders(t_nrg, "CBD5E1")
 
@@ -547,6 +583,59 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
             p.paragraph_format.space_after = Pt(3)
             run = p.add_run(val)
             if r_idx == len(rows_nrg) - 1:
+                run.bold = True
+            run.font.size = Pt(9)
+
+    doc.add_paragraph()
+
+    # Subsección 3.3 Memoria de cálculo en Word
+    h33 = doc.add_heading(level=2)
+    run_h33 = h33.add_run("3.3 Memoria de Cálculo Detallada de Fórmulas Térmicas")
+    run_h33.font.size = Pt(11)
+
+    if is_continuous:
+        rows_calc = [
+            ["Calor Char (Sólido)", "Q_char = F_char · Cp_char · (T_out - T_in)", f"{F_char_s*3600:.1f} kg/h · {cp_char_val:.0f} J/kg·K · {dT:.1f} K = {Q_char_kw:.2f} kW ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
+            ["Calor Bio-Crudo (Líquido)", "Q_oil = F_oil · Cp_oil · (T_out - T_in)", f"{F_oil_s*3600:.1f} kg/h · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K = {Q_oil_sens_kw:.2f} kW ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
+            ["Calor Syngas (Gas)", "Q_gas = F_gas · Cp_gas · (T_out - T_in)", f"{F_gas_s*3600:.1f} kg/h · {cp_gas_val:.0f} J/kg·K · {dT:.1f} K = {Q_gas_sens_kw:.2f} kW ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
+            ["Reacción Química Craqueo", "Q_rxn = (F_oil + F_gas) · ΔH_pyro", f"{(F_oil_s+F_gas_s)*3600:.1f} kg/h · {dh_pyro_val:,.0f} J/kg = {Q_rxn_kw:.2f} kW ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
+            ["Evaporación del Agua", "Q_steam = F_steam · [Cp_wΔT_w + ΔH_evap + Cp_sΔT_s]", f"{F_steam_s*3600:.1f} kg/h · [Evap 2.256 MJ/kg + Sobrecalent.] = {Q_steam_kw:.2f} kW ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
+            ["DEMANDA TÉRMICA TOTAL", "Q_total = Σ Q_componentes", f"{Q_total_kw:.2f} kW (100.00%)"]
+        ]
+    else:
+        rows_calc = [
+            ["Calor Char (Sólido)", "E_char = [M_char · Cp_char · (T_hold - T_start)] / 3.6e6", f"[{char_kgh:.1f} kg · {cp_char_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_char_kwh:.2f} kWh ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
+            ["Calor Bio-Crudo (Líquido)", "E_oil = [M_oil · Cp_oil · (T_hold - T_start)] / 3.6e6", f"[{oil_kgh:.1f} kg · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_oil_sens_kwh:.2f} kWh ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
+            ["Calor Syngas (Gas)", "E_gas = [M_gas · Cp_gas · (T_hold - T_start)] / 3.6e6", f"[{gas_kgh:.1f} kg · {cp_gas_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_gas_sens_kwh:.2f} kWh ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
+            ["Reacción Química Craqueo", "E_rxn = [(M_oil + M_gas) · ΔH_pyro] / 3.6e6", f"[{(oil_kgh + gas_kgh):.1f} kg · {dh_pyro_val:,.0f} J/kg] / 3.6e6 = {E_rxn_kwh:.2f} kWh ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
+            ["Evaporación del Agua", "E_steam = [M_steam · (Cp_wΔT_w + ΔH_evap + Cp_sΔT_s)] / 3.6e6", f"[{water_kgh:.1f} kg · (4184·{max(0.0, 100-T_start):.0f} + 2.256e6 + 2000·{max(0.0, T_hold-100):.0f})] / 3.6e6 = {E_steam_kwh:.2f} kWh ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
+            ["ENERGÍA TÉRMICA TOTAL", "E_total = Σ E_componentes", f"{E_total_kwh:.2f} kWh (100.00%)"]
+        ]
+
+    t_calc = doc.add_table(rows=len(rows_calc) + 1, cols=3)
+    t_calc.alignment = WD_TABLE_ALIGNMENT.CENTER
+    set_table_borders(t_calc, "CBD5E1")
+
+    headers_calc = ["Componente Energético", "Fórmula de Ingeniería Aplicada", "Sustitución de Variables y Resultado"]
+    for c_idx, h in enumerate(headers_calc):
+        cell = t_calc.cell(0, c_idx)
+        set_cell_background(cell, "0F766E")
+        p = cell.paragraphs[0]
+        run = p.add_run(h)
+        run.bold = True
+        run.font.color.rgb = RGBColor(255, 255, 255)
+        run.font.size = Pt(9.5)
+
+    for r_idx, r_data in enumerate(rows_calc):
+        for c_idx, val in enumerate(r_data):
+            cell = t_calc.cell(r_idx + 1, c_idx)
+            if r_idx == len(rows_calc) - 1:
+                set_cell_background(cell, "F8FAFC")
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_before = Pt(3)
+            p.paragraph_format.space_after = Pt(3)
+            run = p.add_run(val)
+            if r_idx == len(rows_calc) - 1:
                 run.bold = True
             run.font.size = Pt(9)
 
@@ -618,15 +707,102 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     doc.add_paragraph()
 
-    # 4.2 KPIs Financieros
-    h54 = doc.add_heading(level=2)
-    run_h54 = h54.add_run("4.2 Evaluación de Indicadores Financieros (KPIs)")
-    run_h54.font.size = Pt(11)
-
+    # 4.2 OPEX
     ob = fin['opex_breakdown']
     tot_op = fin['total_opex_base']
     rb = fin['revenue_breakdown']
     tot_rev = fin['total_rev_base']
+    unit_handling = ob['handling'] / max(1.0, fin['sludge_treated_gal'])
+    unit_tipping = rb['tipping'] / max(1.0, fin['sludge_treated_gal'])
+    unit_oil = rb['oil'] / max(1.0, fin['oil_produced_gal'])
+
+    h52 = doc.add_heading(level=2)
+    run_h52 = h52.add_run("4.2 Estructura de Costos Operativos Anuales (OPEX Base)")
+    run_h52.font.size = Pt(11)
+
+    t_opex = doc.add_table(rows=9, cols=4)
+    t_opex.alignment = WD_TABLE_ALIGNMENT.CENTER
+    set_table_borders(t_opex, "CBD5E1")
+
+    headers_opex = ["Rubro Operativo (OPEX)", "Gasto Anual (RD$)", "Participación (%)", "Base de Cálculo"]
+    for c_idx, h in enumerate(headers_opex):
+        cell = t_opex.cell(0, c_idx)
+        set_cell_background(cell, "0D9488")
+        p = cell.paragraphs[0]
+        run = p.add_run(h)
+        run.bold = True
+        run.font.color.rgb = RGBColor(255, 255, 255)
+        run.font.size = Pt(9.5)
+
+    rows_opex = [
+        ["Manejo y Logística de Lodos", f"{curr_sym}{ob['handling']:,.2f}", f"{(ob['handling']/max(1,tot_op)*100):.1f}%", f"{fin['sludge_treated_gal']:,.0f} gal a RD$ {unit_handling:.2f}/gal"],
+        ["Combustible Auxiliar Quemadores", f"{curr_sym}{ob['fuel']:,.2f}", f"{(ob['fuel']/max(1,tot_op)*100):.1f}%", "Consumo de respaldo térmico inicial"],
+        ["Insumos Auxiliares y Servicios", f"{curr_sym}{ob['aux_utilities']:,.2f}", f"{(ob['aux_utilities']/max(1,tot_op)*100):.1f}%", "Agua de enfriamiento y reactivos"],
+        ["Diésel Planta de Emergencia", f"{curr_sym}{ob['gen_diesel']:,.2f}", f"{(ob['gen_diesel']/max(1,tot_op)*100):.1f}%", "Respaldo eléctrico de seguridad"],
+        ["Mano de Obra y Nómina", f"{curr_sym}{ob['labor']:,.2f}", f"{(ob['labor']/max(1,tot_op)*100):.1f}%", "Operadores y personal técnico especializado"],
+        ["Mantenimiento Planta (3% CAPEX)", f"{curr_sym}{ob['maintenance']:,.2f}", f"{(ob['maintenance']/max(1,tot_op)*100):.1f}%", "Repuestos, refractario y mantenimiento prev."],
+        ["Seguros y Licencias (1% CAPEX)", f"{curr_sym}{ob['insurance_tax']:,.2f}", f"{(ob['insurance_tax']/max(1,tot_op)*100):.1f}%", "Póliza contra todo riesgo y licencias amb."],
+        ["TOTAL OPERACIÓN (OPEX)", f"{curr_sym}{tot_op:,.2f}", "100.0%", "Gasto Operativo Anual Base"]
+    ]
+    for r_idx, r_data in enumerate(rows_opex):
+        for c_idx, val in enumerate(r_data):
+            cell = t_opex.cell(r_idx + 1, c_idx)
+            if r_idx == len(rows_opex) - 1:
+                set_cell_background(cell, "F1F5F9")
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_before = Pt(3)
+            p.paragraph_format.space_after = Pt(3)
+            run = p.add_run(val)
+            if r_idx == len(rows_opex) - 1:
+                run.bold = True
+            run.font.size = Pt(9)
+
+    doc.add_paragraph()
+
+    # 4.3 Ingresos Anuales
+    h53 = doc.add_heading(level=2)
+    run_h53 = h53.add_run("4.3 Estructura de Ingresos Anuales (Año 1)")
+    run_h53.font.size = Pt(11)
+
+    t_rev = doc.add_table(rows=4, cols=4)
+    t_rev.alignment = WD_TABLE_ALIGNMENT.CENTER
+    set_table_borders(t_rev, "CBD5E1")
+
+    headers_rev = ["Fuente de Ingreso / Valorización", "Ingreso Anual (RD$)", "Participación (%)", "Volumen y Precio Unitario"]
+    for c_idx, h in enumerate(headers_rev):
+        cell = t_rev.cell(0, c_idx)
+        set_cell_background(cell, "059669")
+        p = cell.paragraphs[0]
+        run = p.add_run(h)
+        run.bold = True
+        run.font.color.rgb = RGBColor(255, 255, 255)
+        run.font.size = Pt(9.5)
+
+    rows_rev = [
+        ["Tarifa Disposición Lodos (Tipping Fee)", f"{curr_sym}{rb['tipping']:,.2f}", f"{(rb['tipping']/max(1,tot_rev)*100):.1f}%", f"{fin['sludge_treated_gal']:,.0f} gal a RD$ {unit_tipping:.2f}/gal"],
+        ["Venta de Bio-Crudo (Bio-Oil)", f"{curr_sym}{rb['oil']:,.2f}", f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", f"{fin['oil_produced_gal']:,.0f} gal a RD$ {unit_oil:.2f}/gal"],
+        ["TOTAL INGRESOS ANUALES", f"{curr_sym}{tot_rev:,.2f}", "100.0%", "Ingreso Bruto Proyectado Año 1"]
+    ]
+    for r_idx, r_data in enumerate(rows_rev):
+        for c_idx, val in enumerate(r_data):
+            cell = t_rev.cell(r_idx + 1, c_idx)
+            if r_idx == len(rows_rev) - 1:
+                set_cell_background(cell, "FEF3C7")
+            p = cell.paragraphs[0]
+            p.paragraph_format.space_before = Pt(3)
+            p.paragraph_format.space_after = Pt(3)
+            run = p.add_run(val)
+            if r_idx == len(rows_rev) - 1:
+                run.bold = True
+            run.font.size = Pt(9)
+
+    doc.add_paragraph()
+
+    # 4.4 KPIs Financieros
+    h54 = doc.add_heading(level=2)
+    run_h54 = h54.add_run("4.4 Evaluación de Indicadores Financieros (KPIs)")
+    run_h54.font.size = Pt(11)
+
     irr_str = f"{fin['irr']:.1f}%" if fin['irr'] is not None else "N/A"
     payback_str = f"{fin['payback']:.1f} años" if fin['payback'] != float('inf') else "N/A"
     disc_payback_str = f"{fin['disc_payback']:.1f} años" if fin['disc_payback'] != float('inf') else "N/A"
@@ -688,7 +864,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         f"4. Conservación de Masa y Validación Numérica del Modelo: El error de cierre en el balance de materia de {summary['mass_error_pct']:.2e}% valida la precisión matemática del esquema de integración y confirma la ausencia de pérdidas ficticias en el simulador.",
         f"5. Viabilidad Económica y Rentabilidad del Proyecto: El análisis financiero proyecta un Valor Actual Neto (VAN) de {curr_sym}{fin['npv']:,.2f} y una Tasa Interna de Retorno (TIR) del {irr_str} (superando la tasa de descuento de 14.0%), con un período de recuperación estimado de {payback_str}, confirmando la rentabilidad de la instalación.",
         f"6. Reducción Volumétrica y Tratamiento Industrial de Residuos: El proceso logra una reducción drástica del volumen de residuo pesado procesado, transformándolo eficientemente en tres coproductos de alto valor agregado (Bio-Crudo, Syngas y Bio-Char).",
-        f"7. Dinámica del Lecho Sólido y Control Operativo: Operando a un grado de llenado del lecho de {fill_deg:.1f}%, con temperatura inicial de {temp_start:.1f}°C (activación de ebullición a 296.0°C), un tiempo eficiente de residencia de {pyro_residence_min:.1f} min ({pyro_residence_min/60.0:.2f} h) y un tiempo total de ciclo de {total_cycle_min:.1f} min ({total_cycle_min/60.0:.2f} h), se asegura la agitación constante del sólido en el tambor rotatorio, previniendo la formación de incrustaciones de coque duro en las paredes internas."
+        f"7. Dinámica del Lecho Sólido y Control Operativo: Operando a un grado de llenado del lecho de {fill_deg:.1f}%, con temperatura inicial de {temp_start:.1f}°C (activación de desvolatilización a 350.0°C), un tiempo eficiente de residencia de {pyro_residence_min:.1f} min ({pyro_residence_min/60.0:.2f} h) y un tiempo total de ciclo de {total_cycle_min:.1f} min ({total_cycle_min/60.0:.2f} h), se asegura la agitación constante del sólido en el tambor rotatorio, previniendo la formación de incrustaciones de coque duro en las paredes internas."
     ]
 
     for c_text in conclusions:

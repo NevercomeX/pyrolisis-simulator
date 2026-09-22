@@ -236,7 +236,7 @@ def render_sidebar():
     temp_inlet_c = float(st.session_state.get('feed_inlet_temp', 25.0))
     
     # Dynamic conversion using configured sludge density
-    sludge_dens_val = float(st.session_state.get('sludge_density', 900.0))
+    sludge_dens_val = float(st.session_state.get('sludge_density', 944.7))
     KG_PER_GALLON = (sludge_dens_val / 1000.0) * 3.785411784
     batch_load_gal = float(st.session_state.get('batch_size', 440.0))
 
@@ -368,8 +368,8 @@ def render_sidebar():
         sludge_density = st.slider(
             t("sludge_density"),
             500.0, 2000.0,
-            float(st.session_state.get('sludge_density', 900.0)),
-            50.0
+            float(st.session_state.get('sludge_density', 944.7)),
+            0.1
         )
         
         custom_cp_oil = st.slider(

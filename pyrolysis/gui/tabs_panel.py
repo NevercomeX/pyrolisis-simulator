@@ -28,7 +28,7 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
         load_val = feed_rate_kgh if mode_option == "Continuous Operation" else batch_load_kg
         load_unit = "kg/h" if mode_option == "Continuous Operation" else "kg"
         load_unit_gal = "gal/h" if mode_option == "Continuous Operation" else "gal"
-        sludge_density = float(st.session_state.get('sludge_density', 900.0))
+        sludge_density = float(st.session_state.get('sludge_density', 944.7))
         load_val_gal = (load_val / sludge_density) * 264.172
         
         comp_df = pd.DataFrame({
@@ -123,7 +123,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
     if mode_option == "Continuous Operation":
         st.markdown("### ⚖️ Mass Balance / Balance de Materia")
         load_val = feed_rate_kgh
-        sludge_density = float(st.session_state.get('sludge_density', 900.0))
+        sludge_density = float(st.session_state.get('sludge_density', 944.7))
         oil_density = float(st.session_state.get('bio_oil_density', 750.0))
         char_density = float(st.session_state.get('bio_char_density', 500.0))
         
@@ -191,24 +191,18 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
               $$F_{char} = F_{fixed\_carbon, initial} + F_{ash, initial} + F_{volatile, unreacted}$$
             * **Vapor de Agua (Steam)**: Humedad evaporada del lecho sólido:
               $$F_{steam} = F_{moisture, initial} - F_{moisture, final}$$
-            * **Error de Cierre de Balance**:
-              $$\text{Error (\%)} = \frac{|F_{inlet} - F_{outlet\_total}|}{F_{inlet}} \times 100$$
+            * **Ecuación Evaluada y Error de Cierre**:
+              $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam}$$
+              $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
+              $$\text{{Error (\%)}}\ = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
             """)
         else:
-            st.markdown(r"""
+            st.markdown(rf"""
             #### 📝 Mass Balance Equations (Continuous)
             The mass balance is based on the conservation of mass entering and leaving the reactor:
-            $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam} + F_{moist, final}$$
-            * **Bio-Oil**: Integrated locally from primary formation and secondary cracking to syngas:
-              $$F_{oil} = \int_{0}^{L} \left( k_1 \cdot C_{\text{slug}} - k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-            * **Syngas**: Integrated locally from primary gasification and secondary tar cracking:
-              $$F_{gas} = \int_{0}^{L} \left( k_2 \cdot C_{\text{slug}} + k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-            * **Residual Bio-Char (Char - Dry)**: Sum of initial fixed carbon, ash, and unreacted volatiles:
-              $$F_{char} = F_{fixed\_carbon, initial} + F_{ash, initial} + F_{volatile, unreacted}$$
-            * **Water Vapor (Steam)**: Evaporated moisture from the solid bed:
-              $$F_{steam} = F_{moisture, initial} - F_{moisture, final}$$
-            * **Mass Balance Closure Error**:
-              $$\text{Error (\%)} = \frac{|F_{inlet} - F_{outlet\_total}|}{F_{inlet}} \times 100$$
+            $$F_{{inlet}} = F_{{char}} + F_{{oil}} + F_{{gas}} + F_{{steam}}$$
+            $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
+            $$\text{{Error (\%)}} = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
             """)
         
         st.markdown("---")
@@ -221,82 +215,85 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         T_in = results['T_solid'][0]
         T_out = results['T_solid'][-1]
         T_gas_out = results['T_gas'][-1]
+        dT = T_out - T_in
+
+        cp_char = 1000.0
+        cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
+        cp_gas = 1500.0
+        dh_pyro = 600000.0
+        dh_evap = 2256000.0
         
-        Q_char = F_char_s * 1000.0 * (T_out - T_in)
-        Q_pyro = (F_oil_s + F_gas_s) * (1800.0 * (T_out - T_in) + 600000.0)
+        Q_char_kw = (F_char_s * cp_char * dT) / 1000.0
+        Q_oil_sens_kw = (F_oil_s * cp_oil * dT) / 1000.0
+        Q_gas_sens_kw = (F_gas_s * cp_gas * dT) / 1000.0
+        Q_rxn_kw = ((F_oil_s + F_gas_s) * dh_pyro) / 1000.0
         if T_in < 100.0:
-            Q_steam = F_steam_s * (4184.0 * (100.0 - T_in) + 2256000.0 + 2000.0 * (max(T_gas_out, 100.0) - 100.0))
+            Q_steam_kw = (F_steam_s * (4184.0 * (100.0 - T_in) + dh_evap + 2000.0 * (max(T_gas_out, 100.0) - 100.0))) / 1000.0
         else:
-            Q_steam = F_steam_s * (2256000.0 + 2000.0 * (max(T_gas_out, T_in) - T_in))
+            Q_steam_kw = (F_steam_s * (dh_evap + 2000.0 * (max(T_gas_out, T_in) - T_in))) / 1000.0
             
-        Q_char_kw = Q_char / 1000.0
-        Q_pyro_kw = Q_pyro / 1000.0
-        Q_steam_kw = Q_steam / 1000.0
-        Q_total_kw = Q_char_kw + Q_pyro_kw + Q_steam_kw
+        Q_total_kw = Q_char_kw + Q_oil_sens_kw + Q_gas_sens_kw + Q_rxn_kw + Q_steam_kw
         
         energy_df = pd.DataFrame({
             "Process Stage / Etapa del Proceso": [
-                "Sensible Heat of Bed Solids (Calentamiento del Sólido)",
-                "Evaporation & Dehydration (Evaporación del Agua)",
-                "Pyrolysis Volatiles Cracking Heat (Reacción de Pirólisis)",
-                "Total Thermal Heating Duty (Potencia Térmica Total)"
+                "Sensible Heat of Bed Solids / Calor Sensible Char",
+                "Sensible Heat Bio-Oil / Calor Sensible Vapores Bio-Crudo (Líquido)",
+                "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
+                "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
+                "Evaporation & Dehydration / Evaporación del Agua",
+                "Total Thermal Heating Duty / Potencia Térmica Total"
             ],
             "Heat Rate / Flujo de Calor (kW)": [
                 Q_char_kw,
+                Q_oil_sens_kw,
+                Q_gas_sens_kw,
+                Q_rxn_kw,
                 Q_steam_kw,
-                Q_pyro_kw,
                 Q_total_kw
             ],
             "Fraction of Total / Porcentaje del Total (%)": [
-                (Q_char_kw / Q_total_kw * 100.0) if Q_total_kw > 0 else 0,
-                (Q_steam_kw / Q_total_kw * 100.0) if Q_total_kw > 0 else 0,
-                (Q_pyro_kw / Q_total_kw * 100.0) if Q_total_kw > 0 else 0,
+                (Q_char_kw / max(0.001, Q_total_kw) * 100.0),
+                (Q_oil_sens_kw / max(0.001, Q_total_kw) * 100.0),
+                (Q_gas_sens_kw / max(0.001, Q_total_kw) * 100.0),
+                (Q_rxn_kw / max(0.001, Q_total_kw) * 100.0),
+                (Q_steam_kw / max(0.001, Q_total_kw) * 100.0),
                 100.0
             ]
         })
         st.table(energy_df)
         
         if lang == 'es':
-            st.markdown(r"""
-            #### 📝 Ecuaciones del Balance de Energía (Continuo)
-            La demanda térmica total ($Q_{total}$) del reactor continuo se divide en tres flujos principales de transferencia calorífica:
-            $$Q_{total} = Q_{solids} + Q_{steam} + Q_{pyro}$$
-            * **Calor Sensible de Sólidos ($Q_{solids}$)**: Energía necesaria para calentar el lecho de sólidos desde la temperatura de entrada ($T_{in}$) hasta la de salida ($T_{out}$):
-              $$Q_{solids} = F_{char} \cdot Cp_{char} \cdot (T_{out} - T_{in})$$
-              Donde $Cp_{char} = 1000\text{ J/kg}\cdot\text{K}$ (capacidad calorífica promedio del char/carbón).
-            * **Evaporación del Agua ($Q_{steam}$)**: Calor para precalentar la humedad, vaporizar el agua (secado endotérmico) y sobrecalentar el vapor saliente ($T_{gas, out}$):
-              * Si $T_{in} < 100^\circ\text{C}$:
-                $$Q_{steam} = F_{steam} \cdot \left[ Cp_{water} \cdot (100 - T_{in}) + \Delta H_{evap} + Cp_{steam} \cdot (\max(T_{gas, out}, 100) - 100) \right]$$
-              * Si $T_{in} \ge 100^\circ\text{C}$:
-                $$Q_{steam} = F_{steam} \cdot \left[ \Delta H_{evap} + Cp_{steam} \cdot (\max(T_{gas, out}, T_{in}) - T_{in}) \right]$$
-              Donde $Cp_{water} = 4184\text{ J/kg}\cdot\text{K}$, calor latente de evaporación $\Delta H_{evap} = 2,256,000\text{ J/kg}$ y $Cp_{steam} = 2000\text{ J/kg}\cdot\text{K}$.
-            * **Reacción de Pirólisis ($Q_{pyro}$)**: Calor sensible de los volátiles que reaccionan más la energía de reacción endotérmica de descomposición térmica ($\Delta H_{pyro}$):
-              $$Q_{pyro} = (F_{oil} + F_{gas}) \cdot \left[ Cp_{volatile} \cdot (T_{out} - T_{in}) + \Delta H_{pyro} \right]$$
-              Donde $Cp_{volatile} = 1800\text{ J/kg}\cdot\text{K}$ y entalpía de pirólisis $\Delta H_{pyro} = 600,000\text{ J/kg}$.
+            st.markdown(rf"""
+            #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
+            La demanda térmica total ($Q_{{total}}$) del reactor continuo se divide en cinco contribuciones caloríficas rigurosas:
+            $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
+            * **Calor Sensible del Char ($Q_{{char}}$)**:
+              $$Q_{{char}} = F_{{char}} \cdot Cp_{{char}} \cdot (T_{{out}} - T_{{in}}) = {F_char_s*3600:.2f}\text{{ kg/h}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
+            * **Calor Sensible del Bio-Crudo Líquido ($Q_{{oil\_sens}}$)**:
+              $$Q_{{oil}} = F_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{out}} - T_{{in}}) = {F_oil_s*3600:.2f}\text{{ kg/h}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
+            * **Calor Sensible del Syngas ($Q_{{gas\_sens}}$)**:
+              $$Q_{{gas}} = F_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{out}} - T_{{in}}) = {F_gas_s*3600:.2f}\text{{ kg/h}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
+            * **Reacción Química Endotérmica de Pirólisis ($Q_{{rxn}}$)**:
+              $$Q_{{rxn}} = (F_{{oil}} + F_{{gas}}) \cdot \Delta H_{{pyro}} = {(F_oil_s+F_gas_s)*3600:.2f}\text{{ kg/h}} \cdot 600,000\text{{ J/kg}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
+            * **Secado y Evaporación del Agua ($Q_{{steam}}$)**:
+              $$Q_{{steam}} = F_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right] = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
             """)
         else:
-            st.markdown(r"""
-            #### 📝 Energy Balance Equations (Continuous)
-            The total thermal demand ($Q_{total}$) of the continuous reactor is divided into three main heat transfer duties:
-            $$Q_{total} = Q_{solids} + Q_{steam} + Q_{pyro}$$
-            * **Sensible Heat of Solids ($Q_{solids}$)**: Energy needed to heat the solid bed from the inlet temperature ($T_{in}$) to the outlet temperature ($T_{out}$):
-              $$Q_{solids} = F_{char} \cdot Cp_{char} \cdot (T_{out} - T_{in})$$
-              Where $Cp_{char} = 1000\text{ J/kg}\cdot\text{K}$ (average heat capacity of char/carbon).
-            * **Evaporation of Water ($Q_{steam}$)**: Heat to preheat the moisture, vaporize the water (endothermic drying), and superheat the leaving steam ($T_{gas, out}$):
-              * If $T_{in} < 100^\circ\text{C}$:
-                $$Q_{steam} = F_{steam} \cdot \left[ Cp_{water} \cdot (100 - T_{in}) + \Delta H_{evap} + Cp_{steam} \cdot (\max(T_{gas, out}, 100) - 100) \right]$$
-              * If $T_{in} \ge 100^\circ\text{C}$:
-                $$Q_{steam} = F_{steam} \cdot \left[ \Delta H_{evap} + Cp_{steam} \cdot (\max(T_{gas, out}, T_{in}) - T_{in}) \right]$$
-              Where $Cp_{water} = 4184\text{ J/kg}\cdot\text{K}$, latent heat of vaporization $\Delta H_{evap} = 2,256,000\text{ J/kg}$, and $Cp_{steam} = 2000\text{ J/kg}\cdot\text{K}$.
-            * **Pyrolysis Reaction ($Q_{pyro}$)**: Sensible heat of the volatiles that react plus the endothermic thermal cracking reaction energy ($\Delta H_{pyro}$):
-              $$Q_{pyro} = (F_{oil} + F_{gas}) \cdot \left[ Cp_{volatile} \cdot (T_{out} - T_{in}) + \Delta H_{pyro} \right]$$
-              Where $Cp_{volatile} = 1800\text{ J/kg}\cdot\text{K}$ and pyrolysis enthalpy $\Delta H_{pyro} = 600,000\text{ J/kg}$.
+            st.markdown(rf"""
+            #### 📝 Energy Balance Equations with Evaluated Results
+            The total thermal demand ($Q_{{total}}$) is rigorously separated into five thermal duties:
+            $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
+            * **Char Sensible Heat**: $Q_{{char}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
+            * **Bio-Oil Sensible Heat**: $Q_{{oil}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
+            * **Syngas Sensible Heat**: $Q_{{gas}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
+            * **Pyrolysis Chemical Endotherm**: $Q_{{rxn}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
+            * **Moisture Dehydration & Evaporation**: $Q_{{steam}} = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
             """)
         
     else:
         st.markdown("### ⚖️ Mass Balance / Balance de Materia")
         load_val = batch_load_kg
-        sludge_density = float(st.session_state.get('sludge_density', 900.0))
+        sludge_density = float(st.session_state.get('sludge_density', 944.7))
         oil_density = float(st.session_state.get('bio_oil_density', 750.0))
         char_density = float(st.session_state.get('bio_char_density', 500.0))
         
@@ -380,8 +377,10 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
               $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
             * **Evaporated Water (Steam)**: Total vaporized moisture:
               $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
-            * **Mass Balance Closure Error**:
-              $$\text{Error (\%)} = \frac{|M_{load} - M_{output\_total}|}{M_{load}} \times 100$$
+            * **Ecuación Evaluada y Error de Cierre**:
+              $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam}$$
+              $${load_val:.2f}\text{{ kg}} = {summary['char_yield_kg']:.2f} + {summary['oil_yield_kg']:.2f} + {summary['gas_yield_kg']:.2f} + {summary['water_yield_kg']:.2f}\text{{ kg}}$$
+              $$\text{{Error (\%)}}\ = \frac{{|M_{{load}} - M_{{output\_total}}|}}{{M_{{load}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
             """)
         
         st.markdown("---")
@@ -393,78 +392,79 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         M_steam = summary['water_yield_kg']
         T_start = results['T_solid'][0]
         T_hold = results['T_solid'][-1]
-        
-        # Energies in Joules
-        E_char = M_char * 1000.0 * (T_hold - T_start)
-        E_pyro = (M_oil + M_gas) * (1800.0 * (T_hold - T_start) + 600000.0)
+        dT = T_hold - T_start
+
+        cp_char = 1000.0
+        cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
+        cp_gas = 1500.0
+        dh_pyro = 600000.0
+        dh_evap = 2256000.0
+
+        E_char_kwh = (M_char * cp_char * dT) / 3.6e6
+        E_oil_sens_kwh = (M_oil * cp_oil * dT) / 3.6e6
+        E_gas_sens_kwh = (M_gas * cp_gas * dT) / 3.6e6
+        E_rxn_kwh = ((M_oil + M_gas) * dh_pyro) / 3.6e6
         if T_hold >= 100.0:
-            E_steam = M_steam * (4184.0 * (100.0 - T_start) + 2256000.0 + 2000.0 * (T_hold - 100.0))
+            E_steam_kwh = (M_steam * (4184.0 * (100.0 - T_start) + dh_evap + 2000.0 * (T_hold - 100.0))) / 3.6e6
         else:
-            E_steam = M_steam * (4184.0 * (T_hold - T_start))
+            E_steam_kwh = (M_steam * (4184.0 * (T_hold - T_start))) / 3.6e6
             
-        # Convert to kWh
-        E_char_kwh = E_char / 3.6e6
-        E_pyro_kwh = E_pyro / 3.6e6
-        E_steam_kwh = E_steam / 3.6e6
-        E_total_kwh = E_char_kwh + E_pyro_kwh + E_steam_kwh
+        E_total_kwh = E_char_kwh + E_oil_sens_kwh + E_gas_sens_kwh + E_rxn_kwh + E_steam_kwh
         
         energy_df = pd.DataFrame({
             "Process Stage / Etapa del Proceso": [
-                "Sensible Heat of Bed Solids (Calentamiento del Sólido)",
-                "Evaporation & Dehydration (Evaporación del Agua)",
-                "Pyrolysis Volatiles Cracking Heat (Reacción de Pirólisis)",
-                "Total Thermal Energy Supplied (Energía Térmica Total)"
+                "Sensible Heat of Bed Solids / Calor Sensible Char",
+                "Sensible Heat Bio-Oil / Calor Sensible Vapores Bio-Crudo (Líquido)",
+                "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
+                "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
+                "Evaporation & Dehydration / Evaporación del Agua",
+                "Total Thermal Energy Supplied / Energía Térmica Total"
             ],
             "Energy / Energía (kWh)": [
                 E_char_kwh,
+                E_oil_sens_kwh,
+                E_gas_sens_kwh,
+                E_rxn_kwh,
                 E_steam_kwh,
-                E_pyro_kwh,
                 E_total_kwh
             ],
             "Fraction of Total / Porcentaje del Total (%)": [
-                (E_char_kwh / E_total_kwh * 100.0) if E_total_kwh > 0 else 0,
-                (E_steam_kwh / E_total_kwh * 100.0) if E_total_kwh > 0 else 0,
-                (E_pyro_kwh / E_total_kwh * 100.0) if E_total_kwh > 0 else 0,
+                (E_char_kwh / max(0.001, E_total_kwh) * 100.0),
+                (E_oil_sens_kwh / max(0.001, E_total_kwh) * 100.0),
+                (E_gas_sens_kwh / max(0.001, E_total_kwh) * 100.0),
+                (E_rxn_kwh / max(0.001, E_total_kwh) * 100.0),
+                (E_steam_kwh / max(0.001, E_total_kwh) * 100.0),
                 100.0
             ]
         })
         st.table(energy_df)
         
         if lang == 'es':
-            st.markdown(r"""
-            #### 📝 Ecuaciones del Balance de Energía (Lote)
-            La energía térmica total suministrada ($E_{total}$) durante todo el ciclo del lote (en kWh) se desglosa en:
-            $$E_{total} = E_{solids} + E_{steam} + E_{pyro}$$
-            * **Calor Sensible de Sólidos ($E_{solids}$)**: Energía transferida para calentar los sólidos del lecho desde la temperatura inicial ($T_{start}$) hasta la final ($T_{hold}$):
-              $$E_{solids} = M_{char} \cdot Cp_{char} \cdot (T_{hold} - T_{start}) / 3.6\times 10^6$$
-              Donde $Cp_{char} = 1000\text{ J/kg}\cdot\text{K}$ y la división por $3.6\times 10^6$ convierte Julios a kWh.
-            * **Evaporación y Deshidratación ($E_{steam}$)**: Energía para calentar el agua líquida hasta 100°C, vaporizarla por completo y sobrecalentar el vapor:
-              * Si $T_{hold} \ge 100^\circ\text{C}$:
-                $$E_{steam} = M_{steam} \cdot \left[ Cp_{water} \cdot (100 - T_{start}) + \Delta H_{evap} + Cp_{steam} \cdot (T_{hold} - 100) \right] / 3.6\times 10^6$$
-              * Si $T_{hold} < 100^\circ\text{C}$:
-                $$E_{steam} = M_{steam} \cdot \left[ Cp_{water} \cdot (T_{hold} - T_{start}) \right] / 3.6\times 10^6$$
-              Donde $Cp_{water} = 4184\text{ J/kg}\cdot\text{K}$, calor latente $\Delta H_{evap} = 2,256,000\text{ J/kg}$ y $Cp_{steam} = 2000\text{ J/kg}\cdot\text{K}$.
-            * **Reacción de Pirólisis ($E_{pyro}$)**: Calor sensible de volátiles reaccionados más calor de craqueo químico endotérmico:
-              $$E_{pyro} = (M_{oil} + M_{gas}) \cdot \left[ Cp_{volatile} \cdot (T_{hold} - T_{start}) + \Delta H_{pyro} \right] / 3.6\times 10^6$$
-              Donde $Cp_{volatile} = 1800\text{ J/kg}\cdot\text{K}$ y calor de pirólisis $\Delta H_{pyro} = 600,000\text{ J/kg}$.
+            st.markdown(rf"""
+            #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
+            La energía térmica total ($E_{{total}}$) suministrada en el lote se desglosa en cinco componentes caloríficos con sus valores reales evaluados:
+            $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
+            * **Calor Sensible del Char ($E_{{char}}$)**:
+              $$E_{{char}} = \frac{{M_{{char}} \cdot Cp_{{char}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_char:.2f}\text{{ kg}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
+            * **Calor Sensible del Bio-Crudo Líquido ($E_{{oil\_sens}}$)**:
+              $$E_{{oil}} = \frac{{M_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_oil:.2f}\text{{ kg}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
+            * **Calor Sensible del Syngas ($E_{{gas\_sens}}$)**:
+              $$E_{{gas}} = \frac{{M_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_gas:.2f}\text{{ kg}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
+            * **Reacción Química Endotérmica de Pirólisis ($E_{{rxn}}$)**:
+              $$E_{{rxn}} = \frac{{(M_{{oil}} + M_{{gas}}) \cdot \Delta H_{{pyro}}}}{{3.6 \times 10^6}} = \frac{{{M_oil + M_gas:.2f}\text{{ kg}} \cdot 600,000\text{{ J/kg}}}}{{3.6 \times 10^6}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
+            * **Secado y Evaporación del Agua ($E_{{steam}}$)**:
+              $$E_{{steam}} = \frac{{M_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right]}}{{3.6 \times 10^6}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
             """)
         else:
-            st.markdown(r"""
-            #### 📝 Energy Balance Equations (Batch)
-            The total thermal energy supplied ($E_{total}$) during the entire batch cycle (in kWh) is broken down into:
-            $$E_{total} = E_{solids} + E_{steam} + E_{pyro}$$
-            * **Sensible Heat of Solids ($E_{solids}$)**: Energy transferred to heat the bed solids from the initial temperature ($T_{start}$) to the final hold temperature ($T_{hold}$):
-              $$E_{solids} = M_{char} \cdot Cp_{char} \cdot (T_{hold} - T_{start}) / 3.6\times 10^6$$
-              Where $Cp_{char} = 1000\text{ J/kg}\cdot\text{K}$ and division by $3.6\times 10^6$ converts Joules to kWh.
-            * **Evaporation & Dehydration ($E_{steam}$)**: Energy to heat liquid water to 100°C, vaporize it completely, and superheat the steam:
-              * If $T_{hold} \ge 100^\circ\text{C}$:
-                $$E_{steam} = M_{steam} \cdot \left[ Cp_{water} \cdot (100 - T_{start}) + \Delta H_{evap} + Cp_{steam} \cdot (T_{hold} - 100) \right] / 3.6\times 10^6$$
-              * If $T_{hold} < 100^\circ\text{C}$:
-                $$E_{steam} = M_{steam} \cdot \left[ Cp_{water} \cdot (T_{hold} - T_{start}) \right] / 3.6\times 10^6$$
-              Where $Cp_{water} = 4184\text{ J/kg}\cdot\text{K}$, latent heat $\Delta H_{evap} = 2,256,000\text{ J/kg}$, and $Cp_{steam} = 2000\text{ J/kg}\cdot\text{K}$.
-            * **Pyrolysis Reaction ($E_{pyro}$)**: Sensible heat of reacted volatiles plus endothermic chemical cracking heat:
-              $$E_{pyro} = (M_{oil} + M_{gas}) \cdot \left[ Cp_{volatile} \cdot (T_{hold} - T_{start}) + \Delta H_{pyro} \right] / 3.6\times 10^6$$
-              Where $Cp_{volatile} = 1800\text{ J/kg}\cdot\text{K}$ and pyrolysis heat $\Delta H_{pyro} = 600,000\text{ J/kg}$.
+            st.markdown(rf"""
+            #### 📝 Energy Balance Equations with Evaluated Results
+            The total thermal energy ($E_{{total}}$) is rigorously separated into five thermal duties:
+            $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
+            * **Char Sensible Heat**: $E_{{char}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
+            * **Bio-Oil Sensible Heat**: $E_{{oil}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
+            * **Syngas Sensible Heat**: $E_{{gas}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
+            * **Pyrolysis Chemical Endotherm**: $E_{{rxn}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
+            * **Moisture Dehydration & Evaporation**: $E_{{steam}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
             """)
         
     st.markdown("---")
@@ -558,7 +558,10 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                 config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
             
             try:
-                pdf_bytes = generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict)
+                import importlib
+                import pyrolysis.pdf_generator as pdf_mod
+                importlib.reload(pdf_mod)
+                pdf_bytes = pdf_mod.generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict)
                 pdf_filename = "Tesis_Simulacion_Pirolisis_Reactor_Rotatorio.pdf"
                 st.download_button(
                     label=t("export_pdf_button"),
@@ -583,7 +586,10 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                 config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
             
             try:
-                docx_bytes = generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
+                import importlib
+                import pyrolysis.docx_generator as docx_mod
+                importlib.reload(docx_mod)
+                docx_bytes = docx_mod.generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
                 word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio_PROENERGETICOS.docx"
                 st.download_button(
                     label="📥 Descargar Informe en Word (.docx)",

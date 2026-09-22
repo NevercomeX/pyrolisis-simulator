@@ -3,7 +3,7 @@ from ..feedstock import Feedstock
 
 class BaseReactorSimulation:
     def __init__(self, feedstock: Feedstock, length: float, diameter: float, rpm: float, h_eff: float,
-                 bulk_density: float = 900.0,
+                 bulk_density: float = 944.7,
                  Cp_volatile: float = 1800.0,
                  Cp_char: float = 1000.0,
                  Cp_ash: float = 800.0):
@@ -62,7 +62,7 @@ class BaseReactorSimulation:
         Returns:
             (k_pyro, r_pyro): reaction rate constant (1/s) and reaction rate (kg/s).
         """
-        T_onset_K = getattr(self.feedstock, 'T_onset_K', 296.0 + 273.15)
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
         if T_s < T_onset_K:
             k_pyro = 0.0
         else:
@@ -91,8 +91,8 @@ class BaseReactorSimulation:
         A3 = getattr(self.feedstock, 'A3', 5e5)
         Ea3 = getattr(self.feedstock, 'Ea3', 100000.0)
         
-        # Physical activation threshold for heavy sludge pyrolysis devolatilization (Onset = 296°C)
-        T_onset_K = getattr(self.feedstock, 'T_onset_K', 296.0 + 273.15)
+        # Physical activation threshold for heavy sludge pyrolysis devolatilization (Onset = 250°C)
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
         if T_s < T_onset_K:
             k1 = 0.0
             k2 = 0.0

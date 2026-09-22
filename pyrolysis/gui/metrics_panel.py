@@ -155,7 +155,7 @@ def render_metrics_panel(mode_option, summary, results):
             m_in_ash = results['ash'][0]
             m_in_total = m_in_moist + m_in_volatile + m_in_char + m_in_ash
             
-            sludge_density = float(st.session_state.get('sludge_density', 900.0))
+            sludge_density = float(st.session_state.get('sludge_density', 944.7))
             in_df = pd.DataFrame({
                 t("analysis_component"): [
                     t("analysis_moisture_name"),
@@ -378,7 +378,7 @@ def render_metrics_panel(mode_option, summary, results):
             m_in_ash = results['ash'][0]
             m_in_total = m_in_moist + m_in_volatile + m_in_char + m_in_ash
             
-            sludge_density = float(st.session_state.get('sludge_density', 900.0))
+            sludge_density = float(st.session_state.get('sludge_density', 944.7))
             in_df = pd.DataFrame({
                 t("analysis_component"): [
                     t("analysis_moisture_name"),

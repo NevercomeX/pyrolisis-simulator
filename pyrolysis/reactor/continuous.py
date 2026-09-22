@@ -8,7 +8,7 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
                  length: float, diameter: float, slope: float, rpm: float, 
                  T_inlet_C: float, h_eff: float = 80.0, 
                  T_wall_type: str = 'uniform', T_wall_params: dict = None,
-                 bulk_density: float = 900.0,
+                 bulk_density: float = 944.7,
                  Cp_volatile: float = 1800.0,
                  Cp_char: float = 1000.0,
                  Cp_ash: float = 800.0,
@@ -195,20 +195,37 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
             tau_gas = 2.0  # Tiempo de residencia de gases en el reactor caliente (segundos)
             dt_gas = (dz / self.length) * tau_gas
             
-            # Capa la reacción del lodo para no consumir más de lo disponible en el paso dz (tiempo dt_solid)
-            max_r_slug = m_volatile / dt_solid
-            if r_slug > max_r_slug:
-                scale = max_r_slug / r_slug
-                k1_eff = k1 * scale
-                k2_eff = k2 * scale
-                r_slug = max_r_slug
-            else:
-                k1_eff = k1
-                k2_eff = k2
+            # Modulación por espectro de destilación (250°C a 520°C) y límite térmico
+            T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
+            T_end_boil_K = 520.0 + 273.15
+            
+            if T_s >= T_onset_K:
+                f_distillable = min(1.0, max(0.05, (T_s - T_onset_K) / max(1.0, T_end_boil_K - T_onset_K)))
+                r_slug = r_slug * f_distillable
                 
-            d_volatile = r_slug * dt_solid
-            d_oil_primary = k1_eff * m_volatile * dt_solid
-            d_non_oil = k2_eff * m_volatile * dt_solid
+                # Límite por flujo térmico conductivo-convectivo local en el paso dz
+                A_step_contact = np.pi * self.diameter * dz * 0.15
+                Q_avail_step = max(0.0, T_w - T_s) * self.h_eff * A_step_contact
+                r_thermal_max = Q_avail_step / self.dH_pyro if self.dH_pyro > 0 else r_slug
+                r_slug = min(r_slug, r_thermal_max)
+            else:
+                r_slug = 0.0
+                k1 = 0.0
+                k2 = 0.0
+            
+            # Capa la reacción del lodo para no consumir más de lo disponible en el paso dz (tiempo dt_solid)
+            d_volatile = min(r_slug * dt_solid, m_volatile)
+            
+            k_sum = k1 + k2
+            if k_sum > 0:
+                frac_k1 = k1 / k_sum
+                frac_k2 = k2 / k_sum
+            else:
+                frac_k1 = getattr(self.feedstock, 'yield_oil', 0.60)
+                frac_k2 = 1.0 - frac_k1
+
+            d_oil_primary = d_volatile * frac_k1
+            d_non_oil = d_volatile * frac_k2
             
             y_gas = getattr(self.feedstock, 'yield_gas', 0.25)
             y_char = getattr(self.feedstock, 'yield_char', 0.15)
