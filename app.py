@@ -17,7 +17,8 @@ from pyrolysis.gui import (
     render_sustainability_tab,
     render_guide_tab,
     render_export_tab,
-    render_reactor_geometry_section
+    render_reactor_geometry_section,
+    ENABLE_REPORTS
 )
 
 # Set page config for a premium, wide-layout application
@@ -175,4 +176,4 @@ with tab_guide:
     render_guide_tab()
 
 with tab_export:
-    render_export_tab(mode_option, results, summary, solver_inputs, config_dict)
+    render_export_tab(mode_option, results, summary, solver_inputs, config_dict, enable_reports=ENABLE_REPORTS)

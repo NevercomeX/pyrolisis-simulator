@@ -5,6 +5,14 @@ from pyrolysis.docx_generator import generate_word_report, PYTHON_DOCX_AVAILABLE
 from pyrolysis.pdf_generator import generate_thesis_pdf, REPORTLAB_AVAILABLE
 from .utils import get_lang, t
 
+# ==============================================================================
+# CONTROL DE GENERACIÓN DE REPORTES (FEATURE FLAG)
+# Cambie este valor a True si desea habilitar la generación y descarga de
+# reportes ejecutivos/técnicos (PDF de Tesis y Word .docx).
+# Por defecto está en False: la opción de generar reportes queda eliminada de la interfaz.
+# ==============================================================================
+ENABLE_REPORTS = False
+
 def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_kg, feed_option):
     """Renders the feedstock properties tab content."""
     lang = get_lang()
@@ -527,114 +535,125 @@ def render_guide_tab():
     st.subheader(t("guide_sec_4"))
     st.markdown(t("guide_sec_4_text"))
 
-def render_export_tab(mode_option, results, summary, solver_inputs=None, config_dict=None):
-    """Renders the data export tab content including Thesis PDF generation."""
+def _render_csv_export(mode_option, results):
+    """Renders the numerical simulation profile CSV export button."""
+    st.markdown("### 📊 Datos de Perfil (CSV)")
+    st.caption("Descargue las series temporales/espaciales de temperatura, masa y rendimiento.")
+    
+    if mode_option == "Continuous Operation":
+        export_df = pd.DataFrame({
+            'Length_z_m': results['z'],
+            'T_Wall_C': results['T_wall'],
+            'T_Solids_C': results['T_solid'],
+            'T_Gas_C': results['T_gas'],
+            'Moisture_Flow_kgh': results['moisture'],
+            'Volatiles_Flow_kgh': results['volatile'],
+            'Char_Flow_kgh': results['char'],
+            'Ash_Flow_kgh': results['ash'],
+            'Oil_Vapor_Flow_kgh': results['oil'],
+            'Syngas_Flow_kgh': results['gas'],
+            'Steam_Flow_kgh': results['steam'],
+            'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
+            'Bed_Humidity_pct': results['humidity']
+        })
+        file_name_out = "pyrolysis_continuous_reactor_profile.csv"
+    else:
+        export_df = pd.DataFrame({
+            'Time_min': results['time'],
+            'T_Wall_C': results['T_wall'],
+            'T_Solids_C': results['T_solid'],
+            'Moisture_kg': results['moisture'],
+            'Volatiles_kg': results['volatile'],
+            'Char_kg': results['char'],
+            'Ash_kg': results['ash'],
+            'Oil_Produced_kg': results['oil'],
+            'Syngas_Produced_kg': results['gas'],
+            'Steam_Produced_kg': results['steam'],
+            'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
+            'Bed_Humidity_pct': results['humidity']
+        })
+        file_name_out = "pyrolysis_batch_reactor_profile.csv"
+        
+    csv_data = export_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label=t("export_button"),
+        data=csv_data,
+        file_name=file_name_out,
+        mime="text/csv"
+    )
+
+def render_export_tab(mode_option, results, summary, solver_inputs=None, config_dict=None, enable_reports=None):
+    """Renders the data export tab content. Report generation (PDF/Word) is enabled only if enable_reports is True."""
+    if enable_reports is None:
+        enable_reports = ENABLE_REPORTS
+
     st.subheader(t("export_title"))
     st.markdown(t("export_desc"))
     
-    col_pdf, col_word, col_csv = st.columns(3)
-    
-    with col_pdf:
-        st.markdown("### 🎓 Reporte de Tesis (PDF)")
-        st.info(t("export_pdf_desc"))
+    if enable_reports:
+        col_pdf, col_word, col_csv = st.columns(3)
         
-        if not REPORTLAB_AVAILABLE:
-            st.warning("⚠️ **La librería `reportlab` no está instalada en el entorno de Python de su servidor.**\n\nPara habilitar la generación y descarga del reporte de tesis en PDF, ejecute en su servidor / consola:\n```bash\npip install reportlab\n```")
-        elif solver_inputs is not None:
-            if config_dict is None:
-                config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+        with col_pdf:
+            st.markdown("### 🎓 Reporte de Tesis (PDF)")
+            st.info(t("export_pdf_desc"))
             
-            try:
-                import importlib
-                import pyrolysis.pdf_generator as pdf_mod
-                importlib.reload(pdf_mod)
-                pdf_bytes = pdf_mod.generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict)
-                pdf_filename = "Tesis_Simulacion_Pirolisis_Reactor_Rotatorio.pdf"
-                st.download_button(
-                    label=t("export_pdf_button"),
-                    data=pdf_bytes,
-                    file_name=pdf_filename,
-                    mime="application/pdf",
-                    type="primary"
-                )
-            except Exception as e:
-                st.error(f"Error al generar el reporte de Tesis PDF: {e}")
-        else:
-            st.warning("Complete la simulación para habilitar la descarga del reporte en PDF.")
+            if not REPORTLAB_AVAILABLE:
+                st.warning("⚠️ **La librería `reportlab` no está instalada en el entorno de Python de su servidor.**\n\nPara habilitar la generación y descarga del reporte de tesis en PDF, ejecute en su servidor / consola:\n```bash\npip install reportlab\n```")
+            elif solver_inputs is not None:
+                if config_dict is None:
+                    config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+                
+                try:
+                    import importlib
+                    import pyrolysis.pdf_generator as pdf_mod
+                    importlib.reload(pdf_mod)
+                    pdf_bytes = pdf_mod.generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict)
+                    pdf_filename = "Tesis_Simulacion_Pirolisis_Reactor_Rotatorio.pdf"
+                    st.download_button(
+                        label=t("export_pdf_button"),
+                        data=pdf_bytes,
+                        file_name=pdf_filename,
+                        mime="application/pdf",
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"Error al generar el reporte de Tesis PDF: {e}")
+            else:
+                st.warning("Complete la simulación para habilitar la descarga del reporte en PDF.")
 
-    with col_word:
-        st.markdown("### 📝 Reporte Técnico (Word)")
-        st.info("Descargue el informe técnico completo editable en formato Microsoft Word (.docx).")
-        
-        if not PYTHON_DOCX_AVAILABLE:
-            st.warning("⚠️ **La librería `python-docx` no está instalada en el entorno.**\n\nEjecute:\n```bash\npip install python-docx\n```")
-        elif solver_inputs is not None:
-            if config_dict is None:
-                config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+        with col_word:
+            st.markdown("### 📝 Reporte Técnico (Word)")
+            st.info("Descargue el informe técnico completo editable en formato Microsoft Word (.docx).")
             
-            try:
-                import importlib
-                import pyrolysis.docx_generator as docx_mod
-                importlib.reload(docx_mod)
-                docx_bytes = docx_mod.generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
-                word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio_PROENERGETICOS.docx"
-                st.download_button(
-                    label="📥 Descargar Informe en Word (.docx)",
-                    data=docx_bytes,
-                    file_name=word_filename,
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    type="primary"
-                )
-            except Exception as e:
-                st.error(f"Error al generar el reporte en Word: {e}")
-        else:
-            st.warning("Complete la simulación para habilitar la descarga del reporte en Word.")
+            if not PYTHON_DOCX_AVAILABLE:
+                st.warning("⚠️ **La librería `python-docx` no está instalada en el entorno.**\n\nEjecute:\n```bash\npip install python-docx\n```")
+            elif solver_inputs is not None:
+                if config_dict is None:
+                    config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+                
+                try:
+                    import importlib
+                    import pyrolysis.docx_generator as docx_mod
+                    importlib.reload(docx_mod)
+                    docx_bytes = docx_mod.generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
+                    word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio_PROENERGETICOS.docx"
+                    st.download_button(
+                        label="📥 Descargar Informe en Word (.docx)",
+                        data=docx_bytes,
+                        file_name=word_filename,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"Error al generar el reporte en Word: {e}")
+            else:
+                st.warning("Complete la simulación para habilitar la descarga del reporte en Word.")
 
-    with col_csv:
-        st.markdown("### 📊 Datos de Perfil (CSV)")
-        st.caption("Descargue las series temporales/espaciales de temperatura, masa y rendimiento.")
-        
-        if mode_option == "Continuous Operation":
-            export_df = pd.DataFrame({
-                'Length_z_m': results['z'],
-                'T_Wall_C': results['T_wall'],
-                'T_Solids_C': results['T_solid'],
-                'T_Gas_C': results['T_gas'],
-                'Moisture_Flow_kgh': results['moisture'],
-                'Volatiles_Flow_kgh': results['volatile'],
-                'Char_Flow_kgh': results['char'],
-                'Ash_Flow_kgh': results['ash'],
-                'Oil_Vapor_Flow_kgh': results['oil'],
-                'Syngas_Flow_kgh': results['gas'],
-                'Steam_Flow_kgh': results['steam'],
-                'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
-                'Bed_Humidity_pct': results['humidity']
-            })
-            file_name_out = "pyrolysis_continuous_reactor_profile.csv"
-        else:
-            export_df = pd.DataFrame({
-                'Time_min': results['time'],
-                'T_Wall_C': results['T_wall'],
-                'T_Solids_C': results['T_solid'],
-                'Moisture_kg': results['moisture'],
-                'Volatiles_kg': results['volatile'],
-                'Char_kg': results['char'],
-                'Ash_kg': results['ash'],
-                'Oil_Produced_kg': results['oil'],
-                'Syngas_Produced_kg': results['gas'],
-                'Steam_Produced_kg': results['steam'],
-                'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
-                'Bed_Humidity_pct': results['humidity']
-            })
-            file_name_out = "pyrolysis_batch_reactor_profile.csv"
-            
-        csv_data = export_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label=t("export_button"),
-            data=csv_data,
-            file_name=file_name_out,
-            mime="text/csv"
-        )
+        with col_csv:
+            _render_csv_export(mode_option, results)
+    else:
+        # Modo con reportes desactivados: solo exportación de datos crudos (CSV)
+        _render_csv_export(mode_option, results)
     
     st.markdown("---")
     st.subheader(t("export_summary_title"))
