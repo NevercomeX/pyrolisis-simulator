@@ -228,10 +228,12 @@ def _calculate_financials(mode_option, summary, solver_inputs):
     
     total_capex = capex_equip + capex_install + capex_civil + capex_piping_elec + capex_eng + capex_permits + capex_cont
 
-    annual_days = int(session.get('annual_days', 246))
+    shutdown_days = int(session.get('shutdown_days', 15))
+    holidays_days = int(session.get('holidays_days', 15))
+    available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
+    annual_days = int(session.get('annual_days', available_calendar_days))
     sludge_density = float(session.get('sludge_density', 944.7))
     oil_density = float(session.get('bio_oil_density', 750.0))
-    motor_power = float(session.get('motor_power', 15.0 if is_continuous else 7.5))
 
     if is_continuous:
         annual_hours = annual_days * 24.0
@@ -240,15 +242,22 @@ def _calculate_financials(mode_option, summary, solver_inputs):
         char_produced_kg = summary.get('char_yield_kgh', 0.0) * annual_hours
         gas_produced_kg = summary.get('gas_yield_kgh', 0.0) * annual_hours
         fuel_consumed_gal = summary.get('waste_oil_consumed_galh', 0.0) * annual_hours
-        elec_consumed_kwh = motor_power * annual_hours
-        gen_diesel_rate = float(session.get('gen_diesel_rate', motor_power * 0.08))
+        elec_consumed_kwh = 0.0
+        gen_diesel_rate = float(session.get('gen_diesel_rate', 1.2))
         generator_fuel_consumed_gal = gen_diesel_rate * annual_hours
     else:
         t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
         t_hold_min = solver_inputs.get('hold_time_min', 60.0)
         t_cycle_min = t_heat_min + t_hold_min
-        batch_turnaround_h = float(session.get('batch_turnaround_h', 1.0))
-        t_cycle_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+        batch_cooldown_h = float(session.get('batch_cooldown_h', 0.50))
+        batch_loading_h = float(session.get('batch_loading_h', 0.50))
+        batch_turnaround_h = float(session.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
+        batches_before_cleaning = int(session.get('batches_before_cleaning', 20))
+        cleaning_time_h = float(session.get('cleaning_time_h', 4.0))
+        maint_cooldown_h = float(session.get('maint_cooldown_h', 6.0))
+        maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
+        t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+        t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
         annual_hours = annual_days * 24.0
         batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
         
@@ -257,8 +266,8 @@ def _calculate_financials(mode_option, summary, solver_inputs):
         char_produced_kg = summary.get('char_yield_kg', 0.0) * batches_per_year
         gas_produced_kg = summary.get('gas_yield_kg', 0.0) * batches_per_year
         fuel_consumed_gal = summary.get('waste_oil_consumed_gal', 0.0) * batches_per_year
-        elec_consumed_kwh = motor_power * (t_cycle_min / 60.0) * batches_per_year
-        gen_diesel_batch = float(session.get('gen_diesel_batch', motor_power * (t_cycle_min / 60.0) * 0.08))
+        elec_consumed_kwh = 0.0
+        gen_diesel_batch = float(session.get('gen_diesel_batch', 1.0))
         generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
 
     sludge_treated_gal = (sludge_treated_kg / sludge_density) * 264.172

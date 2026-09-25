@@ -250,6 +250,349 @@ def run_financial_model(
         }
     }
 
+def render_pre_drying_evaluator(
+    solver_inputs,
+    summary,
+    results,
+    is_continuous,
+    curr_sym,
+    opex_fuel,
+    available_calendar_days,
+    batches_per_year,
+    t_cycle_hours,
+    t_op_batch_hours,
+    maint_penalty_per_batch_h,
+    m,
+    lang
+):
+    """
+    Renders an interactive Sludge Pre-Drying Evaluator.
+    Compares the energy, fuel savings, batch cycle reduction, throughput gain,
+    and financial payback of installing an external pre-dryer vs direct wet sludge pyrolysis.
+    NO LATEX is used anywhere in the text or formulas.
+    """
+    st.markdown("---")
+    with st.expander(
+        "♨️ Evaluador de Pre-Secado de Lodos (Análisis de Humedad y Ahorro)"
+        if lang == 'es'
+        else "♨️ Sludge Pre-Drying Evaluator (Moisture & Cost Analysis)",
+        expanded=True
+    ):
+        if lang == 'es':
+            st.markdown(
+                "Evalúa la viabilidad técnica y financiera de instalar un sistema de pre-secado para reducir la humedad del lodo "
+                "antes de ingresar al reactor pirolítico. Compara el costo de secado previo contra el ahorro de combustible en quemadores, "
+                "la reducción del tiempo de ciclo y la ganancia en capacidad anual de lotes."
+            )
+        else:
+            st.markdown(
+                "Evaluate the technical and financial viability of installing a pre-drying system to reduce sludge moisture "
+                "prior to entering the pyrolysis reactor. Compares pre-drying cost against burner fuel savings, cycle time reduction, "
+                "and annual batch throughput gains."
+            )
+            
+        current_feed = solver_inputs.get('current_feed')
+        feed_moist = float(getattr(current_feed, 'moisture', 35.0)) if current_feed else 35.0
+        default_moist = feed_moist if feed_moist >= 10.0 else 35.0
+        
+        col_d1, col_d2, col_d3 = st.columns(3)
+        with col_d1:
+            init_val = float(st.session_state.get('pre_dry_init_moist', default_moist))
+            init_val = max(1.0, min(95.0, init_val))
+            initial_moist_pct = st.number_input(
+                "Humedad Inicial del Lodo Bruto (%)" if lang == 'es' else "Raw Sludge Initial Moisture (%)",
+                min_value=1.0,
+                max_value=95.0,
+                value=init_val,
+                step=1.0,
+                key='pre_dry_init_moist',
+                help="Contenido de humedad en base húmeda con el que llega el lodo crudo a la planta." if lang == 'es' else "Raw sludge moisture content as received."
+            )
+        with col_d2:
+            target_default = float(min(12.0, max(1.0, initial_moist_pct - 5.0)))
+            target_val = float(st.session_state.get('pre_dry_target_moist', target_default))
+            max_target = float(max(1.0, initial_moist_pct))
+            target_val = max(0.5, min(max_target, target_val))
+            target_moist_pct = st.number_input(
+                "Humedad Objetivo tras Pre-Secado (%)" if lang == 'es' else "Target Pre-Dried Moisture (%)",
+                min_value=0.5,
+                max_value=max_target,
+                value=target_val,
+                step=1.0,
+                key='pre_dry_target_moist',
+                help="Contenido de humedad final del lodo a la salida del pre-secador hacia el reactor." if lang == 'es' else "Sludge moisture content after pre-drying feeding into reactor."
+            )
+        with col_d3:
+            tech_options_es = [
+                "Calor Residual de Gases de Escape (Sin costo de combustible)",
+                "Quemador Dedicado a Combustible Líquido (Fuel Oil / Aceite Usado)",
+                "Secador Solar / Invernadero Térmico"
+            ]
+            tech_options_en = [
+                "Pyrolysis Flue Gas Waste Heat (Zero fuel cost)",
+                "Dedicated Fuel Burner (Fuel Oil / Waste Oil)",
+                "Solar / Thermal Greenhouse Dryer"
+            ]
+            tech_options = tech_options_es if lang == 'es' else tech_options_en
+            selected_tech = st.selectbox(
+                "Fuente Térmica del Pre-Secador" if lang == 'es' else "Pre-Dryer Thermal Source",
+                options=tech_options,
+                key='pre_dry_tech'
+            )
+            
+        col_e1, col_e2, col_e3 = st.columns(3)
+        with col_e1:
+            dryer_capex = st.number_input(
+                f"Inversión Estimada en Pre-Secador ({curr_sym})" if lang == 'es' else f"Estimated Pre-Dryer CAPEX ({curr_sym})",
+                min_value=0.0,
+                value=float(st.session_state.get('pre_dry_capex', 1500000.0)),
+                step=100000.0,
+                key='pre_dry_capex',
+                help="Costo total de compra, transporte, obras civiles e instalación del equipo pre-secador." if lang == 'es' else "Total purchase, civil works, and installation cost of the pre-dryer."
+            )
+        with col_e2:
+            dryer_eff_pct = st.number_input(
+                "Eficiencia Térmica del Secador (%)" if lang == 'es' else "Dryer Thermal Efficiency (%)",
+                min_value=30.0,
+                max_value=95.0,
+                value=75.0,
+                step=5.0,
+                key='pre_dry_eff',
+                help="Rendimiento térmico en la evaporación de agua (usualmente 70% a 80% en secadores industriales)." if lang == 'es' else "Thermal efficiency for water evaporation."
+            )
+        with col_e3:
+            dryer_elec_kwh_ton = st.number_input(
+                "Consumo Eléctrico Auxiliar (kWh / ton lodo)" if lang == 'es' else "Auxiliary Electricity (kWh / ton sludge)",
+                min_value=0.0,
+                max_value=100.0,
+                value=12.0,
+                step=1.0,
+                key='pre_dry_elec_rate',
+                help="Electricidad consumida por motores del tambor rotativo, ventiladores y bombas de tiro forzado." if lang == 'es' else "Electricity for dryer motors, pumps, and blowers."
+            )
+            
+        # Calculation logic
+        if is_continuous:
+            m_sludge_basis = float(summary.get('feed_rate_kgh', 500.0))
+            basis_label = "por hora" if lang == 'es' else "per hour"
+            annual_multiplier = available_calendar_days * 24.0
+        else:
+            m_sludge_basis = float(summary.get('batch_load_kg', 5000.0))
+            basis_label = "por lote" if lang == 'es' else "per batch"
+            annual_multiplier = batches_per_year
+
+        h_in = initial_moist_pct / 100.0
+        h_out = target_moist_pct / 100.0
+
+        m_solids = m_sludge_basis * (1.0 - h_in)
+        m_water_initial = m_sludge_basis * h_in
+
+        m_sludge_final = m_solids / (1.0 - h_out) if (1.0 - h_out) > 0 else m_sludge_basis
+        m_water_final = m_sludge_final * h_out
+
+        m_water_removed = max(0.0, m_sludge_basis - m_sludge_final)
+        water_removed_gal = (m_water_removed / 1000.0) * 264.172
+        pct_water_removed = (m_water_removed / m_water_initial * 100.0) if m_water_initial > 0 else 0.0
+
+        # Thermal energy required for water evaporation: 2,570 kJ/kg (sensible + latent heat)
+        energy_kj_per_kg_water = 2570.0
+        energy_needed_kj = m_water_removed * energy_kj_per_kg_water
+
+        fuel_lhv_kj_gal = 135000.0
+        reactor_burner_eff = 0.75
+
+        # Fuel saved in pyrolysis reactor
+        fuel_saved_reactor_gal = energy_needed_kj / (reactor_burner_eff * fuel_lhv_kj_gal)
+        cost_saved_reactor = fuel_saved_reactor_gal * opex_fuel
+
+        # Fuel used in pre-dryer
+        is_fuel_burner = ("Quemador Dedicado" in selected_tech) or ("Dedicated Fuel" in selected_tech)
+        if is_fuel_burner:
+            fuel_used_dryer_gal = energy_needed_kj / ((dryer_eff_pct / 100.0) * fuel_lhv_kj_gal)
+            cost_fuel_dryer = fuel_used_dryer_gal * opex_fuel
+        else:
+            fuel_used_dryer_gal = 0.0
+            cost_fuel_dryer = 0.0
+
+        # Electricity cost
+        ton_sludge_basis = m_sludge_basis / 1000.0
+        elec_kwh_dryer = ton_sludge_basis * dryer_elec_kwh_ton
+        cost_per_kwh = float(st.session_state.get('price_generator_fuel', 262.80)) * 0.08
+        cost_elec_dryer = elec_kwh_dryer * cost_per_kwh
+
+        # Time savings in reactor
+        if not is_continuous:
+            t_dry_plateau_min = (m_water_initial * energy_kj_per_kg_water) / (25000.0 * 60.0)
+            t_saved_min = t_dry_plateau_min * (pct_water_removed / 100.0)
+            t_saved_hours = t_saved_min / 60.0
+            t_cycle_new = max(1.0, t_cycle_hours - t_saved_hours)
+            available_hours = available_calendar_days * 24.0
+            batches_year_new = np.floor(available_hours / t_cycle_new) if t_cycle_new > 0 else batches_per_year
+            extra_batches = max(0.0, batches_year_new - batches_per_year)
+            
+            annual_rev_base = m['rev_flows'][1] if len(m['rev_flows']) > 1 else 0.0
+            rev_per_batch = annual_rev_base / max(batches_per_year, 1)
+            extra_revenue_annual = extra_batches * rev_per_batch
+        else:
+            t_saved_min = 0.0
+            t_saved_hours = 0.0
+            t_cycle_new = 0.0
+            batches_year_new = 0.0
+            extra_batches = 0.0
+            extra_revenue_annual = 0.0
+
+        annual_fuel_saved_cost = cost_saved_reactor * annual_multiplier
+        annual_dryer_fuel_cost = cost_fuel_dryer * annual_multiplier
+        annual_dryer_elec_cost = cost_elec_dryer * annual_multiplier
+        annual_dryer_total_opex = annual_dryer_fuel_cost + annual_dryer_elec_cost
+        
+        # Net annual financial gain
+        annual_net_benefit = (annual_fuel_saved_cost - annual_dryer_total_opex) + extra_revenue_annual
+
+        if annual_net_benefit > 0 and dryer_capex > 0:
+            payback_years = dryer_capex / annual_net_benefit
+            payback_months = payback_years * 12.0
+        else:
+            payback_years = float('inf')
+            payback_months = float('inf')
+
+        # KPI Metrics Cards
+        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        with col_m1:
+            st.metric(
+                "Agua Retirada" if lang == 'es' else "Water Removed",
+                f"{m_water_removed:,.0f} kg {basis_label}",
+                delta=f"-{pct_water_removed:.1f}% de agua" if lang == 'es' else f"-{pct_water_removed:.1f}% water",
+                delta_color="normal"
+            )
+        with col_m2:
+            st.metric(
+                "Ahorro Combustible" if lang == 'es' else "Fuel Saved in Reactor",
+                f"{fuel_saved_reactor_gal:,.1f} gal {basis_label}",
+                delta=f"+{curr_sym}{cost_saved_reactor:,.2f} {basis_label}"
+            )
+        with col_m3:
+            if not is_continuous:
+                st.metric(
+                    "Tiempo Ahorrado" if lang == 'es' else "Time Saved in Reactor",
+                    f"{t_saved_min:.0f} min {basis_label}",
+                    delta=f"+{extra_batches:.0f} lotes/año" if lang == 'es' else f"+{extra_batches:.0f} batches/yr"
+                )
+            else:
+                st.metric(
+                    "Ahorro Neto Combustible" if lang == 'es' else "Net Fuel Saved",
+                    f"{(fuel_saved_reactor_gal - fuel_used_dryer_gal):,.1f} gal/h",
+                    delta=f"{fuel_saved_reactor_gal * annual_multiplier:,.0f} gal/año" if lang == 'es' else f"{fuel_saved_reactor_gal * annual_multiplier:,.0f} gal/yr"
+                )
+        with col_m4:
+            st.metric(
+                "Beneficio Neto Anual" if lang == 'es' else "Net Annual Benefit",
+                f"{curr_sym}{annual_net_benefit:,.2f}/año" if lang == 'es' else f"{curr_sym}{annual_net_benefit:,.2f}/yr",
+                delta=f"Retorno: {payback_months:.1f} meses" if payback_months < 60 else "Evaluación especial"
+            )
+
+        # Comparison Table
+        st.markdown("##### 📊 Comparativo Técnico y Económico: Sin Pre-Secado vs. Con Pre-Secado" if lang == 'es' else "##### 📊 Technical & Economic Comparison: Baseline vs. With Pre-Drying")
+        
+        comp_data = {
+            "Concepto / Parámetro" if lang == 'es' else "Parameter": [
+                "Humedad del lodo al entrar al reactor" if lang == 'es' else "Sludge moisture entering reactor",
+                "Masa de carga al reactor" if lang == 'es' else "Sludge mass loaded into reactor",
+                "Agua evaporada dentro del reactor" if lang == 'es' else "Water evaporated inside reactor",
+                "Combustible consumido en reactor" if lang == 'es' else "Burner fuel consumed in reactor",
+                "Combustible consumido por pre-secador" if lang == 'es' else "Fuel consumed by pre-dryer",
+                "Costo de combustible de proceso" if lang == 'es' else "Process fuel operational cost",
+                "Consumo eléctrico del pre-secador" if lang == 'es' else "Pre-dryer auxiliary electricity",
+                "Tiempo de ciclo por lote" if not is_continuous and lang == 'es' else ("Batch cycle duration" if not is_continuous else "Régimen de operación"),
+                "Capacidad anual de procesamiento" if not is_continuous and lang == 'es' else ("Annual batch capacity" if not is_continuous else "Horas anuales"),
+                "Beneficio económico neto anual" if lang == 'es' else "Net annual financial benefit"
+            ],
+            "Operación Actual (Lodo Crudo)" if lang == 'es' else "Current Baseline": [
+                f"{initial_moist_pct:.1f} %",
+                f"{m_sludge_basis:,.0f} kg {basis_label}",
+                f"{m_water_initial:,.0f} kg ({m_water_initial * 264.172 / 1000.0:,.0f} gal) {basis_label}",
+                f"{summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0):,.1f} gal {basis_label}",
+                "0.0 gal",
+                f"{curr_sym}{(summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)) * opex_fuel * annual_multiplier:,.2f}/año",
+                "0.0 kWh/año",
+                f"{t_cycle_hours:.2f} horas" if not is_continuous else f"{available_calendar_days * 24:.0f} horas",
+                f"{batches_per_year:.0f} lotes/año" if not is_continuous else f"{available_calendar_days:.0f} días",
+                "Línea Base (RD$ 0.00)"
+            ],
+            "Con Sistema de Pre-Secado" if lang == 'es' else "With Pre-Drying System": [
+                f"{target_moist_pct:.1f} %",
+                f"{m_sludge_final:,.0f} kg {basis_label}",
+                f"{m_water_final:,.0f} kg ({m_water_final * 264.172 / 1000.0:,.0f} gal) {basis_label}",
+                f"{max(0.0, (summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)) - fuel_saved_reactor_gal):,.1f} gal {basis_label}",
+                f"{fuel_used_dryer_gal:,.1f} gal {basis_label}",
+                f"{curr_sym}{(max(0.0, (summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)) - fuel_saved_reactor_gal) * opex_fuel + cost_fuel_dryer) * annual_multiplier:,.2f}/año",
+                f"{elec_kwh_dryer * annual_multiplier:,.0f} kWh/año ({curr_sym}{annual_dryer_elec_cost:,.2f})",
+                f"{t_cycle_new:.2f} horas" if not is_continuous else f"{available_calendar_days * 24:.0f} horas",
+                f"{batches_year_new:.0f} lotes/año" if not is_continuous else f"{available_calendar_days:.0f} días",
+                f"+{curr_sym}{annual_net_benefit:,.2f}/año"
+            ],
+            "Ahorro / Impacto Favorable" if lang == 'es' else "Favorable Impact / Savings": [
+                f"-{(initial_moist_pct - target_moist_pct):.1f} puntos de humedad",
+                f"-{m_water_removed:,.0f} kg agua retirada antes del reactor",
+                f"-{pct_water_removed:.1f} % menos agua a hervir",
+                f"-{fuel_saved_reactor_gal:,.1f} gal {basis_label} ahorrados en reactor",
+                "Incluido en balance",
+                f"Ahorro combustible: +{curr_sym}{annual_fuel_saved_cost - annual_dryer_fuel_cost:,.2f}/año",
+                f"Costo auxiliar secador: -{curr_sym}{annual_dryer_elec_cost:,.2f}/año",
+                f"-{t_saved_min:.0f} min menos por lote" if not is_continuous else "Régimen continuo",
+                f"+{extra_batches:.0f} lotes extra (+{curr_sym}{extra_revenue_annual:,.2f}/año)" if not is_continuous else "Mismo tiempo",
+                f"Retorno inversión: {payback_months:.1f} meses ({payback_years:.2f} años)" if payback_months < 60 else "Sin retorno directo"
+            ]
+        }
+        df_comp = pd.DataFrame(comp_data)
+        st.table(df_comp)
+
+        # Technical Verdict Card
+        if payback_months <= 12.0:
+            verdict_badge = "🟢 ALTAMENTE RECOMENDADO" if lang == 'es' else "🟢 HIGHLY RECOMMENDED"
+            verdict_border = "#10b981"
+            verdict_bg = "#064e3b"
+            verdict_expl = (
+                f"La inversión de {curr_sym}{dryer_capex:,.2f} en el pre-secador se recupera en apenas {payback_months:.1f} meses. "
+                f"Al retirar {pct_water_removed:.1f}% del agua antes del reactor, se ahorran {fuel_saved_reactor_gal * annual_multiplier:,.0f} galones de combustible al año "
+                f"y se liberan {t_saved_min:.0f} minutos por lote, generando un beneficio neto anual de {curr_sym}{annual_net_benefit:,.2f}."
+                if lang == 'es' else
+                f"The pre-dryer investment of {curr_sym}{dryer_capex:,.2f} pays back in just {payback_months:.1f} months, "
+                f"saving {fuel_saved_reactor_gal * annual_multiplier:,.0f} gal/yr in burner fuel and releasing {t_saved_min:.0f} min per batch."
+            )
+        elif payback_months <= 24.0:
+            verdict_badge = "🟡 VIABLE Y RENTABLE" if lang == 'es' else "🟡 FEASIBLE & PROFITABLE"
+            verdict_border = "#f59e0b"
+            verdict_bg = "#78350f"
+            verdict_expl = (
+                f"El pre-secado ofrece un retorno sólido en {payback_months:.1f} meses ({payback_years:.1f} años). "
+                f"El ahorro anual en combustible y la capacidad extra de procesamiento superan holgadamente los costos operativos del secador."
+                if lang == 'es' else
+                f"Pre-drying offers a solid payback of {payback_months:.1f} months ({payback_years:.1f} years), comfortably exceeding operational costs."
+            )
+        else:
+            verdict_badge = "🔵 EVALUAR CON FUENTES RESIDUALES" if lang == 'es' else "🔵 OPTIMIZE WITH WASTE HEAT"
+            verdict_border = "#0284c7"
+            verdict_bg = "#0c4a6e"
+            verdict_expl = (
+                f"Para maximizar la rentabilidad, se recomienda operar el pre-secador utilizando los gases calientes de escape de la pirólisis "
+                f"o secado solar, eliminando el consumo de combustible auxiliar y acortando el tiempo de amortización."
+                if lang == 'es' else
+                f"To maximize profitability, utilizing hot pyrolysis flue gases or solar drying is recommended to eliminate auxiliary fuel consumption."
+            )
+
+        st.markdown(f"""
+        <div style="background-color: {verdict_bg}; border: 1px solid {verdict_border}; border-radius: 8px; padding: 14px 18px; margin-top: 10px; color: #f8fafc;">
+            <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 6px;">
+                Dictamen Técnico y Financiero: {verdict_badge}
+            </div>
+            <div style="font-size: 0.86rem; line-height: 1.5; color: #e2e8f0;">
+                {verdict_expl}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
 def render_economics_tab(mode_option, results, summary, solver_inputs):
     """Renders the interactive Economic Viability tab (Standardized in DOP - RD$)."""
     lang = get_lang()
@@ -322,18 +665,11 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     default_discount = 14.0
     default_lifetime = 10
     default_days = 246
-    default_motor_kw = 15.0 if is_continuous else 7.5
     default_tax_rate = 25.0
     default_inflation_rate = 4.0
 
-    # Precalculate default generator consumption based on mode
-    if is_continuous:
-        default_gen_consumption = float(default_motor_kw * 0.08)
-    else:
-        t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
-        t_hold_min = solver_inputs.get('hold_time_min', 60.0)
-        t_cycle_min = t_heat_min + t_hold_min
-        default_gen_consumption = float(default_motor_kw * (t_cycle_min / 60.0) * 0.08)
+    # Default generator fuel consumption (Continuous: gal/h, Batch: gal/batch)
+    default_gen_consumption = 1.2 if is_continuous else 1.0
     
     # Callback for applying industrial CAPEX ratios
     def _apply_capex_ratios_cb():
@@ -396,26 +732,179 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             col_pr1, col_pr2 = st.columns(2)
             with col_pr1:
                 discount_rate = st.number_input(t('econ_input_discount'), min_value=0.0, max_value=50.0, value=float(st.session_state.get('discount_rate', default_discount)), step=0.5, key='discount_rate')
-                annual_days = st.number_input(t('econ_input_days'), min_value=50, max_value=365, value=int(st.session_state.get('annual_days', default_days)), step=10, key='annual_days')
                 tax_rate = st.number_input(t('econ_input_income_tax'), min_value=0.0, max_value=80.0, value=float(st.session_state.get('tax_rate', default_tax_rate)), step=1.0, key='tax_rate')
-            with col_pr2:
                 project_lifetime = st.number_input(t('econ_input_lifetime'), min_value=1, max_value=30, value=int(st.session_state.get('project_lifetime', default_lifetime)), step=1, key='project_lifetime')
-                motor_power = st.number_input(t('econ_input_motor_kw'), min_value=0.0, value=float(st.session_state.get('motor_power', default_motor_kw)), step=1.0, key='motor_power')
+            with col_pr2:
                 inflation_rate = st.number_input(t('econ_input_inflation'), min_value=0.0, max_value=50.0, value=float(st.session_state.get('inflation_rate', default_inflation_rate)), step=0.5, key='inflation_rate')
-            
-            # Special batch variables
-            if not is_continuous:
-                batch_turnaround_h = st.number_input(
-                    "Cooldown & Loading time per Batch (h) / Tiempo de enfriado y carga por Lote (h)",
-                    min_value=0.1,
-                    max_value=24.0,
-                    value=float(st.session_state.get('batch_turnaround_h', 1.0)),
-                    step=0.25,
-                    format="%.2f",
-                    key='batch_turnaround_h'
+                shutdown_days = st.number_input(
+                    t('econ_input_shutdown_days'),
+                    min_value=0, max_value=200,
+                    value=int(st.session_state.get('shutdown_days', 15)),
+                    step=1,
+                    key='shutdown_days',
+                    help="Días al año para paradas técnicas mayores, averías o mantenimiento anual general."
                 )
+                holidays_days = st.number_input(
+                    t('econ_input_holidays_days'),
+                    min_value=0, max_value=200,
+                    value=int(st.session_state.get('holidays_days', 15)),
+                    step=1,
+                    key='holidays_days',
+                    help="Días feriados o no laborables al año según calendario legal/laboral."
+                )
+
+            available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
+            annual_days = available_calendar_days
+            st.session_state['annual_days'] = annual_days
+            
+            # Special batch variables: Separated Cooldown and Loading/Unloading times
+            if not is_continuous:
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    batch_cooldown_h = st.number_input(
+                        "Tiempo de Enfriamiento por Lote (h)",
+                        min_value=0.0,
+                        max_value=200.0,
+                        value=float(st.session_state.get('batch_cooldown_h', 0.50)),
+                        step=0.25,
+                        format="%.2f",
+                        key='batch_cooldown_h'
+                    )
+                with col_b2:
+                    batch_loading_h = st.number_input(
+                        "Tiempo de Carga y Descarga por Lote (h)",
+                        min_value=0.0,
+                        max_value=200.0,
+                        value=float(st.session_state.get('batch_loading_h', 0.50)),
+                        step=0.25,
+                        format="%.2f",
+                        key='batch_loading_h'
+                    )
+                batch_turnaround_h = batch_cooldown_h + batch_loading_h
+                st.session_state['batch_turnaround_h'] = batch_turnaround_h
+                st.caption(f"⏱️ **Tiempo Operativo Fuera de Proceso / Routine Turnaround:** `{batch_turnaround_h:.2f} h` (`{batch_cooldown_h*60:.0f} min` enfriamiento + `{batch_loading_h*60:.0f} min` carga/descarga)")
+                
+                # Mantenimiento y limpieza periódica
+                st.markdown("##### 🧹 Mantenimiento Periódico y Limpieza")
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    batches_before_cleaning = st.number_input(
+                        "Cantidad de Lotes antes de Limpieza",
+                        min_value=1,
+                        max_value=1000,
+                        value=int(st.session_state.get('batches_before_cleaning', 20)),
+                        step=1,
+                        key='batches_before_cleaning',
+                        help="Cantidad de lotes operados antes de detener el reactor para limpieza y mantenimiento."
+                    )
+                with col_m2:
+                    cleaning_time_h = st.number_input(
+                        "Tiempo de Limpieza (h)",
+                        min_value=0.0,
+                        max_value=200.0,
+                        value=float(st.session_state.get('cleaning_time_h', 4.0)),
+                        step=0.5,
+                        format="%.2f",
+                        key='cleaning_time_h',
+                        help="Duración del trabajo de limpieza física, decoking e inspección interna."
+                    )
+                with col_m3:
+                    maint_cooldown_h = st.number_input(
+                        "Tiempo de Enfriamiento para Mantenimiento (h)",
+                        min_value=0.0,
+                        max_value=200.0,
+                        value=float(st.session_state.get('maint_cooldown_h', 6.0)),
+                        step=0.5,
+                        format="%.2f",
+                        key='maint_cooldown_h',
+                        help="Tiempo de enfriamiento profundo necesario para poder abrir e intervenir el reactor de forma segura."
+                    )
+                
+                maint_stop_total_h = maint_cooldown_h + cleaning_time_h
+                maint_penalty_per_batch_h = maint_stop_total_h / max(batches_before_cleaning, 1)
+                st.caption(f"🔧 **Parada de Mantenimiento:** Cada `{batches_before_cleaning}` lotes se detiene `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento profundo + `{cleaning_time_h:.2f} h` limpieza). Impacto promedio ponderado: `+{maint_penalty_per_batch_h:.2f} h/lote`.")
+
+                # Cálculos automáticos de días de operación al año
+                t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
+                t_hold_min = solver_inputs.get('hold_time_min', 60.0)
+                t_cycle_min = t_heat_min + t_hold_min
+                t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+                t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
+                available_hours = available_calendar_days * 24.0
+                batches_per_year_est = np.floor(available_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+                operating_days_batches = (batches_per_year_est * t_op_batch_hours) / 24.0
+                cleaning_days_annual = (batches_per_year_est * maint_penalty_per_batch_h) / 24.0
+                campaign_active_days = operating_days_batches + cleaning_days_annual
+
+                if lang == 'es':
+                    title_text = "📅 Calendario Anual y Capacidad (Base 365 días)"
+                    badge_text = f"{batches_per_year_est:.0f} lotes/año"
+                    lbl_disp = "Días Disponibles de Planta"
+                    sub_disp = f"(365 - {shutdown_days}d parada - {holidays_days}d feriados)"
+                    lbl_op = "Días de Operación Efectiva (Lotes)"
+                    sub_op = f"({batches_per_year_est * t_op_batch_hours:.1f} h proceso)"
+                    lbl_clean = "Días de Parada por Limpieza / Mant."
+                    sub_clean = f"({batches_per_year_est * maint_penalty_per_batch_h:.1f} h paradas)"
+                    lbl_tot = "Días Totales Activos de Campaña"
+                    sub_tot = f"(Ciclo: {t_cycle_hours:.2f} h/lote)"
+                    days_unit = "días/año"
+                else:
+                    title_text = "📅 Annual Calendar & Throughput (365 days base)"
+                    badge_text = f"{batches_per_year_est:.0f} batches/yr"
+                    lbl_disp = "Plant Available Days"
+                    sub_disp = f"(365 - {shutdown_days}d shutdown - {holidays_days}d holidays)"
+                    lbl_op = "Effective Batch Operating Days"
+                    sub_op = f"({batches_per_year_est * t_op_batch_hours:.1f} h process)"
+                    lbl_clean = "Cleaning & Maintenance Downtime Days"
+                    sub_clean = f"({batches_per_year_est * maint_penalty_per_batch_h:.1f} h downtime)"
+                    lbl_tot = "Total Active Campaign Days"
+                    sub_tot = f"(Cycle: {t_cycle_hours:.2f} h/batch)"
+                    days_unit = "days/yr"
+
+                st.markdown(f"""
+                <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-top: 10px; margin-bottom: 8px;">
+                    <div style="font-weight: 600; font-size: 0.90rem; color: #f1f5f9; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                        <span>{title_text}</span>
+                        <span style="background-color: #1e293b; color: #38bdf8; font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284c7;">{badge_text}</span>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #cbd5e1;">
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_disp}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #f8fafc;">{available_calendar_days} {days_unit}</td>
+                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_disp}</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_op}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #34d399;">{operating_days_batches:.1f} {days_unit}</td>
+                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_op}</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_clean}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #fbbf24;">{cleaning_days_annual:.1f} {days_unit}</td>
+                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_clean}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_tot}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-weight: 700; color: #38bdf8;">{campaign_active_days:.1f} {days_unit}</td>
+                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_tot}</td>
+                        </tr>
+                    </table>
+                </div>
+                """, unsafe_allow_html=True)
             else:
+                batch_cooldown_h = 0.50
+                batch_loading_h = 0.50
                 batch_turnaround_h = 1.0
+                batches_before_cleaning = 20
+                cleaning_time_h = 4.0
+                maint_cooldown_h = 6.0
+                maint_stop_total_h = 10.0
+                maint_penalty_per_batch_h = 0.0
+                st.session_state['batch_turnaround_h'] = 1.0
+                operating_days_batches = float(available_calendar_days)
+                cleaning_days_annual = 0.0
+                campaign_active_days = float(available_calendar_days)
+                st.caption(f"📅 **Calendario Anual Continuo:** `{available_calendar_days} días disponibles/año` (365 días base - `{shutdown_days}` días parada - `{holidays_days}` feriados = `{available_calendar_days * 24:.0f} h/año`).")
 
     total_capex = capex_equip + capex_install + capex_civil + capex_piping_elec + capex_eng + capex_permits + capex_cont
 
@@ -429,6 +918,12 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     if is_continuous:
         annual_hours = annual_days * 24.0
         batches_per_year = 0.0
+        t_cycle_hours = 0.0
+        t_op_batch_hours = 0.0
+        maint_penalty_per_batch_h = 0.0
+        operating_days_batches = float(annual_days)
+        cleaning_days_annual = 0.0
+        campaign_active_days = float(annual_days)
         
         sludge_treated_kg = summary['feed_rate_kgh'] * annual_hours
         oil_produced_kg = summary['oil_yield_kgh'] * annual_hours
@@ -436,16 +931,21 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         gas_produced_kg = summary['gas_yield_kgh'] * annual_hours
         
         fuel_consumed_gal = summary['waste_oil_consumed_galh'] * annual_hours
-        elec_consumed_kwh = motor_power * annual_hours
+        elec_consumed_kwh = 0.0
         generator_fuel_consumed_gal = gen_diesel_rate * annual_hours
     else:
         t_heat_min = (solver_inputs['temp_hold_c'] - solver_inputs['temp_start_c']) / solver_inputs['heating_rate_cmin']
         t_hold_min = solver_inputs['hold_time_min']
         t_cycle_min = t_heat_min + t_hold_min
-        t_cycle_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+        t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+        t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
         
         annual_hours = annual_days * 24.0
         batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+        
+        operating_days_batches = (batches_per_year * t_op_batch_hours) / 24.0
+        cleaning_days_annual = (batches_per_year * maint_penalty_per_batch_h) / 24.0
+        campaign_active_days = operating_days_batches + cleaning_days_annual
         
         sludge_treated_kg = summary['batch_load_kg'] * batches_per_year
         oil_produced_kg = summary['oil_yield_kg'] * batches_per_year
@@ -453,7 +953,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         gas_produced_kg = summary['gas_yield_kg'] * batches_per_year
         
         fuel_consumed_gal = summary['waste_oil_consumed_gal'] * batches_per_year
-        elec_consumed_kwh = motor_power * (t_cycle_min / 60.0) * batches_per_year
+        elec_consumed_kwh = 0.0
         generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
         
     # Volumetric Conversions for Liquids & Gases
@@ -663,31 +1163,40 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         
         # Display Batch/Continuous Info
         if not is_continuous:
-            elec_per_batch = motor_power * (t_cycle_min / 60.0)
-            gen_diesel_per_batch = elec_per_batch * 0.08
+            gen_diesel_per_batch = gen_diesel_batch
             burner_fuel_per_batch = summary['waste_oil_consumed_gal']
             if lang == 'es':
-                st.info(f"⏱️ **Detalles del Ciclo por Lote:**\n"
-                        f"- Tiempo de calentamiento: `{t_heat_min:.1f} min` | Retención: `{t_hold_min:.1f} min` | Enfriado/Carga: `{batch_turnaround_h*60:.0f} min` \n"
-                        f"- Duración del lote: `{t_cycle_hours:.2f} horas` \n"
-                        f"- Capacidad de procesamiento anual: `{batches_per_year:.0f} lotes/año` a `{annual_days} días/año` de operación.\n"
+                st.info(f"⏱️ **Detalles del Ciclo, Mantenimiento y Calendario:**\n"
+                        f"- Proceso térmico: Calentamiento `{t_heat_min:.1f} min` | Retención `{t_hold_min:.1f} min`\n"
+                        f"- Turnaround de rutina: Enfriamiento `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Carga y descarga `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
+                        f"- Ciclo operativo por lote: `{t_op_batch_hours:.2f} horas`\n"
+                        f"- Mantenimiento programado: Parada de `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento + `{cleaning_time_h:.2f} h` limpieza) cada `{batches_before_cleaning}` lotes (+`{maint_penalty_per_batch_h:.2f} h/lote` ponderado)\n"
+                        f"- Tiempo efectivo promedio por lote: `{t_cycle_hours:.2f} horas`\n"
+                        f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{available_calendar_days} d`\n"
+                        f"- **Días de Operación al Año:** `{operating_days_batches:.1f} días de proceso de lotes` + `{cleaning_days_annual:.1f} días de parada por limpieza` = `{campaign_active_days:.1f} días activos` (`{batches_per_year:.0f} lotes/año`)\n"
                         f"- **Consumo por lote:** Diésel planta eléctrica: `{gen_diesel_per_batch:.2f} gal` | Combustible quemadores: `{burner_fuel_per_batch:.2f} gal`")
             else:
-                st.info(f"⏱️ **Batch Timeline Details:**\n"
-                        f"- Heating time: `{t_heat_min:.1f} min` | Holding time: `{t_hold_min:.1f} min` | Unload/Cool: `{batch_turnaround_h*60:.0f} min` \n"
-                        f"- Total single batch duration: `{t_cycle_hours:.2f} hours` \n"
-                        f"- Annual throughput capacity: `{batches_per_year:.0f} batches/year` at `{annual_days} days/year` operation.\n"
+                st.info(f"⏱️ **Batch Timeline, Maintenance & Calendar Details:**\n"
+                        f"- Thermal process: Heating `{t_heat_min:.1f} min` | Holding `{t_hold_min:.1f} min`\n"
+                        f"- Routine turnaround: Cooldown `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Loading/Unloading `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
+                        f"- Operational batch cycle: `{t_op_batch_hours:.2f} hours`\n"
+                        f"- Scheduled maintenance: Downtime of `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` cooldown + `{cleaning_time_h:.2f} h` cleaning) every `{batches_before_cleaning}` batches (+`{maint_penalty_per_batch_h:.2f} h/batch` weighted)\n"
+                        f"- Effective average cycle time: `{t_cycle_hours:.2f} hours`\n"
+                        f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{available_calendar_days} d`\n"
+                        f"- **Operating Days per Year:** `{operating_days_batches:.1f} batch process days` + `{cleaning_days_annual:.1f} cleaning days` = `{campaign_active_days:.1f} active days` (`{batches_per_year:.0f} batches/year`)\n"
                         f"- **Consumption per batch:** Generator diesel: `{gen_diesel_per_batch:.2f} gal` | Burner fuel: `{burner_fuel_per_batch:.2f} gal`")
         else:
-            gen_diesel_per_hour = motor_power * 0.08
+            gen_diesel_per_hour = gen_diesel_rate
             burner_fuel_per_hour = summary['waste_oil_consumed_galh']
             if lang == 'es':
                 st.info(f"⚡ **Detalles de la Operación Continua:**\n"
                         f"- Horas de operación al año: `{annual_hours:.0f} horas` ({annual_days} días/año × 24h).\n"
+                        f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{annual_days} días`\n"
                         f"- **Consumo horario:** Diésel planta eléctrica: `{gen_diesel_per_hour:.2f} gal/h` | Combustible quemadores: `{burner_fuel_per_hour:.2f} gal/h`")
             else:
                 st.info(f"⚡ **Continuous Operation Details:**\n"
                         f"- Operating hours per year: `{annual_hours:.0f} hours` ({annual_days} days/year × 24h).\n"
+                        f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{annual_days} days`\n"
                         f"- **Consumption per hour:** Generator diesel: `{gen_diesel_per_hour:.2f} gal/h` | Burner fuel: `{burner_fuel_per_hour:.2f} gal/h`")
             
     with col_table_r:
@@ -808,7 +1317,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             gas_kg = summary['gas_yield_kgh'] * 24.0 * days
             
             fuel_gal = summary['waste_oil_consumed_galh'] * 24.0 * days
-            elec_kwh = motor_power * 24.0 * days
+            elec_kwh = 0.0
             diesel_gal = gen_diesel_rate * 24.0 * days
         else:
             batches = np.floor((days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
@@ -818,7 +1327,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             gas_kg = summary['gas_yield_kg'] * batches
             
             fuel_gal = summary['waste_oil_consumed_gal'] * batches
-            elec_kwh = motor_power * (t_cycle_min / 60.0) * batches
+            elec_kwh = 0.0
             diesel_gal = gen_diesel_batch * batches
             
         # Volumetric conversion for liquids & gases; mass for bio-char
@@ -1246,6 +1755,25 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     st.plotly_chart(fig_sens, use_container_width=True)
 
     # ----------------------------------------------------
+    # SLUDGE PRE-DRYING EVALUATOR (OPTION 2)
+    # ----------------------------------------------------
+    render_pre_drying_evaluator(
+        solver_inputs=solver_inputs,
+        summary=summary,
+        results=results,
+        is_continuous=is_continuous,
+        curr_sym=curr_sym,
+        opex_fuel=opex_fuel,
+        available_calendar_days=available_calendar_days,
+        batches_per_year=batches_per_year,
+        t_cycle_hours=t_cycle_hours,
+        t_op_batch_hours=t_op_batch_hours,
+        maint_penalty_per_batch_h=maint_penalty_per_batch_h,
+        m=m,
+        lang=lang
+    )
+
+    # ----------------------------------------------------
     # PROJECTION DATA FRAME AND DOWNLOAD SECTION
     # ----------------------------------------------------
     st.markdown("---")
@@ -1294,7 +1822,10 @@ def render_sustainability_tab(summary, solver_inputs):
     st.markdown("---")
     
     is_continuous = (st.session_state.get('mode_option', 'Continuous Operation') == "Continuous Operation")
-    annual_days = st.session_state.get('annual_days', 246)
+    shutdown_days = int(st.session_state.get('shutdown_days', 15))
+    holidays_days = int(st.session_state.get('holidays_days', 15))
+    available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
+    annual_days = st.session_state.get('annual_days', available_calendar_days)
     
     # Financial keys & currency retrieval (Standardized in DOP - RD$)
     curr_sym = "RD$"
@@ -1308,8 +1839,15 @@ def render_sustainability_tab(summary, solver_inputs):
         t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
         t_hold_min = solver_inputs.get('hold_time_min', 60.0)
         t_cycle_min = t_heat_min + t_hold_min
-        batch_turnaround_h = st.session_state.get('batch_turnaround_h', 1.0)
-        t_cycle_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+        batch_cooldown_h = float(st.session_state.get('batch_cooldown_h', 0.50))
+        batch_loading_h = float(st.session_state.get('batch_loading_h', 0.50))
+        batch_turnaround_h = float(st.session_state.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
+        batches_before_cleaning = int(st.session_state.get('batches_before_cleaning', 20))
+        cleaning_time_h = float(st.session_state.get('cleaning_time_h', 4.0))
+        maint_cooldown_h = float(st.session_state.get('maint_cooldown_h', 6.0))
+        maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
+        t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+        t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
         batches_per_year = np.floor((annual_days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
         char_produced_kg = summary['char_yield_kg'] * batches_per_year
         

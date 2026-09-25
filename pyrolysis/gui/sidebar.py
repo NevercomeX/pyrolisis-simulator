@@ -699,8 +699,15 @@ def render_sidebar():
         'discount_rate': float(st.session_state.get('discount_rate', DEFAULT_PARAMS['discount_rate'])),
         'project_lifetime': int(st.session_state.get('project_lifetime', DEFAULT_PARAMS['project_lifetime'])),
         'annual_days': int(st.session_state.get('annual_days', DEFAULT_PARAMS['annual_days'])),
+        'shutdown_days': int(st.session_state.get('shutdown_days', DEFAULT_PARAMS.get('shutdown_days', 15))),
+        'holidays_days': int(st.session_state.get('holidays_days', DEFAULT_PARAMS.get('holidays_days', 15))),
         'motor_power': float(st.session_state.get('motor_power', DEFAULT_PARAMS['motor_power'])),
         'batch_turnaround_h': float(st.session_state.get('batch_turnaround_h', DEFAULT_PARAMS['batch_turnaround_h'])),
+        'batch_cooldown_h': float(st.session_state.get('batch_cooldown_h', DEFAULT_PARAMS.get('batch_cooldown_h', 0.5))),
+        'batch_loading_h': float(st.session_state.get('batch_loading_h', DEFAULT_PARAMS.get('batch_loading_h', 0.5))),
+        'batches_before_cleaning': int(st.session_state.get('batches_before_cleaning', DEFAULT_PARAMS.get('batches_before_cleaning', 20))),
+        'maint_cooldown_h': float(st.session_state.get('maint_cooldown_h', DEFAULT_PARAMS.get('maint_cooldown_h', 6.0))),
+        'cleaning_time_h': float(st.session_state.get('cleaning_time_h', DEFAULT_PARAMS.get('cleaning_time_h', 4.0))),
         'tax_rate': float(st.session_state.get('tax_rate', DEFAULT_PARAMS['tax_rate'])),
         'inflation_rate': float(st.session_state.get('inflation_rate', DEFAULT_PARAMS['inflation_rate']))
     }
