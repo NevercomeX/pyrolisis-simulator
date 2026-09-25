@@ -51,7 +51,7 @@ class NumberedCanvas(base_canvas_class):
             # Header
             self.setFont("Helvetica-Bold", 8)
             self.setFillColor(colors.HexColor("#1E3A8A")) # Deep Navy
-            self.drawString(36, 756, "PROENERGETICO S.R.L. | INGENIERÍA DE PROCESOS Y ENERGÍA")
+            self.drawString(36, 756, "SIMULADOR TERMOQUÍMICO | INGENIERÍA DE PROCESOS Y ENERGÍA")
             self.setFont("Helvetica-Oblique", 8)
             self.setFillColor(colors.HexColor("#64748B"))
             self.drawRightString(576, 756, "Simulador Termoquímico de Pirólisis v2.0")
@@ -67,7 +67,7 @@ class NumberedCanvas(base_canvas_class):
             
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748B"))
-            self.drawString(36, 32, "PROENERGETICOS S.R.L. — Reporte Técnico de Ingeniería & Evaluaciones de Factibilidad | Confidencial")
+            self.drawString(36, 32, "Reporte Técnico de Ingeniería & Evaluaciones de Factibilidad | Confidencial")
             page_text = f"Página {self._pageNumber} de {page_count}"
             self.drawRightString(576, 32, page_text)
         else:
@@ -78,7 +78,7 @@ class NumberedCanvas(base_canvas_class):
             
             self.setFont("Helvetica", 8)
             self.setFillColor(colors.HexColor("#64748B"))
-            self.drawString(36, 32, "PROENERGETICOS S.R.L. — Reporte Técnico de Ingeniería & Evaluaciones de Factibilidad | Confidencial")
+            self.drawString(36, 32, "Reporte Técnico de Ingeniería & Evaluaciones de Factibilidad | Confidencial")
             page_text = f"Página 1 de {page_count}"
             self.drawRightString(576, 32, page_text)
 
@@ -492,7 +492,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     # ---------------------------------------------------------
     # 1. ACADEMIC COVER HEADER & TITLE
     # ---------------------------------------------------------
-    story.append(Paragraph("PROENERGETICO S.R.L. — INGENIERÍA Y CONSULTORÍA ENERGÉTICA", ParagraphStyle('InstHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.HexColor("#1E3A8A"), alignment=1)))
+    story.append(Paragraph("INFORME TÉCNICO DE INGENIERÍA Y SIMULACIÓN TÉRMICA", ParagraphStyle('InstHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.HexColor("#1E3A8A"), alignment=1)))
     story.append(Paragraph("DEPARTAMENTO DE INGENIERÍA DE PROCESOS Y EVALUACIÓN TERMOQUÍMICA", ParagraphStyle('SubInstHeader', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.HexColor("#64748B"), alignment=1, spaceAfter=12)))
     
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#1E3A8A"), spaceBefore=0, spaceAfter=12))
@@ -509,7 +509,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     
     meta_data = [
         [
-            Paragraph("<b>Empresa / Cliente:</b>", table_cell_style), Paragraph("PROENERGETICO S.R.L.", table_cell_style),
+            Paragraph("<b>Tipo de Estudio:</b>", table_cell_style), Paragraph("Simulación Termoquímica", table_cell_style),
             Paragraph("<b>Fecha de Emisión:</b>", table_cell_style), Paragraph(current_date, table_cell_style)
         ],
         [

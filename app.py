@@ -53,65 +53,108 @@ st.markdown("---")
 # Render Config Save/Upload at the bottom of the sidebar
 render_config_manager(config_dict)
 
-# Execute simulation based on operation mode
+# Execute simulation based on operation mode (cached in session state for instant tab switching)
 mode_option = config_dict['mode_option']
+feed_obj = solver_inputs['current_feed']
 
-if mode_option == "Continuous Operation":
-    sim = ContinuousReactorSimulation(
-        feedstock=solver_inputs['current_feed'],
-        feed_rate_kgh=solver_inputs['feed_rate_kgh'],
-        length=solver_inputs['length'],
-        diameter=solver_inputs['diameter'],
-        slope=solver_inputs['slope'],
-        rpm=solver_inputs['rpm'],
-        T_inlet_C=solver_inputs['temp_inlet_c'],
-        h_eff=solver_inputs['h_eff'],
-        T_wall_type=solver_inputs['T_wall_type_str'],
-        T_wall_params=solver_inputs['T_wall_params'],
-        bulk_density=solver_inputs.get('sludge_density', 944.7),
-        Cp_volatile=solver_inputs.get('custom_cp_oil', 1800.0),
-        Cp_char=solver_inputs.get('custom_cp_char', 1000.0),
-        Cp_ash=solver_inputs.get('custom_cp_ash', 800.0),
-        burner_hp=solver_inputs.get('burner_hp', 300.0),
-        burner_eff_pct=solver_inputs.get('burner_eff_pct', 70.0),
-        syngas_hp=solver_inputs.get('syngas_hp', 150.0),
-        fuel_lhv_mj_kg=st.session_state.get('fuel_lhv', 41.0),
-        fuel_density_kg_l=st.session_state.get('fuel_density', 0.90),
-        fuel_moisture_pct=st.session_state.get('fuel_moisture', 1.0),
-        fuel_ash_pct=st.session_state.get('fuel_ash', 0.5)
-    )
-    results = sim.simulate(steps=250)
+sim_cache_key = (
+    mode_option,
+    feed_obj.name,
+    feed_obj.moisture,
+    feed_obj.volatile,
+    feed_obj.fixed_carbon,
+    feed_obj.ash,
+    feed_obj.E_a,
+    feed_obj.A,
+    float(solver_inputs.get('feed_rate_kgh', 0.0)),
+    float(solver_inputs.get('batch_load_kg', 0.0)),
+    float(solver_inputs.get('length', 0.0)),
+    float(solver_inputs.get('diameter', 0.0)),
+    float(solver_inputs.get('slope', 0.0)),
+    float(solver_inputs.get('rpm', 0.0)),
+    float(solver_inputs.get('temp_inlet_c', 0.0)),
+    float(solver_inputs.get('temp_start_c', 0.0)),
+    float(solver_inputs.get('heating_rate_cmin', 0.0)),
+    float(solver_inputs.get('temp_hold_c', 0.0)),
+    float(solver_inputs.get('hold_time_min', 0.0)),
+    float(solver_inputs.get('h_eff', 0.0)),
+    str(solver_inputs.get('T_wall_type_str', '')),
+    str(solver_inputs.get('T_wall_params', '')),
+    bool(solver_inputs.get('auto_heating_rate', False)),
+    float(solver_inputs.get('burner_hp', 300.0)),
+    float(solver_inputs.get('burner_eff_pct', 70.0)),
+    float(solver_inputs.get('syngas_hp', 150.0)),
+    float(solver_inputs.get('sludge_density', 944.7)),
+    float(solver_inputs.get('custom_cp_oil', 1800.0)),
+    float(solver_inputs.get('custom_cp_char', 1000.0)),
+    float(solver_inputs.get('custom_cp_ash', 800.0)),
+    float(st.session_state.get('fuel_lhv', 41.0)),
+    float(st.session_state.get('fuel_density', 0.90)),
+    float(st.session_state.get('fuel_moisture', 1.0)),
+    float(st.session_state.get('fuel_ash', 0.5))
+)
+
+if st.session_state.get('last_sim_key') == sim_cache_key and 'last_sim_results' in st.session_state:
+    results = st.session_state['last_sim_results']
     summary = results['summary']
 else:
-    sim = BatchReactorSimulation(
-        feedstock=solver_inputs['current_feed'],
-        batch_load_kg=solver_inputs['batch_load_kg'],
-        length=solver_inputs['length'],
-        diameter=solver_inputs['diameter'],
-        rpm=solver_inputs['rpm'],
-        T_start_C=solver_inputs['temp_start_c'],
-        heating_rate_cmin=solver_inputs['heating_rate_cmin'],
-        T_hold_C=solver_inputs['temp_hold_c'],
-        hold_time_min=solver_inputs['hold_time_min'],
-        h_eff=solver_inputs['h_eff'],
-        auto_heating_rate=solver_inputs.get('auto_heating_rate', False),
-        burner_hp=solver_inputs.get('burner_hp', 300.0),
-        burner_eff_pct=solver_inputs.get('burner_eff_pct', 70.0),
-        syngas_hp=solver_inputs.get('syngas_hp', 150.0),
-        shell_material_dict=solver_inputs.get('shell_material_dict', None),
-        shell_thickness_mm=solver_inputs.get('shell_thickness_mm', 15.0),
-        h_loss=solver_inputs.get('h_loss', 5.0),
-        bulk_density=solver_inputs.get('sludge_density', 944.7),
-        Cp_volatile=solver_inputs.get('custom_cp_oil', 1800.0),
-        Cp_char=solver_inputs.get('custom_cp_char', 1000.0),
-        Cp_ash=solver_inputs.get('custom_cp_ash', 800.0),
-        fuel_lhv_mj_kg=st.session_state.get('fuel_lhv', 41.0),
-        fuel_density_kg_l=st.session_state.get('fuel_density', 0.90),
-        fuel_moisture_pct=st.session_state.get('fuel_moisture', 1.0),
-        fuel_ash_pct=st.session_state.get('fuel_ash', 0.5)
-    )
-    results = sim.simulate(dt_sec=2.0)
+    if mode_option == "Continuous Operation":
+        sim = ContinuousReactorSimulation(
+            feedstock=solver_inputs['current_feed'],
+            feed_rate_kgh=solver_inputs['feed_rate_kgh'],
+            length=solver_inputs['length'],
+            diameter=solver_inputs['diameter'],
+            slope=solver_inputs['slope'],
+            rpm=solver_inputs['rpm'],
+            T_inlet_C=solver_inputs['temp_inlet_c'],
+            h_eff=solver_inputs['h_eff'],
+            T_wall_type=solver_inputs['T_wall_type_str'],
+            T_wall_params=solver_inputs['T_wall_params'],
+            bulk_density=solver_inputs.get('sludge_density', 944.7),
+            Cp_volatile=solver_inputs.get('custom_cp_oil', 1800.0),
+            Cp_char=solver_inputs.get('custom_cp_char', 1000.0),
+            Cp_ash=solver_inputs.get('custom_cp_ash', 800.0),
+            burner_hp=solver_inputs.get('burner_hp', 300.0),
+            burner_eff_pct=solver_inputs.get('burner_eff_pct', 70.0),
+            syngas_hp=solver_inputs.get('syngas_hp', 150.0),
+            fuel_lhv_mj_kg=st.session_state.get('fuel_lhv', 41.0),
+            fuel_density_kg_l=st.session_state.get('fuel_density', 0.90),
+            fuel_moisture_pct=st.session_state.get('fuel_moisture', 1.0),
+            fuel_ash_pct=st.session_state.get('fuel_ash', 0.5)
+        )
+        results = sim.simulate(steps=250)
+    else:
+        sim = BatchReactorSimulation(
+            feedstock=solver_inputs['current_feed'],
+            batch_load_kg=solver_inputs['batch_load_kg'],
+            length=solver_inputs['length'],
+            diameter=solver_inputs['diameter'],
+            rpm=solver_inputs['rpm'],
+            T_start_C=solver_inputs['temp_start_c'],
+            heating_rate_cmin=solver_inputs['heating_rate_cmin'],
+            T_hold_C=solver_inputs['temp_hold_c'],
+            hold_time_min=solver_inputs['hold_time_min'],
+            h_eff=solver_inputs['h_eff'],
+            auto_heating_rate=solver_inputs.get('auto_heating_rate', False),
+            burner_hp=solver_inputs.get('burner_hp', 300.0),
+            burner_eff_pct=solver_inputs.get('burner_eff_pct', 70.0),
+            syngas_hp=solver_inputs.get('syngas_hp', 150.0),
+            shell_material_dict=solver_inputs.get('shell_material_dict', None),
+            shell_thickness_mm=solver_inputs.get('shell_thickness_mm', 15.0),
+            h_loss=solver_inputs.get('h_loss', 5.0),
+            bulk_density=solver_inputs.get('sludge_density', 944.7),
+            Cp_volatile=solver_inputs.get('custom_cp_oil', 1800.0),
+            Cp_char=solver_inputs.get('custom_cp_char', 1000.0),
+            Cp_ash=solver_inputs.get('custom_cp_ash', 800.0),
+            fuel_lhv_mj_kg=st.session_state.get('fuel_lhv', 41.0),
+            fuel_density_kg_l=st.session_state.get('fuel_density', 0.90),
+            fuel_moisture_pct=st.session_state.get('fuel_moisture', 1.0),
+            fuel_ash_pct=st.session_state.get('fuel_ash', 0.5)
+        )
+        results = sim.simulate(dt_sec=2.0)
     summary = results['summary']
+    st.session_state['last_sim_key'] = sim_cache_key
+    st.session_state['last_sim_results'] = results
 
 # Render physical reactor cylinder filling degree visualization directly on the page (outside the tabs)
 render_reactor_geometry_section(mode_option, summary, solver_inputs)

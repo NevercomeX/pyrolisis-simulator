@@ -109,10 +109,11 @@ class BatchReactorSimulation(BaseReactorSimulation):
         a_outer = np.pi * d_outer * self.length
         return a_outer, c_steel
 
-    def simulate(self, dt_sec: float = 2.0) -> Dict[str, Any]:
+    def simulate(self, dt_sec: float = 2.0, max_steps: Optional[int] = 1000) -> Dict[str, Any]:
         """
         Executes dynamic transient numerical integration in time.
         Simulates solid bed mass loss, devolatilization, and thermal trajectories.
+        `max_steps` caps maximum iterations (default 1000) to ensure high speed & low RAM.
         """
         # 1. Shell thermal inertia and fuel calibration
         a_outer, c_steel = self._get_shell_properties()
@@ -150,6 +151,9 @@ class BatchReactorSimulation(BaseReactorSimulation):
             t_dry_est_sec + t_pyro_est_sec + self.hold_time_min * 60.0
         )
         steps = int(t_total_sec / dt_sec)
+        if max_steps is not None and steps > max_steps:
+            dt_sec = t_total_sec / float(max_steps)
+            steps = int(max_steps)
 
         T_s = self.T_start
         T_w = self.T_start

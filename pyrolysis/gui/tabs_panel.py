@@ -636,7 +636,7 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                     import pyrolysis.docx_generator as docx_mod
                     importlib.reload(docx_mod)
                     docx_bytes = docx_mod.generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
-                    word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio_PROENERGETICOS.docx"
+                    word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio.docx"
                     st.download_button(
                         label="📥 Descargar Informe en Word (.docx)",
                         data=docx_bytes,

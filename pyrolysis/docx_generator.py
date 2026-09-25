@@ -90,7 +90,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     set_table_borders(meta_table, "CBD5E1")
     
     meta_data = [
-        [("Empresa / Cliente:", True), ("PROENERGETICO S.R.L.", False), ("Fecha de Emisión:", True), (current_date, False)],
+        [("Tipo de Estudio:", True), ("Simulación Termoquímica", False), ("Fecha de Emisión:", True), (current_date, False)],
         [("Modo de Operación:", True), (mode_str_es, False), ("Materia Prima:", True), (feed_name, False)],
         [("Software Simulador:", True), ("Rotary Pyrolysis Simulator v2.0", False), ("Unidad de Proceso:", True), ("Reactor Cilíndrico Rotatorio", False)]
     ]
