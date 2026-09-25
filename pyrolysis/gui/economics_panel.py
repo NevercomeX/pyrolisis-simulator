@@ -405,7 +405,15 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             
             # Special batch variables
             if not is_continuous:
-                batch_turnaround_h = st.slider("Cooldown & Loading time per Batch (h) / Tiempo de enfriado y carga por Lote (h)", 0.25, 4.0, float(st.session_state.get('batch_turnaround_h', 1.0)), 0.25, key='batch_turnaround_h')
+                batch_turnaround_h = st.number_input(
+                    "Cooldown & Loading time per Batch (h) / Tiempo de enfriado y carga por Lote (h)",
+                    min_value=0.1,
+                    max_value=24.0,
+                    value=float(st.session_state.get('batch_turnaround_h', 1.0)),
+                    step=0.25,
+                    format="%.2f",
+                    key='batch_turnaround_h'
+                )
             else:
                 batch_turnaround_h = 1.0
 

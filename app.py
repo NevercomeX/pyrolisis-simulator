@@ -161,7 +161,7 @@ render_reactor_geometry_section(mode_option, summary, solver_inputs)
 
 st.markdown("---")
 
-# Render detailed profiles, total results, and balance tables using tabs
+# Render detailed profiles, total results, and balance tables using tabs (persisting active tab state)
 tab_metrics, tab_charts, tab_properties, tab_balances, tab_economics, tab_sustainability, tab_guide, tab_export = st.tabs([
     t("tab_metrics"),
     t("tab_charts"), 
@@ -171,7 +171,7 @@ tab_metrics, tab_charts, tab_properties, tab_balances, tab_economics, tab_sustai
     t("tab_sustainability"),
     t("tab_guide"), 
     t("tab_export")
-])
+], key=f"main_active_tab_{lang}")
 
 with tab_metrics:
     # Render mass yields, volume yields, and diagnostics cards inside its own tab
