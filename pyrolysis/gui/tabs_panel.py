@@ -1,22 +1,9 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from pyrolysis import TRANSLATIONS, generate_word_report
+from pyrolysis.docx_generator import generate_word_report, PYTHON_DOCX_AVAILABLE
 from pyrolysis.pdf_generator import generate_thesis_pdf, REPORTLAB_AVAILABLE
-
-try:
-    import docx
-    PYTHON_DOCX_AVAILABLE = True
-except ImportError:
-    PYTHON_DOCX_AVAILABLE = False
-
-def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'Español')
-    return 'en' if lang_opt == 'English' else 'es'
-
-def t(key):
-    lang = get_lang()
-    return TRANSLATIONS[lang].get(key, key)
+from .utils import get_lang, t
 
 def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_kg, feed_option):
     """Renders the feedstock properties tab content."""
@@ -135,20 +122,20 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         
         feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
         mass_in_df = pd.DataFrame({
-            t("analysis_component") if "analysis_component" in TRANSLATIONS[lang] else "Component": [feed_name_display],
-            t("analysis_wt_pct") if "analysis_wt_pct" in TRANSLATIONS[lang] else "wt%": [100.0],
+            t("analysis_component", "Component"): [feed_name_display],
+            t("analysis_wt_pct", "wt%"): [100.0],
             "Flow Rate / Flujo (kg/h)": [load_val],
             "Flow Rate / Flujo (gal/h)": [load_val_gal]
         })
         
         mass_out_df = pd.DataFrame({
-            t("analysis_component") if "analysis_component" in TRANSLATIONS[lang] else "Component": [
-                t("bio_oil_name") if "bio_oil_name" in TRANSLATIONS[lang] else "Bio-Oil", 
-                t("syngas_name") if "syngas_name" in TRANSLATIONS[lang] else "Syngas", 
-                t("analysis_char_name") if "analysis_char_name" in TRANSLATIONS[lang] else "Bio-Char", 
-                t("water_vapor_metric") if "water_vapor_metric" in TRANSLATIONS[lang] else "Water Vapor (Steam)"
+            t("analysis_component", "Component"): [
+                t("analysis_bio_oil_name", "Bio-Oil"), 
+                t("analysis_syngas_name", "Syngas"), 
+                t("analysis_char_res_name", "Bio-Char"), 
+                t("water_vapor_metric", "Water Vapor (Steam)")
             ],
-            t("analysis_wt_pct") if "analysis_wt_pct" in TRANSLATIONS[lang] else "wt%": [
+            t("analysis_wt_pct", "wt%"): [
                 summary['oil_yield_pct'],
                 summary['gas_yield_pct'],
                 summary['char_yield_pct'],
@@ -305,20 +292,20 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         
         feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
         mass_in_df = pd.DataFrame({
-            t("analysis_component") if "analysis_component" in TRANSLATIONS[lang] else "Component": [feed_name_display],
-            t("analysis_wt_pct") if "analysis_wt_pct" in TRANSLATIONS[lang] else "wt%": [100.0],
+            t("analysis_component", "Component"): [feed_name_display],
+            t("analysis_wt_pct", "wt%"): [100.0],
             "Load / Carga (kg)": [load_val],
             "Load / Carga (gal)": [load_val_gal]
         })
         
         mass_out_df = pd.DataFrame({
-            t("analysis_component") if "analysis_component" in TRANSLATIONS[lang] else "Component": [
-                t("bio_oil_name") if "bio_oil_name" in TRANSLATIONS[lang] else "Bio-Oil", 
-                t("syngas_name") if "syngas_name" in TRANSLATIONS[lang] else "Syngas", 
-                t("analysis_char_name") if "analysis_char_name" in TRANSLATIONS[lang] else "Bio-Char", 
-                t("water_vapor_metric") if "water_vapor_metric" in TRANSLATIONS[lang] else "Water Vapor (Steam)"
+            t("analysis_component", "Component"): [
+                t("analysis_bio_oil_name", "Bio-Oil"), 
+                t("analysis_syngas_name", "Syngas"), 
+                t("analysis_char_res_name", "Bio-Char"), 
+                t("water_vapor_metric", "Water Vapor (Steam)")
             ],
-            t("analysis_wt_pct") if "analysis_wt_pct" in TRANSLATIONS[lang] else "wt%": [
+            t("analysis_wt_pct", "wt%"): [
                 summary['oil_yield_pct'],
                 summary['gas_yield_pct'],
                 summary['char_yield_pct'],

@@ -4,18 +4,10 @@ from pyrolysis import (
     Feedstock,
     PETROLEUM_SLUDGE,
     HYDROCARBON_SLUDGE,
-    blend_feedstocks,
-    TRANSLATIONS
+    blend_feedstocks
 )
 from .config_manager import DEFAULT_PARAMS
-
-def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'Español')
-    return 'en' if lang_opt == 'English' else 'es'
-
-def t(key):
-    lang = get_lang()
-    return TRANSLATIONS[lang].get(key, key)
+from .utils import get_lang, t
 
 def render_sidebar():
     """

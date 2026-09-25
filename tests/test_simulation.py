@@ -212,6 +212,122 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertGreater(res2['char_yield_kg'], res1['char_yield_kg'])
         self.assertLess(res2['gas_yield_kg'], res1['gas_yield_kg'])
 
+    # ==========================================================================
+    # ENCAPSULATION & BASE REACTOR METHOD TESTS
+    # ==========================================================================
+
+    def test_base_geometry_and_fuel_properties(self):
+        """Verify encapsulated geometry properties and fuel LHV calculations."""
+        from pyrolysis.reactor import BaseReactorSimulation
+        
+        sim = BaseReactorSimulation(
+            feedstock=PETROLEUM_SLUDGE,
+            length=10.0,
+            diameter=1.0,
+            rpm=3.0,
+            h_eff=80.0,
+            fuel_lhv_mj_kg=40.0,
+            fuel_density_kg_l=0.90,
+            fuel_moisture_pct=2.0,
+            fuel_ash_pct=1.0
+        )
+        
+        self.assertAlmostEqual(sim.radius, 0.5, places=5)
+        self.assertAlmostEqual(sim.cross_sectional_area, np.pi * 0.25, places=5)
+        self.assertAlmostEqual(sim.inner_surface_area, np.pi * 1.0 * 10.0, places=5)
+        self.assertAlmostEqual(sim.reactor_volume, np.pi * 0.25 * 10.0, places=5)
+        
+        lhv_j_kg, mass_per_gal, lhv_gal = sim.get_fuel_properties()
+        self.assertGreater(lhv_j_kg, 1e6)
+        self.assertAlmostEqual(mass_per_gal, 0.90 * 3.78541, places=4)
+        self.assertAlmostEqual(lhv_gal, lhv_j_kg * mass_per_gal, places=2)
+
+    def test_astm_crude_properties(self):
+        """Verify ASTM property correlations return valid physical ranges."""
+        from pyrolysis.reactor import BaseReactorSimulation
+        
+        astm = BaseReactorSimulation.calculate_astm_properties(
+            T_operating_C=500.0,
+            initial_volatile_pct=60.0,
+            moisture_feed_pct=20.0
+        )
+        
+        self.assertGreater(astm['hhv_oil_mj_kg'], 35.0)
+        self.assertLess(astm['hhv_oil_mj_kg'], 45.0)
+        self.assertGreater(astm['api_gravity'], 10.0)
+        self.assertGreater(astm['viscosity_40c_cst'], 10.0)
+        self.assertGreater(astm['bsw_moisture_pct'], 1.0)
+
+    def test_devolatilization_kinetics_onset_threshold(self):
+        """Verify reaction rate is zero below onset (250°C) and positive above it."""
+        from pyrolysis.reactor import BaseReactorSimulation
+        
+        sim = BaseReactorSimulation(
+            feedstock=PETROLEUM_SLUDGE,
+            length=5.0,
+            diameter=0.5,
+            rpm=3.0,
+            h_eff=100.0
+        )
+        
+        # At 200°C (473.15 K), below onset of 250°C
+        r_slug_low, k1_low, _, _ = sim.calculate_devolatilization_rate(
+            T_s=200.0 + 273.15,
+            T_w=250.0 + 273.15,
+            m_volatile=50.0,
+            m_oil_vap=0.0,
+            A_contact=2.0
+        )
+        self.assertEqual(r_slug_low, 0.0)
+        self.assertEqual(k1_low, 0.0)
+        
+        # At 450°C (723.15 K), above onset
+        r_slug_high, k1_high, _, _ = sim.calculate_devolatilization_rate(
+            T_s=450.0 + 273.15,
+            T_w=500.0 + 273.15,
+            m_volatile=50.0,
+            m_oil_vap=0.0,
+            A_contact=2.0
+        )
+        self.assertGreater(r_slug_high, 0.0)
+        self.assertGreater(k1_high, 0.0)
+
+    def test_resolve_drying_step(self):
+        """Verify drying logic clamps solid at boiling point when evaporating."""
+        from pyrolysis.reactor import BaseReactorSimulation
+        
+        sim = BaseReactorSimulation(
+            feedstock=PETROLEUM_SLUDGE,
+            length=5.0,
+            diameter=0.5,
+            rpm=3.0,
+            h_eff=100.0
+        )
+        
+        # When temperature reaches boiling point (373.15 K) with moisture present
+        T_s = 373.15
+        T_s_next = 380.0
+        T_target_heat = 400.0
+        m_moist = 10.0
+        thermal_mass = 50000.0
+        H_rxn = 0.0
+        
+        T_res, d_moist = sim.resolve_drying_step(
+            T_s=T_s,
+            T_s_next=T_s_next,
+            T_target_heat=T_target_heat,
+            m_moist=m_moist,
+            thermal_mass=thermal_mass,
+            H_rxn=H_rxn
+        )
+        
+        self.assertGreater(d_moist, 0.0)
+        self.assertLessEqual(d_moist, m_moist)
+        # Should be clamped near boiling point
+        self.assertAlmostEqual(T_res, 373.15, places=1)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

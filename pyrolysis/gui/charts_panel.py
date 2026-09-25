@@ -1,15 +1,8 @@
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
-from pyrolysis import TRANSLATIONS, get_fuel_translation
-
-def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'Español')
-    return 'en' if lang_opt == 'English' else 'es'
-
-def t(key):
-    lang = get_lang()
-    return TRANSLATIONS[lang].get(key, key)
+from pyrolysis import get_fuel_translation
+from .utils import get_lang, t
 
 def draw_front_view(filling_degree_pct, rpm):
     """Draws the circular cross-section front view showing the bed filling degree and dynamic tilt."""

@@ -4,15 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import io
 import json
-from pyrolysis import TRANSLATIONS
-
-def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'Español')
-    return 'en' if lang_opt == 'English' else 'es'
-
-def t(key):
-    lang = get_lang()
-    return TRANSLATIONS[lang].get(key, key)
+from .utils import get_lang, t
 
 def solve_irr(cash_flows):
     """
@@ -1289,8 +1281,7 @@ def render_sustainability_tab(summary, solver_inputs):
     lang = get_lang()
     st.markdown(f"### {t('econ_sustainability_title')}")
     st.markdown(
-        t('econ_sustainability_desc') if 'econ_sustainability_desc' in TRANSLATIONS[lang] 
-        else "Evaluate the carbon sequestration potential and environmental benefits of industrial pyrolysis sludge treatment."
+        t('econ_sustainability_desc', "Evaluate the carbon sequestration potential and environmental benefits of industrial pyrolysis sludge treatment.")
     )
     st.markdown("---")
     

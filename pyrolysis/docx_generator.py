@@ -1,13 +1,18 @@
 import io
 import datetime
 import numpy as np
-import docx
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
-from docx.oxml import OxmlElement, parse_xml
-from docx.oxml.ns import nsdecls, qn
+
+try:
+    import docx
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+    from docx.oxml import OxmlElement, parse_xml
+    from docx.oxml.ns import nsdecls, qn
+    PYTHON_DOCX_AVAILABLE = True
+except ImportError:
+    PYTHON_DOCX_AVAILABLE = False
 
 def set_cell_background(cell, fill_hex):
     """Utility to set XML shading background color for a table cell in docx."""
@@ -34,6 +39,9 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     Generates a complete, highly formatted engineering technical report in Microsoft Word (.docx) format.
     Returns bytes buffer.
     """
+    if not PYTHON_DOCX_AVAILABLE:
+        raise ImportError("python-docx is not installed. Please install it with 'pip install python-docx'.")
+
     doc = Document()
 
     # Set Margins (0.75 in / 1.9 cm)

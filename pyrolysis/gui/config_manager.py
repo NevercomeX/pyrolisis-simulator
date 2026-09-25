@@ -99,14 +99,7 @@ DEFAULT_PARAMS = {
 
 CONFIG_FILE = "pyrolysis_config.json"
 
-def get_lang():
-    lang_opt = st.session_state.get('lang_option', 'Español')
-    return 'en' if lang_opt == 'English' else 'es'
-
-def t(key):
-    from pyrolysis import TRANSLATIONS
-    lang = get_lang()
-    return TRANSLATIONS[lang].get(key, key)
+from .utils import get_lang, t
 
 def init_session_state():
     """Loads configuration on startup from localStorage (with file fallback) and initializes session state."""

@@ -224,6 +224,8 @@ TRANSLATIONS = {
         'analysis_bio_oil_name': "Bio-Oil",
         'analysis_syngas_name': "Syngas",
         'analysis_char_res_name': "Char residue",
+        'bio_oil_name': "Bio-Oil",
+        'syngas_name': "Syngas",
         
         # Guide
         'guide_title': "📖 Ecuaciones y Física de Ingeniería del Reactor",
@@ -328,6 +330,7 @@ TRANSLATIONS = {
         'econ_co2_trees_eq': "Equivalent Trees Planted / yr",
         'econ_co2_cars_eq': "Passenger Cars Removed / yr",
         'econ_sustainability_title': "🌱 Sustainability & Carbon Offsets Dashboard",
+        'econ_sustainability_desc': "Evaluate the carbon sequestration potential and environmental benefits of industrial pyrolysis sludge treatment.",
         'econ_sensitivity_title': "📊 NPV Sensitivity Analysis (Tornado Chart)",
         'econ_sensitivity_desc': "Shows how much Net Present Value (NPV) changes with a ±10% and ±20% variation in key parameters.",
         'econ_param_capex': "CAPEX",
@@ -578,6 +581,8 @@ TRANSLATIONS = {
         'analysis_bio_oil_name': "Bio-Crudo",
         'analysis_syngas_name': "Syngas",
         'analysis_char_res_name': "Carbón Residual",
+        'bio_oil_name': "Bio-Crudo",
+        'syngas_name': "Syngas",
         
         # Guide
         'guide_title': "📖 Ecuaciones e Ingeniería Física del Reactor",
@@ -682,6 +687,7 @@ TRANSLATIONS = {
         'econ_co2_trees_eq': "Árboles Equivalentes Plantados / año",
         'econ_co2_cars_eq': "Autos Fuera de Circulación / año",
         'econ_sustainability_title': "🌱 Dashboard de Sostenibilidad y Compensación de Carbono",
+        'econ_sustainability_desc': "Evalúe el potencial de secuestro de carbono y los beneficios ambientales del tratamiento de lodos por pirólisis industrial.",
         'econ_sensitivity_title': "📊 Análisis de Sensibilidad del VAN (Gráfico Tornado)",
         'econ_sensitivity_desc': "Muestra la variación en el Valor Actual Neto (VAN) ante cambios de ±10% y ±20% en parámetros clave.",
         'econ_param_capex': "CAPEX",
