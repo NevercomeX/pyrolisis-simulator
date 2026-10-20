@@ -6,6 +6,11 @@ import io
 import json
 from .utils import get_lang, t
 
+# Assumed CO2 emission factors for the process-emissions balance (sustainability tab)
+EF_CO2_FUEL_OIL_KG_PER_KG = 3.15   # waste / fuel oil combustion
+EF_CO2_DIESEL_KG_PER_GAL = 10.21   # diesel generator
+EF_CO2_SYNGAS_KG_PER_KG = 0.84     # pyrolysis gas at ~12 MJ/kg and ~0.07 kg CO2/MJ
+
 def solve_irr(cash_flows):
     """
     Calculates the Internal Rate of Return (IRR) for a given series of cash flows.
@@ -55,6 +60,23 @@ def solve_irr(cash_flows):
                 
     return ((low + high) / 2.0) * 100.0
 
+def batch_thermal_cycle_min(summary, solver_inputs):
+    """
+    Returns (t_cycle_min, t_heat_min, t_hold_min) of the thermal process of one batch.
+    Uses the simulated duration (drying + heating + hold) when available; the naive
+    (T_hold - T_start) / heating_rate estimate ignores drying and underestimates the cycle.
+    """
+    t_hold_min = float(solver_inputs.get('hold_time_min', 60.0))
+    sim_cycle = summary.get('cycle_time_min') if summary else None
+    if sim_cycle:
+        t_cycle_min = float(sim_cycle)
+        t_heat_min = max(0.0, t_cycle_min - t_hold_min)
+    else:
+        rate = max(float(solver_inputs.get('heating_rate_cmin', 1.0)), 1e-6)
+        t_heat_min = (float(solver_inputs.get('temp_hold_c', 400.0)) - float(solver_inputs.get('temp_start_c', 25.0))) / rate
+        t_cycle_min = t_heat_min + t_hold_min
+    return t_cycle_min, t_heat_min, t_hold_min
+
 def render_kpi_card(title, value_str, subtitle=None, is_positive=True):
     """Renders a premium visual card for financial KPIs."""
     color = "#10b981" if is_positive else "#ef4444"
@@ -85,12 +107,18 @@ def run_financial_model(
     opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
     opex_labor, opex_maint, opex_insurance_tax,
     opex_tipping, price_oil, price_char, price_gas, price_carbon, rate_carbon_offset,
-    discount_rate, project_lifetime, tax_rate, inflation_rate
+    discount_rate, project_lifetime, tax_rate, inflation_rate,
+    char_carbon_kg=None
 ):
     """
     Runs the detailed cash flow model over the project lifetime and returns year-by-year cash flows
     and advanced economic indicators (computed in gallons, kg, and m3).
+
+    `char_carbon_kg` is the carbon-bearing char (residue without ash) used for carbon credits;
+    defaults to `char_produced_kg` when not given.
     """
+    if char_carbon_kg is None:
+        char_carbon_kg = char_produced_kg
     r = discount_rate / 100.0
     inf = inflation_rate / 100.0
     tax = tax_rate / 100.0
@@ -101,9 +129,9 @@ def run_financial_model(
     rev_char = char_produced_kg * price_char
     rev_gas = gas_produced_m3 * price_gas
     
-    annual_co2_sequestered_ton = (char_produced_kg * rate_carbon_offset) / 1000.0
+    annual_co2_sequestered_ton = (char_carbon_kg * rate_carbon_offset) / 1000.0
     rev_carbon = annual_co2_sequestered_ton * price_carbon
-    
+
     total_rev_base = rev_tipping + rev_oil + rev_char + rev_gas + rev_carbon
     
     cost_handling = sludge_treated_gal * opex_handling
@@ -825,9 +853,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 st.caption(f"🔧 **Parada de Mantenimiento:** Cada `{batches_before_cleaning}` lotes se detiene `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento profundo + `{cleaning_time_h:.2f} h` limpieza). Impacto promedio ponderado: `+{maint_penalty_per_batch_h:.2f} h/lote`.")
 
                 # Cálculos automáticos de días de operación al año
-                t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
-                t_hold_min = solver_inputs.get('hold_time_min', 60.0)
-                t_cycle_min = t_heat_min + t_hold_min
+                t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
                 t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
                 t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
                 available_hours = available_calendar_days * 24.0
@@ -928,15 +954,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         sludge_treated_kg = summary['feed_rate_kgh'] * annual_hours
         oil_produced_kg = summary['oil_yield_kgh'] * annual_hours
         char_produced_kg = summary['char_yield_kgh'] * annual_hours
+        char_carbon_kg = char_produced_kg
         gas_produced_kg = summary['gas_yield_kgh'] * annual_hours
-        
+
         fuel_consumed_gal = summary['waste_oil_consumed_galh'] * annual_hours
         elec_consumed_kwh = 0.0
         generator_fuel_consumed_gal = gen_diesel_rate * annual_hours
     else:
-        t_heat_min = (solver_inputs['temp_hold_c'] - solver_inputs['temp_start_c']) / solver_inputs['heating_rate_cmin']
-        t_hold_min = solver_inputs['hold_time_min']
-        t_cycle_min = t_heat_min + t_hold_min
+        t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
         t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
         t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
         
@@ -950,8 +975,10 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         sludge_treated_kg = summary['batch_load_kg'] * batches_per_year
         oil_produced_kg = summary['oil_yield_kg'] * batches_per_year
         char_produced_kg = summary['char_yield_kg'] * batches_per_year
-        gas_produced_kg = summary['gas_yield_kg'] * batches_per_year
-        
+        char_carbon_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
+        # Only the syngas not burned in the process is sellable (burned syngas already offsets fuel)
+        gas_produced_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches_per_year
+
         fuel_consumed_gal = summary['waste_oil_consumed_gal'] * batches_per_year
         elec_consumed_kwh = 0.0
         generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
@@ -970,9 +997,10 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
         opex_labor, opex_maint, opex_insurance_tax,
         opex_tipping, price_oil, price_char, price_gas, price_carbon, rate_carbon_offset,
-        discount_rate, project_lifetime, tax_rate, inflation_rate
+        discount_rate, project_lifetime, tax_rate, inflation_rate,
+        char_carbon_kg=char_carbon_kg
     )
-        
+
     # ----------------------------------------------------
     # RENDERING FINANCIAL KPI CARDS
     # ----------------------------------------------------
@@ -1324,7 +1352,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             sludge_kg = summary['batch_load_kg'] * batches
             oil_kg = summary['oil_yield_kg'] * batches
             char_kg = summary['char_yield_kg'] * batches
-            gas_kg = summary['gas_yield_kg'] * batches
+            gas_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches
             
             fuel_gal = summary['waste_oil_consumed_gal'] * batches
             elec_kwh = 0.0
@@ -1352,7 +1380,9 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         rev_o = oil_sold * price_oil
         rev_c = char_sold * price_char
         rev_g = gas_sold * price_gas
-        rev_carb = ((char_prod_kg * rate_carbon_offset) / 1000.0) * price_carbon
+        char_carbon_month_kg = char_prod_kg if is_continuous else (
+            summary.get('char_organic_kg', summary['char_yield_kg']) * batches)
+        rev_carb = ((char_carbon_month_kg * rate_carbon_offset) / 1000.0) * price_carbon
         total_rev = rev_tip + rev_o + rev_c + rev_g + rev_carb
         
         # OPEX
@@ -1651,7 +1681,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             p_handling, p_fuel, p_elec, p_aux, p_gen_fuel,
             p_labor, p_maint, p_ins,
             p_tipping, p_oil, p_char, price_gas, price_carbon, rate_carbon_offset,
-            discount_rate, project_lifetime, tax_rate, inflation_rate
+            discount_rate, project_lifetime, tax_rate, inflation_rate,
+            char_carbon_kg=char_carbon_kg
         )
         return res['npv']
 
@@ -1836,9 +1867,7 @@ def render_sustainability_tab(summary, solver_inputs):
         annual_hours = annual_days * 24.0
         char_produced_kg = summary['char_yield_kgh'] * annual_hours
     else:
-        t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
-        t_hold_min = solver_inputs.get('hold_time_min', 60.0)
-        t_cycle_min = t_heat_min + t_hold_min
+        t_cycle_min, _, _ = batch_thermal_cycle_min(summary, solver_inputs)
         batch_cooldown_h = float(st.session_state.get('batch_cooldown_h', 0.50))
         batch_loading_h = float(st.session_state.get('batch_loading_h', 0.50))
         batch_turnaround_h = float(st.session_state.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
@@ -1849,12 +1878,25 @@ def render_sustainability_tab(summary, solver_inputs):
         t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
         t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
         batches_per_year = np.floor((annual_days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
-        char_produced_kg = summary['char_yield_kg'] * batches_per_year
-        
+        # Carbon credit applies to carbon-bearing char only (ash excluded)
+        char_produced_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
+
     co2_tons = (char_produced_kg * rate_carbon_offset) / 1000.0
     trees_planted = co2_tons / 0.022
     cars_removed = co2_tons / 4.6
-    
+
+    # Process emissions (batch mode): burner fuel, generator diesel and syngas combustion
+    if not is_continuous:
+        fuel_density = float(st.session_state.get('fuel_density', 0.90))
+        gen_diesel_batch = float(st.session_state.get('gen_diesel_batch', 1.0))
+        co2_burner_t = summary['waste_oil_consumed_gal'] * batches_per_year * fuel_density * 3.785 * EF_CO2_FUEL_OIL_KG_PER_KG / 1000.0
+        co2_diesel_t = gen_diesel_batch * batches_per_year * EF_CO2_DIESEL_KG_PER_GAL / 1000.0
+        co2_syngas_t = summary['gas_yield_kg'] * batches_per_year * EF_CO2_SYNGAS_KG_PER_KG / 1000.0
+        co2_emitted_t = co2_burner_t + co2_diesel_t + co2_syngas_t
+    else:
+        co2_burner_t = co2_diesel_t = co2_syngas_t = co2_emitted_t = 0.0
+    co2_net_t = co2_tons - co2_emitted_t
+
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -1874,6 +1916,28 @@ def render_sustainability_tab(summary, solver_inputs):
             value=f"{int(cars_removed):,}"
         )
         
+    if not is_continuous:
+        st.markdown("#### " + ("Balance neto de CO₂e del proceso" if lang == 'es' else "Net process CO₂e balance"))
+        ecol1, ecol2, ecol3, ecol4 = st.columns(4)
+        ecol1.metric("Quemador / Burner (t CO₂/yr)", f"{co2_burner_t:,.2f}")
+        ecol2.metric("Diésel / Diesel gen. (t CO₂/yr)", f"{co2_diesel_t:,.2f}")
+        ecol3.metric("Syngas (t CO₂/yr)", f"{co2_syngas_t:,.2f}")
+        ecol4.metric(
+            "Neto / Net (t CO₂e/yr)", f"{co2_net_t:,.2f}",
+            delta=f"-{co2_emitted_t:,.2f} emitido" if lang == 'es' else f"-{co2_emitted_t:,.2f} emitted"
+        )
+        st.caption(
+            "Factores de emisión supuestos (ajustables en el código): aceite residual 3.15 kg CO₂/kg, diésel 10.2 kg CO₂/gal, "
+            "syngas 0.84 kg CO₂/kg. No incluye la combustión posterior del bio-crudo vendido ni el transporte. "
+            "Los créditos de carbono por biochar normalmente exigen biomasa (carbono biogénico); el char de lodo petrolero "
+            "es mayormente carbono fósil y puede no ser elegible: confirme con el estándar de certificación antes de contar este ingreso."
+            if lang == 'es' else
+            "Assumed emission factors (editable in code): waste oil 3.15 kg CO₂/kg, diesel 10.2 kg CO₂/gal, "
+            "syngas 0.84 kg CO₂/kg. Excludes later combustion of the sold bio-oil and transport. "
+            "Biochar carbon credits normally require biogenic carbon; char from petroleum sludge is mostly fossil carbon "
+            "and may not be eligible: confirm with the certification standard before counting this revenue."
+        )
+
     # Visual green impact description
     st.markdown(f"""
     <div style="

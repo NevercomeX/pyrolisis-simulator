@@ -8,8 +8,8 @@ def main():
     parser = argparse.ArgumentParser(description="Rotary Pyrolysis Reactor Dual-Mode Simulator (Continuous & Batch)")
     
     # Mode selector
-    parser.add_argument("--mode", type=str, choices=["continuous", "batch"], default="continuous",
-                        help="Operation mode: 'continuous' or 'batch'")
+    parser.add_argument("--mode", type=str, choices=["batch"], default="batch",
+                        help="Operation mode: only 'batch' (continuous mode is temporarily disabled)")
     
     # Shared arguments
     parser.add_argument("--feed", type=str, choices=["petroleum", "hydrocarbon", "blend"], default="blend",

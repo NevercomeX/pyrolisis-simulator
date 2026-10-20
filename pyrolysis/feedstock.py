@@ -31,7 +31,8 @@ class Feedstock:
         A2: Optional[float] = None,
         Ea3: Optional[float] = None,
         A3: Optional[float] = None,
-        T_onset_K: Optional[float] = 523.15,
+        T_onset_K: Optional[float] = 643.15,   # pyrolysis starts at 370 °C
+        T_end_K: Optional[float] = 703.15,     # pyrolysis ends at 430 °C
         angle_of_repose: float = 35.0
     ) -> None:
         """
@@ -75,7 +76,8 @@ class Feedstock:
         self.A3 = float(A3) if A3 is not None else 5e5
 
         # Physical constants
-        self.T_onset_K = float(T_onset_K) if T_onset_K is not None else 523.15
+        self.T_onset_K = float(T_onset_K) if T_onset_K is not None else 643.15
+        self.T_end_K = float(T_end_K) if T_end_K is not None else 703.15
         self.angle_of_repose = float(angle_of_repose)
 
     @property
@@ -120,7 +122,8 @@ PETROLEUM_SLUDGE = Feedstock(
     Ea1=120000.0, A1=6e6,
     Ea2=125000.0, A2=4e6,
     Ea3=100000.0, A3=5e5,
-    T_onset_K=523.15,
+    T_onset_K=643.15,
+    T_end_K=703.15,
     angle_of_repose=35.0
 )
 
@@ -138,7 +141,8 @@ HYDROCARBON_SLUDGE = Feedstock(
     Ea1=90000.0, A1=7.5e5,
     Ea2=95000.0, A2=2.5e5,
     Ea3=80000.0, A3=1.0e5,
-    T_onset_K=523.15,
+    T_onset_K=643.15,
+    T_end_K=703.15,
     angle_of_repose=35.0
 )
 
@@ -176,6 +180,7 @@ def blend_feedstocks(feed1: Feedstock, feed2: Feedstock, ratio: float) -> Feedst
     yield_char = r1 * feed1.yield_char + r2 * feed2.yield_char
 
     t_onset = r1 * feed1.T_onset_K + r2 * feed2.T_onset_K
+    t_end = r1 * feed1.T_end_K + r2 * feed2.T_end_K
     repose = r1 * feed1.angle_of_repose + r2 * feed2.angle_of_repose
     name = f"Blend ({int(r1 * 100)}% {feed1.name} / {int(r2 * 100)}% {feed2.name})"
 
@@ -194,5 +199,6 @@ def blend_feedstocks(feed1: Feedstock, feed2: Feedstock, ratio: float) -> Feedst
         Ea2=Ea2, A2=A2,
         Ea3=Ea3, A3=A3,
         T_onset_K=t_onset,
+        T_end_K=t_end,
         angle_of_repose=repose
     )

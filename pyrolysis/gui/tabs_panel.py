@@ -215,7 +215,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         cp_char = 1000.0
         cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
         cp_gas = 1500.0
-        dh_pyro = 600000.0
+        dh_pyro = 700000.0
         dh_evap = 2256000.0
         
         Q_char_kw = (F_char_s * cp_char * dT) / 1000.0
@@ -269,7 +269,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             * **Calor Sensible del Syngas ($Q_{{gas\_sens}}$)**:
               $$Q_{{gas}} = F_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{out}} - T_{{in}}) = {F_gas_s*3600:.2f}\text{{ kg/h}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
             * **Reacción Química Endotérmica de Pirólisis ($Q_{{rxn}}$)**:
-              $$Q_{{rxn}} = (F_{{oil}} + F_{{gas}}) \cdot \Delta H_{{pyro}} = {(F_oil_s+F_gas_s)*3600:.2f}\text{{ kg/h}} \cdot 600,000\text{{ J/kg}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
+              $$Q_{{rxn}} = (F_{{oil}} + F_{{gas}}) \cdot \Delta H_{{pyro}} = {(F_oil_s+F_gas_s)*3600:.2f}\text{{ kg/h}} \cdot 700,000\text{{ J/kg}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
             * **Secado y Evaporación del Agua ($Q_{{steam}}$)**:
               $$Q_{{steam}} = F_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right] = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
             """)
@@ -392,7 +392,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         cp_char = 1000.0
         cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
         cp_gas = 1500.0
-        dh_pyro = 600000.0
+        dh_pyro = 700000.0
         dh_evap = 2256000.0
 
         E_char_kwh = (M_char * cp_char * dT) / 3.6e6
@@ -433,6 +433,43 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             ]
         })
         st.table(energy_df)
+
+        # Closure against the simulation: heat that the burners must deliver (bed + shell + losses)
+        e_bed = summary.get('energy_bed_kwh', 0.0)
+        e_shell = summary.get('energy_shell_kwh', 0.0)
+        e_loss = summary.get('energy_loss_kwh', 0.0)
+        e_sim_total = summary.get('total_energy_kwh', e_bed + e_shell + e_loss)
+        bed_gap_pct = ((e_bed - E_total_kwh) / max(0.001, E_total_kwh)) * 100.0
+        st.markdown("**" + ("Cierre con la simulación: calor entregado por los quemadores" if lang == 'es' else "Closure vs. simulation: heat delivered by the burners") + "**")
+        closure_df = pd.DataFrame({
+            "Concept / Concepto": [
+                "Bed heat (simulation) / Calor al lecho (simulación)",
+                "Steel shell heating / Calentamiento del casco de acero",
+                "Shell heat losses / Pérdidas de calor del casco",
+                "Total heat delivered / Calor total entregado",
+                "Analytic duty above / Calor analítico de la tabla anterior"
+            ],
+            "Energy / Energía (kWh)": [e_bed, e_shell, e_loss, e_sim_total, E_total_kwh],
+            "%": [
+                e_bed / max(0.001, e_sim_total) * 100.0,
+                e_shell / max(0.001, e_sim_total) * 100.0,
+                e_loss / max(0.001, e_sim_total) * 100.0,
+                100.0,
+                E_total_kwh / max(0.001, e_sim_total) * 100.0
+            ]
+        })
+        st.table(closure_df)
+        st.caption(
+            f"Calor al lecho (simulación) vs. suma analítica: desviación {bed_gap_pct:+.1f} %. La tabla analítica supone que todo el vapor "
+            f"sale a T de retención (sobrestima el sobrecalentamiento del vapor); la simulación lo deja salir a la temperatura del lecho. "
+            f"Combustible quemadores: {summary.get('waste_oil_consumed_gal', 0.0):.1f} gal; "
+            f"syngas quemado: {summary.get('syngas_burned_kg', 0.0):.1f} kg ({summary.get('syngas_recirc_pct', 0.0):.0f} % del gas producido)."
+            if lang == 'es' else
+            f"Bed heat (simulation) vs. analytic sum: deviation {bed_gap_pct:+.1f} %. The analytic table assumes all vapor leaves at hold "
+            f"temperature (overestimating steam superheat); the simulation lets it leave at bed temperature. "
+            f"Burner fuel: {summary.get('waste_oil_consumed_gal', 0.0):.1f} gal; "
+            f"syngas burned: {summary.get('syngas_burned_kg', 0.0):.1f} kg ({summary.get('syngas_recirc_pct', 0.0):.0f} % of produced gas)."
+        )
         
         if lang == 'es':
             st.markdown(rf"""
@@ -446,7 +483,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             * **Calor Sensible del Syngas ($E_{{gas\_sens}}$)**:
               $$E_{{gas}} = \frac{{M_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_gas:.2f}\text{{ kg}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
             * **Reacción Química Endotérmica de Pirólisis ($E_{{rxn}}$)**:
-              $$E_{{rxn}} = \frac{{(M_{{oil}} + M_{{gas}}) \cdot \Delta H_{{pyro}}}}{{3.6 \times 10^6}} = \frac{{{M_oil + M_gas:.2f}\text{{ kg}} \cdot 600,000\text{{ J/kg}}}}{{3.6 \times 10^6}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
+              $$E_{{rxn}} = \frac{{(M_{{oil}} + M_{{gas}}) \cdot \Delta H_{{pyro}}}}{{3.6 \times 10^6}} = \frac{{{M_oil + M_gas:.2f}\text{{ kg}} \cdot 700,000\text{{ J/kg}}}}{{3.6 \times 10^6}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
             * **Secado y Evaporación del Agua ($E_{{steam}}$)**:
               $$E_{{steam}} = \frac{{M_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right]}}{{3.6 \times 10^6}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
             """)

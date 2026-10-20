@@ -175,6 +175,76 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertAlmostEqual(summary['water_yield_kg'], batch_load * (feed.moisture / 100.0), places=4)
         self.assertGreater(summary['conversion_pct'], 99.0)
 
+    def _batch(self, **kw):
+        args = dict(feedstock=PETROLEUM_SLUDGE, batch_load_kg=200.0, length=6.0, diameter=0.8, rpm=3.0,
+                    T_start_C=25.0, heating_rate_cmin=10.0, T_hold_C=550.0, hold_time_min=60.0, h_eff=100.0)
+        args.update(kw)
+        return BatchReactorSimulation(**args).simulate(dt_sec=2.0)
+
+    def test_batch_burner_power_series_match_time(self):
+        """p_oil / p_syngas must have one sample per time step and respect burner limits."""
+        res = self._batch()
+        self.assertEqual(len(res['p_oil']), len(res['time']))
+        self.assertEqual(len(res['p_syngas']), len(res['time']))
+        self.assertGreater(max(res['p_oil']), 0.0)
+        self.assertLessEqual(max(res['p_syngas']), 150.0 * 745.7 * 0.70 / 1000.0 + 1e-6)
+
+    def test_batch_bio_oil_density_affects_api_gravity(self):
+        """bio_oil_density must reach the ASTM/API calculation."""
+        light = self._batch(bio_oil_density=750.0)['summary']['api_gravity']
+        heavy = self._batch(bio_oil_density=900.0)['summary']['api_gravity']
+        self.assertGreater(light, heavy)
+
+    def test_batch_reaction_never_exceeds_heat_input(self):
+        """Solid temperature must not drop while heated (no energy created by the endothermic term)."""
+        res = self._batch()
+        T = res['T_solid']
+        self.assertTrue(all(b >= a - 1e-9 for a, b in zip(T, T[1:])))
+
+    def test_batch_energy_breakdown_closes(self):
+        """Total heat = bed + shell + losses; syngas burned cannot exceed syngas produced."""
+        s = self._batch()['summary']
+        self.assertAlmostEqual(s['total_energy_kwh'], s['energy_bed_kwh'] + s['energy_shell_kwh'] + s['energy_loss_kwh'], places=6)
+        self.assertGreater(s['energy_shell_kwh'], 0.0)
+        self.assertLessEqual(s['syngas_burned_kg'], s['gas_yield_kg'] + 1e-9)
+        self.assertAlmostEqual(s['syngas_burned_kg'] + s['syngas_flare_kg'], s['gas_yield_kg'], places=6)
+
+    def test_batch_auto_heating_mode_heats_the_wall(self):
+        """Auto mode must fire the burner (regression: wall used to stay at T_start) and finish the hold."""
+        res = self._batch(auto_heating_rate=True)
+        s = res['summary']
+        self.assertGreaterEqual(max(res['T_wall']), 549.0)
+        self.assertGreater(s['waste_oil_consumed_gal'], 0.0)
+        self.assertGreater(s['conversion_pct'], 99.0)
+
+    def test_batch_cycle_time_includes_drying(self):
+        """Simulated cycle must be at least the naive ramp + hold estimate."""
+        s = self._batch()['summary']
+        naive_min = (550.0 - 25.0) / 10.0 + 60.0
+        self.assertGreaterEqual(s['cycle_time_min'], naive_min)
+
+    def test_batch_reports_burner_shortfall(self):
+        """An undersized burner must be flagged under a manual ramp."""
+        s = self._batch(burner_hp=5.0)['summary']
+        self.assertGreater(s['burner_shortfall_min'], 0.0)
+        s_ok = self._batch(burner_hp=5000.0)['summary']
+        self.assertEqual(s_ok['burner_shortfall_min'], 0.0)
+
+    def test_batch_pyrolysis_window_370_to_430(self):
+        """No devolatilization below 370 °C; conversion completes by ~430 °C."""
+        res = self._batch()
+        T = res['T_solid']
+        conv = res['conversion']
+        below = [c for c, temp in zip(conv, T) if temp < 369.0]
+        self.assertLess(max(below), 0.001)
+        at_end = [c for c, temp in zip(conv, T) if temp >= 440.0]
+        self.assertGreater(min(at_end), 0.99)
+
+    def test_batch_air_displacement_unreached_is_nan(self):
+        """If headspace air is never displaced, report NaN instead of an arbitrary time."""
+        res = self._batch(T_hold_C=50.0, hold_time_min=30.0)
+        self.assertTrue(np.isnan(res['summary']['air_disp_complete_min']))
+
     # ==========================================================================
     # BLENDING TEST
     # ==========================================================================
@@ -259,7 +329,7 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertGreater(astm['bsw_moisture_pct'], 1.0)
 
     def test_devolatilization_kinetics_onset_threshold(self):
-        """Verify reaction rate is zero below onset (250°C) and positive above it."""
+        """Verify reaction rate is zero below onset (370°C) and positive above it."""
         from pyrolysis.reactor import BaseReactorSimulation
         
         sim = BaseReactorSimulation(
@@ -270,7 +340,7 @@ class TestPyrolysisSimulation(unittest.TestCase):
             h_eff=100.0
         )
         
-        # At 200°C (473.15 K), below onset of 250°C
+        # At 200°C (473.15 K), below onset of 370°C
         r_slug_low, k1_low, _, _ = sim.calculate_devolatilization_rate(
             T_s=200.0 + 273.15,
             T_w=250.0 + 273.15,

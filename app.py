@@ -88,6 +88,10 @@ sim_cache_key = (
     float(solver_inputs.get('custom_cp_oil', 1800.0)),
     float(solver_inputs.get('custom_cp_char', 1000.0)),
     float(solver_inputs.get('custom_cp_ash', 800.0)),
+    float(solver_inputs.get('bio_oil_density', 750.0)),
+    float(solver_inputs.get('shell_thickness_mm', 15.0)),
+    float(solver_inputs.get('h_loss', 5.0)),
+    str(solver_inputs.get('shell_material_dict', '')),
     float(st.session_state.get('fuel_lhv', 41.0)),
     float(st.session_state.get('fuel_density', 0.90)),
     float(st.session_state.get('fuel_moisture', 1.0)),
@@ -149,7 +153,8 @@ else:
             fuel_lhv_mj_kg=st.session_state.get('fuel_lhv', 41.0),
             fuel_density_kg_l=st.session_state.get('fuel_density', 0.90),
             fuel_moisture_pct=st.session_state.get('fuel_moisture', 1.0),
-            fuel_ash_pct=st.session_state.get('fuel_ash', 0.5)
+            fuel_ash_pct=st.session_state.get('fuel_ash', 0.5),
+            bio_oil_density=solver_inputs.get('bio_oil_density', 750.0)
         )
         results = sim.simulate(dt_sec=2.0)
     summary = results['summary']

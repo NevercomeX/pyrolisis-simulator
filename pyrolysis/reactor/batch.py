@@ -43,6 +43,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
         fuel_density_kg_l: float = 0.90,
         fuel_moisture_pct: float = 1.0,
         fuel_ash_pct: float = 0.5,
+        bio_oil_density: float = 750.0,
     ) -> None:
         """
         Initializes batch reactor configuration, thermal program, and shell geometry.
@@ -76,6 +77,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
         self.shell_material_dict = shell_material_dict or {'density': 7850.0, 'Cp': 480.0, 'k': 50.0}
         self.shell_thickness_mm = float(shell_thickness_mm)
         self.h_loss = float(h_loss)
+        self.bio_oil_density = float(bio_oil_density)
 
     def get_filling_degree_pct(self) -> float:
         """
@@ -84,6 +86,24 @@ class BatchReactorSimulation(BaseReactorSimulation):
         """
         vol_sludge = self.batch_load_kg / self.bulk_density
         return (vol_sludge / max(self.reactor_volume, 1e-6)) * 100.0
+
+    def get_bed_contact_area(self) -> float:
+        """
+        Wall area in contact with the solid bed (m²): the arc covered by the circular
+        segment of the bed times the reactor length. It grows much more slowly than the
+        load (~load^(1/3) arc at low fill), so larger batches take longer to heat and dry.
+        """
+        eta = min(max(self.get_filling_degree_pct() / 100.0, 1e-4), 0.999)
+        target = eta * np.pi
+        low, high = 0.0, np.pi
+        for _ in range(60):
+            mid = (low + high) / 2.0
+            if mid - np.sin(mid) * np.cos(mid) < target:
+                low = mid
+            else:
+                high = mid
+        theta = (low + high) / 2.0   # half-angle of the bed segment (rad)
+        return theta * self.diameter * self.length
 
     def get_wall_temp_K(self, t_sec: float) -> float:
         """
@@ -114,7 +134,31 @@ class BatchReactorSimulation(BaseReactorSimulation):
         Executes dynamic transient numerical integration in time.
         Simulates solid bed mass loss, devolatilization, and thermal trajectories.
         `max_steps` caps maximum iterations (default 1000) to ensure high speed & low RAM.
+
+        In auto heating mode the ramp duration depends on burner power, shell losses and
+        drying, so the time horizon is extended until the wall reaches T_hold and the full
+        hold time has elapsed (the initial estimate ignores shell losses).
         """
+        horizon_scale = 1.0
+        results = self._simulate(dt_sec, max_steps, horizon_scale)
+        if not self.auto_heating_rate:
+            return results
+
+        hold_sec = self.hold_time_min * 60.0
+        for _ in range(5):
+            time_min = results['time']
+            t_wall_hold = next(
+                (t for t, tw in zip(time_min, results['T_wall']) if tw >= self.T_hold - 273.15 - 0.5),
+                None
+            )
+            if t_wall_hold is not None and (time_min[-1] - t_wall_hold) * 60.0 >= hold_sec * 0.99:
+                break
+            horizon_scale *= 1.5
+            results = self._simulate(dt_sec, max_steps, horizon_scale)
+        return results
+
+    def _simulate(self, dt_sec: float, max_steps: Optional[int], horizon_scale: float) -> Dict[str, Any]:
+        """Single integration pass over a time horizon scaled by `horizon_scale`."""
         # 1. Shell thermal inertia and fuel calibration
         a_outer, c_steel = self._get_shell_properties()
         lhv_fuel_j_kg, fuel_mass_per_gal, _ = self.get_fuel_properties()
@@ -138,8 +182,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
         else:
             t_ramp_sec = dT / self.heating_rate_csec if self.heating_rate_csec > 0 else 0.0
 
-        eta_fill = self.get_filling_degree_pct() / 100.0
-        a_heat_est = np.pi * self.diameter * self.length * max(0.05, eta_fill)
+        a_heat_est = self.get_bed_contact_area()
         q_dry_est = self.h_eff * a_heat_est * 150.0
         t_dry_est_sec = (m_moist * self.dH_evap) / max(q_dry_est, 1.0) if m_moist > 0 else 0.0
 
@@ -150,6 +193,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
             t_ramp_sec + self.hold_time_min * 60.0,
             t_dry_est_sec + t_pyro_est_sec + self.hold_time_min * 60.0
         )
+        t_total_sec *= horizon_scale
         steps = int(t_total_sec / dt_sec)
         if max_steps is not None and steps > max_steps:
             dt_sec = t_total_sec / float(max_steps)
@@ -185,8 +229,14 @@ class BatchReactorSimulation(BaseReactorSimulation):
         a_branches = 4.0 * np.pi * (d_branch_m / 2.0)**2
 
         initial_volatile = max(m_volatile, 1e-10)
-        A_heat = np.pi * self.diameter * self.length * max(0.05, eta_fill)
+        A_heat = a_heat_est
         total_energy_kwh = 0.0
+        energy_bed_kwh = 0.0
+        energy_shell_kwh = 0.0
+        energy_loss_kwh = 0.0
+        m_gas_burned = 0.0   # syngas actually burned in the syngas burners (kg)
+        burner_shortfall_peak_kw = 0.0   # manual ramp: heat demand above burner capacity
+        burner_shortfall_min = 0.0
 
         for step in range(steps + 1):
             t_sec = step * dt_sec
@@ -234,7 +284,24 @@ class BatchReactorSimulation(BaseReactorSimulation):
                 m_oil_vap=m_oil_vap,
                 A_contact=A_heat
             )
+            # Heat actually delivered to the bed this step; the endothermic
+            # reaction cannot consume more than that (energy conservation).
+            T_target_heat = T_w - (T_w - T_s) * np.exp(-beta * dt_sec) if beta > 0 else T_s
+            dT_input = T_target_heat - T_s
+            q_in_step = max(0.0, dT_input) * denom_temp
+
             d_volatile = min(r_slug * dt_sec, m_volatile)
+            # Devolatilization follows the pyrolysis window (onset -> end, e.g. 370 -> 430 °C):
+            # the cumulative released fraction cannot exceed what the bed temperature allows.
+            T_on = self.feedstock.T_onset_K
+            T_off = self.feedstock.T_end_K
+            f_released_max = min(1.0, max(0.0, (T_s - T_on) / max(1.0, T_off - T_on)))
+            already_released = initial_volatile - m_volatile
+            d_volatile = min(d_volatile, max(0.0, f_released_max * initial_volatile - already_released))
+            if T_s >= T_off:
+                d_volatile = m_volatile   # pyrolysis window closed: release what remains (heat permitting)
+            if self.dH_pyro > 0.0:
+                d_volatile = min(d_volatile, q_in_step / self.dH_pyro)
             d_oil_prod, d_gas_prod, d_char_prod, H_rxn = self.split_reaction_products(
                 d_volatile=d_volatile,
                 k1=k1,
@@ -244,33 +311,61 @@ class BatchReactorSimulation(BaseReactorSimulation):
             )
 
             # 3. Solid sensible heat integration
-            T_target_heat = T_w - (T_w - T_s) * np.exp(-beta * dt_sec) if beta > 0 else T_s
-            dT_input = T_target_heat - T_s
             dT_endothermic = (H_rxn / denom_temp) if denom_temp > 1e-8 else 0.0
-            dT_net = max(0.02 * dT_input, dT_input - dT_endothermic)
-            T_s_next = T_s + dT_net
+            T_s_next = T_s + dT_input - dT_endothermic
 
             # 4. Reactor shell & burner heat balance
             q_main_nominal = self.burner_nominal_power_watts
             r_syngas_prod = d_gas_prod / dt_sec if dt_sec > 0.0 else 0.0
-            q_syngas_thermal = r_syngas_prod * 12e6 * self.burner_efficiency
+            q_syngas_nominal = self.syngas_hp * 745.7 * self.burner_efficiency
+            q_syngas_thermal = min(r_syngas_prod * 12e6 * self.burner_efficiency, q_syngas_nominal)
 
             q_needed_wall = max(0.0, (T_w - T_s) * self.h_eff * A_heat)
-            q_main_used = min(max(0.0, q_needed_wall - q_syngas_thermal), q_main_nominal)
+            q_loss = max(0.0, self.h_loss * a_outer * (T_w - self.T_start))
 
             if self.auto_heating_rate:
-                q_loss = self.h_loss * a_outer * (T_w - self.T_start)
-                q_net_wall = (q_main_used + q_syngas_thermal) - q_needed_wall - q_loss
+                # Thermostat: full burner power while ramping, modulated to hold T_hold afterwards
+                if T_w < self.T_hold - 0.01:
+                    q_main_used = q_main_nominal
+                    q_syngas_used = q_syngas_thermal
+                else:
+                    q_demand = q_needed_wall + q_loss
+                    q_syngas_used = min(q_syngas_thermal, q_demand)
+                    q_main_used = min(max(0.0, q_demand - q_syngas_used), q_main_nominal)
+                q_net_wall = (q_main_used + q_syngas_used) - q_needed_wall - q_loss
                 dT_w = (q_net_wall * dt_sec) / c_steel if c_steel > 0 else 0.0
                 T_w_next = min(T_w + dT_w, self.T_hold)
+                q_shell = c_steel * (T_w_next - T_w) / dt_sec if dt_sec > 0.0 else 0.0
             else:
                 T_w_nominal = self.get_wall_temp_K(t_sec + dt_sec)
                 T_w_next = min(T_w_nominal, T_s + 250.0) if m_moist > 1.0 else T_w_nominal
+                # The wall can never heat faster than the programmed ramp (no jump once drying ends)
+                T_w_next = min(T_w_next, T_w + self.heating_rate_csec * dt_sec)
+                # Burners must cover bed heat + steel shell heating + shell losses
+                q_shell = c_steel * (T_w_next - T_w) / dt_sec if dt_sec > 0.0 else 0.0
+                q_demand = q_needed_wall + max(0.0, q_shell) + q_loss
+                q_syngas_used = min(q_syngas_thermal, q_demand)
+                q_main_used = min(max(0.0, q_demand - q_syngas_used), q_main_nominal)
+                # Programmed ramp that the burners cannot actually deliver
+                q_unmet = q_demand - q_syngas_used - q_main_used
+                if q_unmet > 0.01 * max(q_main_nominal, 1.0):
+                    burner_shortfall_peak_kw = max(burner_shortfall_peak_kw, q_unmet / 1000.0)
+                    burner_shortfall_min += dt_sec / 60.0
+
+            p_oil_arr.append(q_main_used / 1000.0)
+            p_syngas_arr.append(q_syngas_used / 1000.0)
+
+            q_shell_pos = max(0.0, q_shell)
+            energy_bed_kwh += (q_needed_wall * dt_sec) / 3.6e6
+            energy_shell_kwh += (q_shell_pos * dt_sec) / 3.6e6
+            energy_loss_kwh += (q_loss * dt_sec) / 3.6e6
+            if self.burner_efficiency > 0.0:
+                m_gas_burned += (q_syngas_used * dt_sec) / (12e6 * self.burner_efficiency)
 
             q_combustion = q_main_used / self.burner_efficiency if self.burner_efficiency > 0 else 0.0
             dm_waste_oil_kg = (q_combustion * dt_sec) / lhv_fuel_j_kg
             m_waste_oil_gal += dm_waste_oil_kg / fuel_mass_per_gal
-            total_energy_kwh += (q_needed_wall * dt_sec) / 3.6e6
+            total_energy_kwh += ((q_needed_wall + q_shell_pos + q_loss) * dt_sec) / 3.6e6
 
             # 5. Drying and water evaporation resolution
             T_s, d_moist = self.resolve_drying_step(
@@ -336,21 +431,21 @@ class BatchReactorSimulation(BaseReactorSimulation):
             T_operating_C=self.T_hold - 273.15,
             initial_volatile_pct=initial_vol_pct,
             moisture_feed_pct=feed_moist_pct,
-            bio_oil_density=getattr(self, 'bio_oil_density', 750.0)
+            bio_oil_density=self.bio_oil_density
         )
 
-        syngas_recirc_pct, syngas_flare_kg, syngas_flare_m3 = self.calculate_syngas_balance(
-            final_gas_kg=final_gas_kg,
-            total_energy_kwh=total_energy_kwh
-        )
+        # Syngas actually burned in the syngas burners vs. surplus sent to flare / sale
+        syngas_burned_kg = min(m_gas_burned, final_gas_kg)
+        syngas_recirc_pct = (syngas_burned_kg / final_gas_kg * 100.0) if final_gas_kg > 0.0 else 0.0
+        syngas_flare_kg = final_gas_kg - syngas_burned_kg
+        syngas_flare_m3 = syngas_flare_kg / 1.15
 
-        air_disp_complete_min = 0.0
+        # Time when 90% of the initial headspace air has been displaced (NaN if never reached)
+        air_disp_complete_min = float('nan')
         for idx_t, v_d in enumerate(air_disp_arr):
             if v_d >= v_headspace_init_m3 * 0.90:
                 air_disp_complete_min = time_arr[idx_t]
                 break
-        if air_disp_complete_min == 0.0 and time_arr:
-            air_disp_complete_min = time_arr[min(len(time_arr) - 1, 15)]
 
         return {
             'time': time_arr,
@@ -386,6 +481,15 @@ class BatchReactorSimulation(BaseReactorSimulation):
                 'conversion_pct': conv_arr[-1] * 100.0,
                 'filling_degree_pct': self.get_filling_degree_pct(),
                 'total_energy_kwh': total_energy_kwh,
+                'energy_bed_kwh': energy_bed_kwh,
+                'energy_shell_kwh': energy_shell_kwh,
+                'energy_loss_kwh': energy_loss_kwh,
+                'syngas_burned_kg': syngas_burned_kg,
+                'burner_shortfall_peak_kw': burner_shortfall_peak_kw,
+                'burner_shortfall_min': burner_shortfall_min,
+                'cycle_time_min': time_arr[-1] if time_arr else 0.0,
+                'ash_kg': m_ash,
+                'char_organic_kg': final_char_kg - m_ash,
                 'waste_oil_consumed_gal': m_waste_oil_gal,
                 'mass_error_pct': mass_error_pct,
                 'initial_humidity_pct': humidity_arr[0],

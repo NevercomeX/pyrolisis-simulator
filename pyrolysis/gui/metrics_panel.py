@@ -280,7 +280,8 @@ def render_metrics_panel(mode_option, summary, results):
             with pcol1:
                 st.metric(t("auto_pressure_metric"), f"{summary.get('peak_pressure_kpa', 101.3):.1f} kPa", f"{summary.get('peak_pressure_psig', 0.0):.2f} psig")
             with pcol2:
-                st.metric(t("air_disp_time_metric"), f"{summary.get('air_disp_complete_min', 0.0):.1f} min")
+                air_disp_min = summary.get('air_disp_complete_min', float('nan'))
+                st.metric(t("air_disp_time_metric"), "N/A" if air_disp_min != air_disp_min else f"{air_disp_min:.1f} min")
             with pcol3:
                 st.metric(t("manifold_velocity_metric"), f"{summary.get('max_v_main_ms', 0.0):.2f} m/s", "8'' Manifold / 4x4''")
             with pcol4:
@@ -302,6 +303,21 @@ def render_metrics_panel(mode_option, summary, results):
             
         if summary['conversion_pct'] < 95.0:
             st.error(t("warn_incomplete_batch").format(summary['conversion_pct']))
+
+        if summary.get('burner_shortfall_min', 0.0) > 0.0:
+            lang_bs = get_lang()
+            if lang_bs == 'es':
+                st.warning(
+                    f"⚠️ Los quemadores no alcanzan la rampa programada: faltan hasta {summary['burner_shortfall_peak_kw']:.0f} kW "
+                    f"durante {summary['burner_shortfall_min']:.0f} min. El consumo de combustible y el ciclo reales serían mayores. "
+                    "Aumente la potencia del quemador, reduzca la rampa o use el modo de calentamiento automático."
+                )
+            else:
+                st.warning(
+                    f"⚠️ The burners cannot deliver the programmed ramp: short by up to {summary['burner_shortfall_peak_kw']:.0f} kW "
+                    f"for {summary['burner_shortfall_min']:.0f} min. Real fuel use and cycle time would be higher. "
+                    "Increase burner power, lower the ramp rate, or use auto heating mode."
+                )
 
         # --- Batch Process Timeline & Milestones ---
         time_arr = results['time']

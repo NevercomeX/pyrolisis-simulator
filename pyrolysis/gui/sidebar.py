@@ -29,16 +29,13 @@ def render_sidebar():
 
     # Operation Mode Selection
     st.sidebar.header(t("op_mode"))
-    mode_continuous_str = t("mode_continuous")
-    mode_batch_str = t("mode_batch")
-    mode_options_list = [mode_continuous_str, mode_batch_str]
-    default_mode_idx = 0 if st.session_state.get('mode_option') == "Continuous Operation" else 1
-    mode_option_translated = st.sidebar.radio(
+    # Continuous mode is temporarily disabled: only Batch Operation is available.
+    st.sidebar.radio(
         t("select_op_mode"),
-        mode_options_list,
-        index=default_mode_idx
+        [t("mode_batch")],
+        index=0
     )
-    mode_option = "Continuous Operation" if mode_option_translated == mode_continuous_str else "Batch Operation"
+    mode_option = "Batch Operation"
     st.session_state['mode_option'] = mode_option
 
     st.sidebar.markdown("---")

@@ -876,7 +876,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     cp_char_val = 1000.0
     cp_oil_val = float(solver_inputs.get('custom_cp_oil', 1800.0))
     cp_gas_val = 1500.0
-    dh_pyro_val = 600000.0
+    dh_pyro_val = 700000.0
     dh_evap_val = 2256000.0
 
     if is_continuous:

@@ -182,7 +182,7 @@ class BaseReactorSimulation:
         Returns:
             (k_pyro, r_pyro): reaction rate constant (1/s) and reaction rate (kg/s).
         """
-        T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 370.0 + 273.15)
         if T_s < T_onset_K:
             k_pyro = 0.0
         else:
@@ -214,7 +214,7 @@ class BaseReactorSimulation:
         A3 = getattr(self.feedstock, 'A3', 5e5)
         Ea3 = getattr(self.feedstock, 'Ea3', 100000.0)
 
-        T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 370.0 + 273.15)
         if T_s < T_onset_K:
             k1 = 0.0
             k2 = 0.0
@@ -240,7 +240,7 @@ class BaseReactorSimulation:
     ) -> Tuple[float, float, float, float]:
         """
         Calculates the effective devolatilization rate (kg/s) accounting for
-        multicomponent kinetics, distillation range (250°C - 520°C), and available
+        multicomponent kinetics, pyrolysis range (370°C - 430°C), and available
         thermal heat flux.
 
         Returns:
@@ -248,11 +248,11 @@ class BaseReactorSimulation:
         """
         k1, k2, k3, r_slug, _, _ = self.calculate_first_order_kinetics(T_s, m_volatile, m_oil_vap)
 
-        T_onset_K = getattr(self.feedstock, 'T_onset_K', 250.0 + 273.15)
-        T_end_boil_K = 520.0 + 273.15
+        T_onset_K = getattr(self.feedstock, 'T_onset_K', 370.0 + 273.15)
+        T_end_K = getattr(self.feedstock, 'T_end_K', 430.0 + 273.15)
 
         if T_s >= T_onset_K:
-            f_distillable = min(1.0, max(0.05, (T_s - T_onset_K) / max(1.0, T_end_boil_K - T_onset_K)))
+            f_distillable = min(1.0, max(0.05, (T_s - T_onset_K) / max(1.0, T_end_K - T_onset_K)))
             r_slug = r_slug * f_distillable
 
             Q_avail_heat = max(0.0, T_w - T_s) * self.h_eff * A_contact

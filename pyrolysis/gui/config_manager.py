@@ -4,7 +4,7 @@ import os
 
 DEFAULT_PARAMS = {
     'lang_option': "Español",
-    'mode_option': "Continuous Operation",
+    'mode_option': "Batch Operation",
     'feed_option': "Blend (Petroleum + Hydrocarbon)",
     'blend_ratio': 50.0,
     'c_moist': 2.0,
