@@ -464,7 +464,10 @@ def render_pre_drying_evaluator(
             available_hours = available_calendar_days * 24.0
             batches_year_new = np.floor(available_hours / t_cycle_new) if t_cycle_new > 0 else batches_per_year
             extra_batches = max(0.0, batches_year_new - batches_per_year)
-            
+            if int(st.session_state.get('econ_batches_per_year', 0)) > 0:
+                # Batches fixed by plant data: a shorter cycle adds no batches
+                batches_year_new, extra_batches = batches_per_year, 0.0
+
             annual_rev_base = m['rev_flows'][1] if len(m['rev_flows']) > 1 else 0.0
             rev_per_batch = annual_rev_base / max(batches_per_year, 1)
             extra_revenue_annual = extra_batches * rev_per_batch
@@ -847,12 +850,37 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 maint_penalty_per_batch_h = maint_stop_total_h / max(batches_before_cleaning, 1)
                 st.caption(f"🔧 **Parada de Mantenimiento:** Cada `{batches_before_cleaning}` lotes se detiene `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento profundo + `{cleaning_time_h:.2f} h` limpieza). Impacto promedio ponderado: `+{maint_penalty_per_batch_h:.2f} h/lote`.")
 
+                # Plant data that override the simulation in the economics (0 = use the simulated value)
+                st.markdown("##### 📌 " + ("Datos de planta para la economía (0 = usar la simulación)" if lang == 'es'
+                                           else "Plant data for the economics (0 = use the simulation)"))
+                col_f1, col_f2, col_f3 = st.columns(3)
+                with col_f1:
+                    econ_batches_fixed = st.number_input(
+                        "Lotes por año (fijo)" if lang == 'es' else "Batches per year (fixed)",
+                        min_value=0, max_value=10000, step=1, key='econ_batches_per_year',
+                        value=int(st.session_state.get('econ_batches_per_year', 0)),
+                        help="Si es mayor que 0, no se calculan a partir del tiempo de ciclo simulado." if lang == 'es'
+                        else "If above 0, batches are not derived from the simulated cycle time.")
+                with col_f2:
+                    econ_oil_gal_batch = st.number_input(
+                        "Aceite por lote (gal)" if lang == 'es' else "Oil per batch (gal)",
+                        min_value=0.0, step=10.0, format="%.2f", key='econ_oil_gal_per_batch',
+                        value=float(st.session_state.get('econ_oil_gal_per_batch', 0.0)))
+                with col_f3:
+                    econ_fuel_gal_batch = st.number_input(
+                        "Combustible auxiliar por lote (gal)" if lang == 'es' else "Auxiliary fuel per batch (gal)",
+                        min_value=0.0, step=10.0, format="%.2f", key='econ_fuel_gal_per_batch',
+                        value=float(st.session_state.get('econ_fuel_gal_per_batch', 0.0)))
+
                 # Cálculos automáticos de días de operación al año
                 t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
                 t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
                 t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
                 available_hours = available_calendar_days * 24.0
-                batches_per_year_est = np.floor(available_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+                if econ_batches_fixed > 0:
+                    batches_per_year_est = float(econ_batches_fixed)
+                else:
+                    batches_per_year_est = np.floor(available_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
                 operating_days_batches = (batches_per_year_est * t_op_batch_hours) / 24.0
                 cleaning_days_annual = (batches_per_year_est * maint_penalty_per_batch_h) / 24.0
                 campaign_active_days = operating_days_batches + cleaning_days_annual
@@ -921,6 +949,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
                 maint_cooldown_h = 6.0
                 maint_stop_total_h = 10.0
                 maint_penalty_per_batch_h = 0.0
+                econ_batches_fixed, econ_oil_gal_batch, econ_fuel_gal_batch = 0, 0.0, 0.0
                 st.session_state['batch_turnaround_h'] = 1.0
                 operating_days_batches = float(available_calendar_days)
                 cleaning_days_annual = 0.0
@@ -961,8 +990,11 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
         
         annual_hours = annual_days * 24.0
-        batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
-        
+        if econ_batches_fixed > 0:
+            batches_per_year = float(econ_batches_fixed)
+        else:
+            batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+
         operating_days_batches = (batches_per_year * t_op_batch_hours) / 24.0
         cleaning_days_annual = (batches_per_year * maint_penalty_per_batch_h) / 24.0
         campaign_active_days = operating_days_batches + cleaning_days_annual
@@ -974,13 +1006,17 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         # Only the syngas not burned in the process is sellable (burned syngas already offsets fuel)
         gas_produced_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches_per_year
 
-        fuel_consumed_gal = summary['waste_oil_consumed_gal'] * batches_per_year
+        fuel_per_batch_gal = econ_fuel_gal_batch if econ_fuel_gal_batch > 0 else summary['waste_oil_consumed_gal']
+        fuel_consumed_gal = fuel_per_batch_gal * batches_per_year
         elec_consumed_kwh = 0.0
         generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
-        
+
     # Volumetric Conversions for Liquids & Gases
     sludge_treated_gal = (sludge_treated_kg / sludge_density) * 264.172
-    oil_produced_gal = (oil_produced_kg / oil_density) * 264.172
+    if econ_oil_gal_batch > 0:
+        oil_produced_gal = econ_oil_gal_batch * batches_per_year
+    else:
+        oil_produced_gal = (oil_produced_kg / oil_density) * 264.172
     gas_produced_m3 = gas_produced_kg / gas_density
 
     # ----------------------------------------------------
@@ -1872,7 +1908,11 @@ def render_sustainability_tab(summary, solver_inputs):
         maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
         t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
         t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
-        batches_per_year = np.floor((annual_days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+        batches_fixed = int(st.session_state.get('econ_batches_per_year', 0))
+        if batches_fixed > 0:
+            batches_per_year = float(batches_fixed)
+        else:
+            batches_per_year = np.floor((annual_days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
         # Carbon credit applies to carbon-bearing char only (ash excluded)
         char_produced_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
 
@@ -1884,7 +1924,8 @@ def render_sustainability_tab(summary, solver_inputs):
     if not is_continuous:
         fuel_density = float(st.session_state.get('fuel_density', 0.90))
         gen_diesel_batch = float(st.session_state.get('gen_diesel_batch', 1.0))
-        co2_burner_t = summary['waste_oil_consumed_gal'] * batches_per_year * fuel_density * 3.785 * EF_CO2_FUEL_OIL_KG_PER_KG / 1000.0
+        fuel_per_batch_gal = float(st.session_state.get('econ_fuel_gal_per_batch', 0.0)) or summary['waste_oil_consumed_gal']
+        co2_burner_t = fuel_per_batch_gal * batches_per_year * fuel_density * 3.785 * EF_CO2_FUEL_OIL_KG_PER_KG / 1000.0
         co2_diesel_t = gen_diesel_batch * batches_per_year * EF_CO2_DIESEL_KG_PER_GAL / 1000.0
         co2_syngas_t = summary['gas_yield_kg'] * batches_per_year * EF_CO2_SYNGAS_KG_PER_KG / 1000.0
         co2_emitted_t = co2_burner_t + co2_diesel_t + co2_syngas_t

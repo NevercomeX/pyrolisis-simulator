@@ -76,6 +76,39 @@ THESIS_GUI_OVERRIDES = {
     "auto_heating_rate": False,
     "burner_eff_pct": 85.0,
     "cooling_tank_gal": 28000.0,
+    # --- Economía (tesina, Tablas 7 a 9). Montos en RD$.
+    # CAPEX (Tabla 7), total 20,050,000
+    "capex_equip": 12_000_000.0,
+    "capex_install": 2_450_000.0,
+    "capex_civil": 1_750_000.0,
+    "capex_piping_elec": 1_750_000.0,
+    "capex_eng": 1_050_000.0,
+    "capex_permits": 350_000.0,
+    "capex_cont": 700_000.0,
+    # OPEX (Tabla 8)
+    "opex_handling": 40.0,            # RD$/gal de lodo (manejo, secado y logística)
+    "opex_fuel": 0.84,                # RD$/gal de combustible auxiliar
+    "opex_aux_utilities": 500_000.0,  # RD$/año
+    "price_generator_fuel": 263.0,    # RD$/gal de diésel; 50 gal/lote × 216 lotes × 263 = 2,840,400/año
+    "gen_diesel_batch": 50.0,         # gal/lote
+    "opex_labor": 1_000_000.0,        # RD$/año
+    "opex_maint": 6.0,                # % del CAPEX/año
+    "opex_insurance_tax": 3.0,        # % del CAPEX/año (seguros y licencias)
+    # Ingresos: solo aceite; sin tarifa de disposición, char, gas ni créditos de carbono
+    "price_oil": 121.0,               # RD$/gal
+    "opex_tipping": 0.0,
+    "price_char": 0.0,
+    "price_gas": 0.0,
+    "price_carbon": 0.0,
+    # Finanzas
+    "discount_rate": 14.0,
+    "project_lifetime": 10,
+    "tax_rate": 25.0,
+    "inflation_rate": 4.0,
+    # Datos de planta en lugar de la simulación (el ciclo real no se midió)
+    "econ_batches_per_year": 216,           # 216 × 3,700 gal = 799,200 gal de lodo/año
+    "econ_oil_gal_per_batch": 2492.88,      # aceite total medido, incluye 62 gal del enfriamiento
+    "econ_fuel_gal_per_batch": 586.0,       # combustible auxiliar medido en planta
 }
 
 

@@ -96,6 +96,10 @@ DEFAULT_PARAMS = {
     'batches_before_cleaning': 20,
     'maint_cooldown_h': 6.0,
     'cleaning_time_h': 4.0,
+    # Plant data for the economics; 0 = use the simulated value
+    'econ_batches_per_year': 0,
+    'econ_oil_gal_per_batch': 0.0,
+    'econ_fuel_gal_per_batch': 0.0,
     'tax_rate': 25.0,
     'inflation_rate': 4.0,
     'manifold_main_dia_in': 8.0,

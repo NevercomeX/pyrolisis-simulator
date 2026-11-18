@@ -444,6 +444,44 @@ class TestFinancialModel(unittest.TestCase):
         self.assertAlmostEqual(self._model(discount_rate=irr)['npv'], 0.0, delta=1.0)
 
 
+class TestThesisEconomics(unittest.TestCase):
+    """Tabla 9 de la tesina a partir del perfil 'tesis', con los mismos pasos que la pestaña de economía.
+
+    Diferencias residuales esperadas (no se fuerzan):
+    - ingresos −RD$ 91: el perfil usa 2,492.88 gal/lote; la tesina usó 2,492.8765 gal/lote sin redondear;
+    - OPEX +RD$ 259: 586 gal/lote × RD$ 0.84 = RD$ 106,323.84/año; la tesina reporta RD$ 106,064.96;
+    - VAN −RD$ 754: efecto de las dos anteriores durante 10 años.
+    """
+
+    def test_thesis_table_9(self):
+        from pyrolysis.profiles import THESIS_GUI_OVERRIDES as p
+        from pyrolysis.gui.economics_panel import run_financial_model
+        n = p['econ_batches_per_year']
+        # Igual que la interfaz: gal de lodo → kg (sidebar) → gal (economics_panel)
+        batch_kg = p['batch_size'] * (p['sludge_density'] / 1000.0) * 3.785411784
+        sludge_gal = batch_kg * n / p['sludge_density'] * 264.172
+        capex = sum(p[k] for k in ('capex_equip', 'capex_install', 'capex_civil', 'capex_piping_elec',
+                                   'capex_eng', 'capex_permits', 'capex_cont'))
+        self.assertEqual(capex, 20_050_000.0)
+        m = run_financial_model(
+            capex, sludge_gal, p['econ_oil_gal_per_batch'] * n, 0.0, 0.0,
+            p['econ_fuel_gal_per_batch'] * n, 0.0, p['gen_diesel_batch'] * n,
+            p['opex_handling'], p['opex_fuel'], 0.0, p['opex_aux_utilities'], p['price_generator_fuel'],
+            p['opex_labor'], p['opex_maint'], p['opex_insurance_tax'],
+            p['opex_tipping'], p['price_oil'], p['price_char'], p['price_gas'], p['price_carbon'], 0.0,
+            p['discount_rate'], p['project_lifetime'], p['tax_rate'], p['inflation_rate'])
+        self.assertAlmostEqual(m['opex_breakdown']['gen_diesel'], 2_840_400.0, places=2)
+        self.assertAlmostEqual(m['rev_flows'][1], 65_153_820.20, delta=100)
+        self.assertAlmostEqual(m['rev_flows'][1] - m['opex_flows'][1], 26_934_861.57, delta=500)
+        self.assertAlmostEqual(m['npv'], 103_915_543.27, delta=1_000)
+        self.assertAlmostEqual(m['irr'], 107.1, delta=0.05)
+        self.assertAlmostEqual(m['payback'], 0.97, delta=0.005)
+        self.assertAlmostEqual(m['disc_payback'], 1.11, delta=0.005)
+        self.assertAlmostEqual(m['pi'], 6.18, delta=0.005)
+        # La tesina reporta −28.86 RD$/gal; con impuestos en todo el tramo la bisección da lo mismo
+        self.assertAlmostEqual(m['breakeven_tipping'], -28.86, delta=0.01)
+
+
 if __name__ == "__main__":
     unittest.main()
 
