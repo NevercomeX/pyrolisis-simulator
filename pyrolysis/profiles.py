@@ -87,7 +87,7 @@ THESIS_GUI_OVERRIDES = {
     "capex_cont": 700_000.0,
     # OPEX (Tabla 8)
     "opex_handling": 40.0,            # RD$/gal de lodo (manejo, secado y logística)
-    "opex_fuel": 0.84,                # RD$/gal de combustible auxiliar
+    "opex_fuel": 0.83795475,          # RD$/gal de combustible auxiliar (106,064.96 ÷ 126,576 gal, Tabla 8)
     "opex_aux_utilities": 500_000.0,  # RD$/año
     "price_generator_fuel": 263.0,    # RD$/gal de diésel; 50 gal/lote × 216 lotes × 263 = 2,840,400/año
     "gen_diesel_batch": 50.0,         # gal/lote
@@ -96,7 +96,9 @@ THESIS_GUI_OVERRIDES = {
     "opex_insurance_tax": 3.0,        # % del CAPEX/año (seguros y licencias)
     # Ingresos: solo aceite; sin tarifa de disposición, char, gas ni créditos de carbono
     "price_oil": 121.0,               # RD$/gal
-    "opex_tipping": 0.0,
+    "econ_sludge_scenario": "free",   # caso base de la tesina: lodo sin costo (tarifa 0)
+    "opex_tipping": 20.0,             # Y, tarifa de disposición (RD$/gal) — supuesto declarado en la tesina
+    "econ_sludge_cost": 10.0,         # X, costo de compra del lodo (RD$/gal) — supuesto declarado en la tesina
     "price_char": 0.0,
     "price_gas": 0.0,
     "price_carbon": 0.0,
@@ -107,7 +109,7 @@ THESIS_GUI_OVERRIDES = {
     "inflation_rate": 4.0,
     # Datos de planta en lugar de la simulación (el ciclo real no se midió)
     "econ_batches_per_year": 216,           # 216 × 3,700 gal = 799,200 gal de lodo/año
-    "econ_oil_gal_per_batch": 2492.88,      # aceite total medido, incluye 62 gal del enfriamiento
+    "econ_oil_gal_per_batch": 2492.8765,    # aceite total medido (8,217.36 kg ÷ 0.8708 ÷ 3.785411784), incluye el enfriamiento
     "econ_fuel_gal_per_batch": 586.0,       # combustible auxiliar medido en planta
 }
 

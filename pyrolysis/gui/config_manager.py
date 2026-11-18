@@ -69,7 +69,9 @@ DEFAULT_PARAMS = {
     'capex_permits': 450000.0,
     'capex_cont': 900000.0,
     'opex_handling': 3.00,
-    'opex_tipping': 9.00,
+    'opex_tipping': 9.00,                 # Y: disposal fee charged (RD$/gal)
+    'econ_sludge_cost': 0.0,              # X: sludge purchase cost (RD$/gal)
+    'econ_sludge_scenario': 'tipping',    # 'purchase' (−X), 'free' (0) or 'tipping' (+Y)
     'opex_fuel': 180.00,
     'opex_electricity': 7.50,
     'opex_aux_utilities': 300000.0,

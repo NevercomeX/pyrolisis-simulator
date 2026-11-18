@@ -59,6 +59,33 @@ def solve_irr(cash_flows):
                 
     return ((low + high) / 2.0) * 100.0
 
+SLUDGE_SCENARIOS = ('purchase', 'free', 'tipping')
+SLUDGE_SCENARIO_LABELS = {
+    'purchase': {'es': "Lodo con costo de compra", 'en': "Sludge purchased at a cost"},
+    'free': {'es': "Lodo sin costo", 'en': "Sludge at no cost"},
+    'tipping': {'es': "Lodo con tarifa de disposición", 'en': "Sludge with disposal fee"},
+}
+
+
+def scenario_tipping_fee(scenario, sludge_cost, tipping_fee):
+    """Effective tipping fee (RD$/gal) of a sludge scenario: purchase = −X, free = 0, disposal fee = +Y."""
+    return {'purchase': 0.0 - float(sludge_cost), 'free': 0.0, 'tipping': float(tipping_fee)}[scenario]  # 0.0 - x avoids "-0.00"
+
+
+def breakeven_note(breakeven_tipping, lang='es'):
+    """Sentence explaining the break-even tipping fee (NPV = 0), shown with two decimals."""
+    v = round(breakeven_tipping, 2)
+    if v < 0:
+        return (f"El proyecto mantiene VAN ≥ 0 mientras el lodo cueste menos de RD$ {-v:,.2f}/gal." if lang == 'es'
+                else f"The project keeps NPV ≥ 0 as long as sludge costs less than RD$ {-v:,.2f}/gal.")
+    if v > 0:
+        return (f"El proyecto necesita cobrar una tarifa de disposición de al menos RD$ {v:,.2f}/gal para tener VAN ≥ 0."
+                if lang == 'es' else
+                f"The project needs a disposal fee of at least RD$ {v:,.2f}/gal to reach NPV ≥ 0.")
+    return ("El proyecto queda en equilibrio exacto sin costo ni tarifa por el lodo." if lang == 'es'
+            else "The project breaks even exactly with no sludge cost or fee.")
+
+
 def batch_thermal_cycle_min(summary, solver_inputs):
     """
     Returns (t_cycle_min, t_heat_min, t_hold_min) of the thermal process of one batch.
@@ -744,7 +771,24 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             
     with col_param_r:
         with st.expander(f"🏷️ {t('econ_section_revenue')}", expanded=True):
-            opex_tipping = st.number_input(t('econ_input_tipping'), min_value=0.0, value=float(st.session_state.get('opex_tipping', default_tipping)), step=1.0, key='opex_tipping')
+            if st.session_state.get('econ_sludge_scenario') not in SLUDGE_SCENARIOS:
+                st.session_state['econ_sludge_scenario'] = 'tipping'
+            sludge_scenario = st.radio(
+                "Escenario económico del lodo" if lang == 'es' else "Sludge economic scenario",
+                SLUDGE_SCENARIOS, format_func=lambda k: SLUDGE_SCENARIO_LABELS[k][lang],
+                key='econ_sludge_scenario')
+            col_sc1, col_sc2 = st.columns(2)
+            with col_sc1:
+                sludge_cost = st.number_input(
+                    "Costo de compra del lodo, X (RD$/gal)" if lang == 'es' else "Sludge purchase cost, X (RD$/gal)",
+                    min_value=0.0, value=float(st.session_state.get('econ_sludge_cost', 0.0)), step=1.0,
+                    key='econ_sludge_cost')
+            with col_sc2:
+                tipping_y = st.number_input(t('econ_input_tipping') + ", Y", min_value=0.0,
+                                            value=float(st.session_state.get('opex_tipping', default_tipping)),
+                                            step=1.0, key='opex_tipping')
+            # Fee used by the whole tab (negative = the plant pays for the sludge)
+            opex_tipping = scenario_tipping_fee(sludge_scenario, sludge_cost, tipping_y)
             col_rv1, col_rv2 = st.columns(2)
             with col_rv1:
                 price_oil = st.number_input(t('econ_input_price_oil'), min_value=0.0, value=float(st.session_state.get('price_oil', default_oil_price)), step=5.0, key='price_oil')
@@ -1022,15 +1066,18 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     # ----------------------------------------------------
     # RUN DETAILED FINANCIAL MODEL (BIO-CHAR IN KG)
     # ----------------------------------------------------
-    m = run_financial_model(
-        total_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
-        fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
-        opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
-        opex_labor, opex_maint, opex_insurance_tax,
-        opex_tipping, price_oil, price_char, price_gas, price_carbon, rate_carbon_offset,
-        discount_rate, project_lifetime, tax_rate, inflation_rate,
-        char_carbon_kg=char_carbon_kg
-    )
+    def _model(tipping_fee):
+        return run_financial_model(
+            total_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
+            fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
+            opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
+            opex_labor, opex_maint, opex_insurance_tax,
+            tipping_fee, price_oil, price_char, price_gas, price_carbon, rate_carbon_offset,
+            discount_rate, project_lifetime, tax_rate, inflation_rate,
+            char_carbon_kg=char_carbon_kg
+        )
+
+    m = _model(opex_tipping)
 
     # ----------------------------------------------------
     # RENDERING FINANCIAL KPI CARDS
@@ -1098,6 +1145,34 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             be_sub,
             is_positive=is_pos
         )
+
+    # ----------------------------------------------------
+    # SLUDGE SCENARIOS SIDE BY SIDE
+    # ----------------------------------------------------
+    st.markdown("##### " + ("Escenarios del lodo" if lang == 'es' else "Sludge scenarios"))
+    scenario_cols, scenario_rows = [], {}
+    yrs = "años" if lang == 'es' else "yr"
+    for sc in SLUDGE_SCENARIOS:
+        fee = scenario_tipping_fee(sc, sludge_cost, tipping_y)
+        ms = _model(fee)
+        sludge_cost_y1 = max(0.0, -fee) * sludge_treated_gal   # what the plant pays for the sludge
+        revenue_y1 = ms['rev_flows'][1] + sludge_cost_y1        # revenue without the purchase cost
+        scenario_cols.append(f"{SLUDGE_SCENARIO_LABELS[sc][lang]} ({fee:+,.2f} RD$/gal)")
+        for label, value in (
+            ("Ingresos año 1 (RD$)" if lang == 'es' else "Year-1 revenue (RD$)", f"{revenue_y1:,.2f}"),
+            ("Costo del lodo año 1 (RD$)" if lang == 'es' else "Year-1 sludge cost (RD$)", f"{sludge_cost_y1:,.2f}"),
+            ("EBITDA año 1 (RD$)" if lang == 'es' else "Year-1 EBITDA (RD$)", f"{ms['rev_flows'][1] - ms['opex_flows'][1]:,.2f}"),
+            ("VAN (RD$)" if lang == 'es' else "NPV (RD$)", f"{ms['npv']:,.2f}"),
+            ("TIR" if lang == 'es' else "IRR", f"{ms['irr']:.2f} %" if ms['irr'] is not None else "N/A"),
+            ("Recuperación simple" if lang == 'es' else "Simple payback",
+             f"{ms['payback']:.2f} {yrs}" if ms['payback'] != float('inf') else "N/A"),
+            ("Recuperación descontada" if lang == 'es' else "Discounted payback",
+             f"{ms['disc_payback']:.2f} {yrs}" if ms['disc_payback'] != float('inf') else "N/A"),
+            ("Índice de rentabilidad" if lang == 'es' else "Profitability index", f"{ms['pi']:.2f}"),
+        ):
+            scenario_rows.setdefault(label, []).append(value)
+    st.table(pd.DataFrame.from_dict(scenario_rows, orient='index', columns=scenario_cols))
+    st.info(breakeven_note(m['breakeven_tipping'], lang))
 
     # ----------------------------------------------------
     # PROJECTION CHART (CUMULATIVE CASH FLOW)
