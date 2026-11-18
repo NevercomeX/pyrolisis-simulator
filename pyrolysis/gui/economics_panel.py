@@ -125,23 +125,21 @@ def batch_thermal_cycle_min(summary, solver_inputs):
 def render_kpi_card(title, value_str, subtitle=None, is_positive=True):
     """Renders a premium visual card for financial KPIs."""
     color = "#10b981" if is_positive else "#ef4444"
-    border_color = "#334155"
-    text_color_sub = "#94a3b8"
     
     html = f"""
     <div style="
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        background: rgba(128,128,128,0.08);
         padding: 18px;
         border-radius: 12px;
-        border: 1px solid {border_color};
+        border: 1px solid rgba(128,128,128,0.25);
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         text-align: center;
         margin-bottom: 15px;
         height: 100%;
     ">
-        <h4 style="color: {text_color_sub}; margin: 0; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">{title}</h4>
+        <h4 style="opacity: 0.7; margin: 0; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">{title}</h4>
         <h2 style="color: {color}; margin: 8px 0; font-size: 24px; font-weight: 700;">{value_str}</h2>
-        {f'<p style="color: #64748b; margin: 0; font-size: 11px;">{subtitle}</p>' if subtitle else ''}
+        {f'<p style="opacity: 0.6; margin: 0; font-size: 11px;">{subtitle}</p>' if subtitle else ''}
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
@@ -636,7 +634,6 @@ def render_pre_drying_evaluator(
         if payback_months <= 12.0:
             verdict_badge = "🟢 ALTAMENTE RECOMENDADO" if lang == 'es' else "🟢 HIGHLY RECOMMENDED"
             verdict_border = "#10b981"
-            verdict_bg = "#064e3b"
             verdict_expl = (
                 f"La inversión de {curr_sym}{dryer_capex:,.2f} en el pre-secador se recupera en apenas {payback_months:.1f} meses. "
                 f"Al retirar {pct_water_removed:.1f}% del agua antes del reactor, se ahorran {fuel_saved_reactor_gal * annual_multiplier:,.0f} galones de combustible al año "
@@ -648,7 +645,6 @@ def render_pre_drying_evaluator(
         elif payback_months <= 24.0:
             verdict_badge = "🟡 VIABLE Y RENTABLE" if lang == 'es' else "🟡 FEASIBLE & PROFITABLE"
             verdict_border = "#f59e0b"
-            verdict_bg = "#78350f"
             verdict_expl = (
                 f"El pre-secado ofrece un retorno sólido en {payback_months:.1f} meses ({payback_years:.1f} años). "
                 f"El ahorro anual en combustible y la capacidad extra de procesamiento superan holgadamente los costos operativos del secador."
@@ -658,7 +654,6 @@ def render_pre_drying_evaluator(
         else:
             verdict_badge = "🔵 EVALUAR CON FUENTES RESIDUALES" if lang == 'es' else "🔵 OPTIMIZE WITH WASTE HEAT"
             verdict_border = "#0284c7"
-            verdict_bg = "#0c4a6e"
             verdict_expl = (
                 f"Para maximizar la rentabilidad, se recomienda operar el pre-secador utilizando los gases calientes de escape de la pirólisis "
                 f"o secado solar, eliminando el consumo de combustible auxiliar y acortando el tiempo de amortización."
@@ -667,11 +662,11 @@ def render_pre_drying_evaluator(
             )
 
         st.markdown(f"""
-        <div style="background-color: {verdict_bg}; border: 1px solid {verdict_border}; border-radius: 8px; padding: 14px 18px; margin-top: 10px; color: #f8fafc;">
+        <div style="background-color: {verdict_border}22; border: 1px solid {verdict_border}; border-radius: 8px; padding: 14px 18px; margin-top: 10px;">
             <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 6px;">
                 Dictamen Técnico y Financiero: {verdict_badge}
             </div>
-            <div style="font-size: 0.86rem; line-height: 1.5; color: #e2e8f0;">
+            <div style="font-size: 0.86rem; line-height: 1.5;">
                 {verdict_expl}
             </div>
         </div>
@@ -1043,39 +1038,38 @@ def _render_batch_calendar(econ, lang):
         days_unit = "days/yr"
 
     st.markdown(f"""
-    <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-top: 10px; margin-bottom: 8px;">
-        <div style="font-weight: 600; font-size: 0.90rem; color: #f1f5f9; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.25); border-radius: 8px; padding: 12px 14px; margin-top: 10px; margin-bottom: 8px;">
+        <div style="font-weight: 600; font-size: 0.90rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
             <span>{title_text}</span>
-            <span style="background-color: #1e293b; color: #38bdf8; font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284c7;">{badge_text}</span>
+            <span style="background-color: rgba(14,165,233,0.15); color: #0ea5e9; font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284c7;">{badge_text}</span>
         </div>
-        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #cbd5e1;">
-            <tr style="border-bottom: 1px solid #1e293b;">
-                <td style="padding: 5px 0; color: #94a3b8;">{lbl_disp}</td>
-                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #f8fafc;">{e['available_calendar_days']} {days_unit}</td>
-                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_disp}</td>
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+            <tr style="border-bottom: 1px solid rgba(128,128,128,0.25);">
+                <td style="padding: 5px 0; opacity: 0.75;">{lbl_disp}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 600;">{e['available_calendar_days']} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; opacity: 0.6; font-size: 0.75rem;">{sub_disp}</td>
             </tr>
-            <tr style="border-bottom: 1px solid #1e293b;">
-                <td style="padding: 5px 0; color: #94a3b8;">{lbl_op}</td>
-                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #34d399;">{e['operating_days_batches']:.1f} {days_unit}</td>
-                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_op}</td>
+            <tr style="border-bottom: 1px solid rgba(128,128,128,0.25);">
+                <td style="padding: 5px 0; opacity: 0.75;">{lbl_op}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #10b981;">{e['operating_days_batches']:.1f} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; opacity: 0.6; font-size: 0.75rem;">{sub_op}</td>
             </tr>
-            <tr style="border-bottom: 1px solid #1e293b;">
-                <td style="padding: 5px 0; color: #94a3b8;">{lbl_clean}</td>
-                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #fbbf24;">{e['cleaning_days_annual']:.1f} {days_unit}</td>
-                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_clean}</td>
+            <tr style="border-bottom: 1px solid rgba(128,128,128,0.25);">
+                <td style="padding: 5px 0; opacity: 0.75;">{lbl_clean}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #f59e0b;">{e['cleaning_days_annual']:.1f} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; opacity: 0.6; font-size: 0.75rem;">{sub_clean}</td>
             </tr>
             <tr>
-                <td style="padding: 5px 0; color: #94a3b8;">{lbl_tot}</td>
-                <td style="padding: 5px 8px; text-align: right; font-weight: 700; color: #38bdf8;">{e['campaign_active_days']:.1f} {days_unit}</td>
-                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_tot}</td>
+                <td style="padding: 5px 0; opacity: 0.75;">{lbl_tot}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 700; color: #0ea5e9;">{e['campaign_active_days']:.1f} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; opacity: 0.6; font-size: 0.75rem;">{sub_tot}</td>
             </tr>
         </table>
     </div>
     """, unsafe_allow_html=True)
 
 
-_DARK_LAYOUT = dict(paper_bgcolor="#0f172a", plot_bgcolor="#0f172a", font=dict(color="#94a3b8"),
-                    margin=dict(l=40, r=20, t=50, b=40))
+_CHART_LAYOUT = dict(margin=dict(l=40, r=20, t=50, b=40))   # colours come from the Streamlit theme
 
 
 def _render_npv_vs_sludge_price(econ, lang):
@@ -1102,10 +1096,9 @@ def _render_npv_vs_sludge_price(econ, lang):
     fig.update_layout(
         title=("VAN contra precio del lodo" if es else "NPV vs. sludge price"),
         xaxis=dict(title=("Precio del lodo para la planta (RD$/gal): negativo = costo de compra, positivo = tarifa"
-                          if es else "Sludge price for the plant (RD$/gal): negative = purchase cost, positive = fee"),
-                   gridcolor="#334155"),
-        yaxis=dict(title="VAN (RD$)" if es else "NPV (RD$)", gridcolor="#334155"),
-        showlegend=False, height=380, **_DARK_LAYOUT)
+                          if es else "Sludge price for the plant (RD$/gal): negative = purchase cost, positive = fee")),
+        yaxis=dict(title="VAN (RD$)" if es else "NPV (RD$)"),
+        showlegend=False, height=380, **_CHART_LAYOUT)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -1140,7 +1133,7 @@ def _render_cost_composition(econ, lang):
         data = {k: v for k, v in data.items() if v > 0}
         fig = go.Figure(go.Pie(labels=list(data), values=list(data.values()), hole=0.5, sort=False,
                                textinfo='percent', hovertemplate="%{label}<br>RD$ %{value:,.2f}<extra></extra>"))
-        fig.update_layout(title=title, height=360, legend=dict(font=dict(size=10)), **_DARK_LAYOUT)
+        fig.update_layout(title=title, height=360, legend=dict(font=dict(size=10)), **_CHART_LAYOUT)
         with col:
             st.plotly_chart(fig, use_container_width=True)
 
@@ -1341,30 +1334,24 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
     fig.update_layout(
         title=dict(
             text=f"{t('econ_metric_cashflow')} vs. Project Lifetime / Vida del Proyecto",
-            font=dict(size=14, color="#f8fafc")
+            font=dict(size=14)
         ),
         xaxis=dict(
             title="Project Year / Año del Proyecto",
             tickmode='linear',
             tick0=0,
             dtick=1,
-            gridcolor="#334155",
-            tickfont=dict(color="#94a3b8")
         ),
         yaxis=dict(
             title=f"Cumulative Balance / Balance Acumulado ({curr_sym})",
-            gridcolor="#334155",
-            tickfont=dict(color="#94a3b8")
         ),
-        paper_bgcolor="#0f172a",
-        plot_bgcolor="#0f172a",
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=-0.3,
             xanchor="center",
             x=0.5,
-            font=dict(color="#94a3b8", size=10)
+            font=dict(size=10)
         ),
         margin=dict(l=40, r=40, t=40, b=40),
         height=380
@@ -1757,28 +1744,22 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
         fig_m_fin.update_layout(
             title=dict(
                 text=f"{t('econ_monthly_chart_title')}",
-                font=dict(size=14, color="#f8fafc")
+                font=dict(size=14)
             ),
             xaxis=dict(
                 title="Month / Mes",
-                gridcolor="#334155",
-                tickfont=dict(color="#94a3b8")
             ),
             yaxis=dict(
                 title=f"Amount / Monto ({curr_sym})",
-                gridcolor="#334155",
-                tickfont=dict(color="#94a3b8")
             ),
             barmode='group',
-            paper_bgcolor="#0f172a",
-            plot_bgcolor="#0f172a",
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=-0.35,
                 xanchor="center",
                 x=0.5,
-                font=dict(color="#94a3b8", size=10)
+                font=dict(size=10)
             ),
             margin=dict(l=50, r=40, t=40, b=50),
             height=400
@@ -1802,7 +1783,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
             x=month_labels,
             y=m_oil_sold,
             name=t('econ_monthly_oil_sold'),
-            marker_color="#a7f3d0",
+            marker_color="#10b981",
             opacity=0.85,
             hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
         ))
@@ -1849,29 +1830,23 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
         fig_m_vol.update_layout(
             title=dict(
                 text=f"{t('econ_monthly_tab_volumes')} - Pyrolysis oil (gal) & Char (kg) Dynamics",
-                font=dict(size=14, color="#f8fafc")
+                font=dict(size=14)
             ),
             xaxis=dict(
                 title="Month / Mes",
-                gridcolor="#334155",
-                tickfont=dict(color="#94a3b8")
             ),
             yaxis=dict(
                 title="Quantity / Cantidad (gal / kg)",
-                gridcolor="#334155",
-                tickfont=dict(color="#94a3b8"),
                 tickformat=",~f"
             ),
             barmode='group',
-            paper_bgcolor="#0f172a",
-            plot_bgcolor="#0f172a",
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=-0.35,
                 xanchor="center",
                 x=0.5,
-                font=dict(color="#94a3b8", size=9)
+                font=dict(size=9)
             ),
             margin=dict(l=50, r=40, t=40, b=50),
             height=420
@@ -1981,31 +1956,26 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
     ))
     
     # Vertical line representing base case NPV
-    fig_sens.add_vline(x=base_npv, line_width=2, line_dash="dash", line_color="#f8fafc", annotation_text=f"Base Case NPV: {curr_sym}{base_npv:,.2f}")
+    fig_sens.add_vline(x=base_npv, line_width=2, line_dash="dash", line_color="gray", annotation_text=f"Base Case NPV: {curr_sym}{base_npv:,.2f}")
     
     fig_sens.update_layout(
         title=dict(
             text=f"NPV Sensitivity Tornado Chart ({curr_sym})",
-            font=dict(size=14, color="#f8fafc")
+            font=dict(size=14)
         ),
         xaxis=dict(
             title=f"Net Present Value (NPV) ({curr_sym})",
-            gridcolor="#334155",
-            tickfont=dict(color="#94a3b8")
         ),
         yaxis=dict(
-            tickfont=dict(color="#94a3b8")
         ),
         barmode='overlay',
-        paper_bgcolor="#0f172a",
-        plot_bgcolor="#0f172a",
         legend=dict(
             orientation="h",
             yanchor="bottom",
             y=-0.25,
             xanchor="center",
             x=0.5,
-            font=dict(color="#94a3b8", size=10)
+            font=dict(size=10)
         ),
         margin=dict(l=120, r=40, t=40, b=40),
         height=350
@@ -2174,16 +2144,15 @@ def render_sustainability_tab(summary, solver_inputs):
     # Visual green impact description
     st.markdown(f"""
     <div style="
-        background: linear-gradient(135deg, #1e3a2f 0%, #064e3b 100%);
+        background: rgba(16,185,129,0.10);
         padding: 22px;
         border-radius: 12px;
-        border: 1px solid #047857;
+        border: 1px solid #10b981;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         margin-top: 20px;
-        color: #e6f4ea;
     ">
-        <h4 style="margin: 0 0 10px 0; color: #a7f3d0; font-size: 16px; font-weight: 600;">🌿 Char & Carbon Capture Sequestration</h4>
-        <p style="margin: 0; font-size: 13.5px; line-height: 1.6; color: #d1fae5;">
+        <h4 style="margin: 0 0 10px 0; color: #10b981; font-size: 16px; font-weight: 600;">🌿 Char & Carbon Capture Sequestration</h4>
+        <p style="margin: 0; font-size: 13.5px; line-height: 1.6;">
             Pyrolysis converts organic waste sludge into char, locking carbon in a highly stable solid form. 
             Unlike decomposition, which releases CO2 and methane, char stores carbon safely in soils for hundreds of years.
             Each kilogram of char prevents approx {rate_carbon_offset:.2f} kg of atmospheric CO2 equivalents from warming the planet.

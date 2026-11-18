@@ -16,13 +16,13 @@ def _card(title, value, detail, ok=None, criterion=""):
     """Result card. ok=True/False marks whether the criterion is met; None means informative only."""
     color = _COLORS[ok]
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 14px 16px;
-                border-radius: 12px; border: 1px solid #334155; border-top: 3px solid {color};
+    <div style="background: rgba(128,128,128,0.08); padding: 14px 16px;
+                border-radius: 12px; border: 1px solid rgba(128,128,128,0.25); border-top: 3px solid {color};
                 margin-bottom: 12px; min-height: 150px;">
-        <div style="color: #94a3b8; font-size: 12px; font-weight: 500; text-transform: uppercase;
+        <div style="opacity: 0.7; font-size: 12px; font-weight: 500; text-transform: uppercase;
                     letter-spacing: 0.04em;">{title}</div>
-        <div style="color: #f8fafc; font-size: 22px; font-weight: 700; margin: 6px 0 2px 0;">{value}</div>
-        <div style="color: #64748b; font-size: 12px; min-height: 18px;">{detail}</div>
+        <div style="font-size: 22px; font-weight: 700; margin: 6px 0 2px 0;">{value}</div>
+        <div style="opacity: 0.6; font-size: 12px; min-height: 18px;">{detail}</div>
         <div style="color: {color}; font-size: 12px; font-weight: 600; margin-top: 8px;">{_MARKS[ok]} {criterion}</div>
     </div>
     """, unsafe_allow_html=True)
