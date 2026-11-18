@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import io
-import json
 from .utils import get_lang, t
 
 # Assumed CO2 emission factors for the process-emissions balance (sustainability tab)
@@ -233,13 +232,21 @@ def run_financial_model(
             temp_disc_flows.append(net_cf / ((1.0 + r) ** yr))
         return sum(temp_disc_flows)
 
-    t0 = 0.0
-    t1 = 5.0
-    n0 = get_npv_for_tipping(t0)
-    n1 = get_npv_for_tipping(t1)
-    
-    if abs(n1 - n0) > 1e-3:
-        breakeven_tipping = t1 - n1 * (t1 - t0) / (n1 - n0)
+    # Bisection: NPV rises with the fee but not in a straight line (taxes only apply to profit),
+    # so a two-point secant misses the break-even.
+    if sludge_treated_gal > 0:
+        lo, hi = -1.0, 1.0
+        while get_npv_for_tipping(lo) > 0 and lo > -1e9:
+            lo *= 2.0
+        while get_npv_for_tipping(hi) < 0 and hi < 1e9:
+            hi *= 2.0
+        for _ in range(100):
+            mid = (lo + hi) / 2.0
+            if get_npv_for_tipping(mid) < 0:
+                lo = mid
+            else:
+                hi = mid
+        breakeven_tipping = (lo + hi) / 2.0
     else:
         breakeven_tipping = 0.0
         
@@ -625,20 +632,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     """Renders the interactive Economic Viability tab (Standardized in DOP - RD$)."""
     lang = get_lang()
     
-    # Callback for saving current financial parameters to browser LocalStorage & JSON file
+    # Callback for saving current financial parameters to browser LocalStorage
     def _save_econ_to_ls_cb():
-        from pyrolysis.gui.config_manager import DEFAULT_PARAMS, CONFIG_FILE
-        full_config_data = {}
-        for k in DEFAULT_PARAMS.keys():
-            if k in st.session_state:
-                full_config_data[k] = st.session_state[k]
-            else:
-                full_config_data[k] = DEFAULT_PARAMS.get(k)
-        try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(full_config_data, f, indent=4)
-        except Exception:
-            pass
         st.session_state['trigger_save_ls'] = True
         st.session_state['econ_saved_flag'] = True
 
@@ -1234,8 +1229,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             "Category / Categoría": [
                 "Total CAPEX (Inversión Inicial)",
                 "Disposal Tipping Fees Revenue (Disposición)",
-                "Bio-Oil Sales Revenue (Venta Bio-Crudo)",
-                "Bio-Char Sales Revenue (Venta Bio-Carbón)",
+                "Pyrolysis oil Sales Revenue (Venta Aceite pirolítico)",
+                "Char Sales Revenue (Venta Carbón)",
                 "Syngas Sales Revenue (Venta Syngas)",
                 "Carbon Offset Revenue (Venta de Carbono)",
                 "Feedstock Handling Costs (Costo Manejo Lodos)",
@@ -1283,8 +1278,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         st.session_state.monthly_config = pd.DataFrame({
             "Month / Mes": [f"Month / Mes {i:02d}" for i in range(1, 13)],
             "Days Operated / Días Operados": [round(avg_days, 1)] * 12,
-            "Bio-Oil Sales / Venta Bio-Crudo (%)": [100.0] * 12,
-            "Bio-Char Sales / Venta Bio-Carbón (%)": [100.0] * 12,
+            "Pyrolysis oil Sales / Venta Aceite pirolítico (%)": [100.0] * 12,
+            "Char Sales / Venta Carbón (%)": [100.0] * 12,
             "Syngas Sales / Venta Syngas (%)": [100.0] * 12
         })
         
@@ -1302,8 +1297,8 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         column_config={
             "Month / Mes": st.column_config.TextColumn("Month / Mes", disabled=True),
             "Days Operated / Días Operados": st.column_config.NumberColumn("Days Operated", min_value=0.0, max_value=31.0, step=0.5),
-            "Bio-Oil Sales / Venta Bio-Crudo (%)": st.column_config.NumberColumn("Bio-Oil Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
-            "Bio-Char Sales / Venta Bio-Carbón (%)": st.column_config.NumberColumn("Bio-Char Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
+            "Pyrolysis oil Sales / Venta Aceite pirolítico (%)": st.column_config.NumberColumn("Pyrolysis oil Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
+            "Char Sales / Venta Carbón (%)": st.column_config.NumberColumn("Char Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
             "Syngas Sales / Venta Syngas (%)": st.column_config.NumberColumn("Syngas Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
         },
         key="monthly_editor"
@@ -1333,9 +1328,9 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         row = edited_df.iloc[idx]
         m_name = row["Month / Mes"]
         days = row["Days Operated / Días Operados"]
-        o_pct = row["Bio-Oil Sales / Venta Bio-Crudo (%)"]
-        c_pct = row["Bio-Char Sales / Venta Bio-Carbón (%)"]
-        g_pct = row["Bio-Syngas Sales / Venta Syngas (%)"] if "Bio-Syngas Sales / Venta Syngas (%)" in row else row.get("Syngas Sales / Venta Syngas (%)", 100.0)
+        o_pct = row["Pyrolysis oil Sales / Venta Aceite pirolítico (%)"]
+        c_pct = row["Char Sales / Venta Carbón (%)"]
+        g_pct = row["Syngas Sales / Venta Syngas (%)"] if "Syngas Sales / Venta Syngas (%)" in row else row.get("Syngas Sales / Venta Syngas (%)", 100.0)
         
         # Calculate monthly production and utilities
         if is_continuous:
@@ -1358,7 +1353,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             elec_kwh = 0.0
             diesel_gal = gen_diesel_batch * batches
             
-        # Volumetric conversion for liquids & gases; mass for bio-char
+        # Volumetric conversion for liquids & gases; mass for char
         sludge_gal = (sludge_kg / sludge_density) * 264.172
         oil_prod_gal = (oil_kg / oil_density) * 264.172
         char_prod_kg = char_kg
@@ -1422,12 +1417,12 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         "Month": m_names,
         "Days Operated": m_days,
         "Sludge Treated (gal)": m_sludge,
-        "Bio-Oil Produced (gal)": m_oil_prod,
-        "Bio-Oil Sold (gal)": m_oil_sold,
-        "Bio-Oil Inventory (gal)": m_oil_inv,
-        "Bio-Char Produced (kg)": m_char_prod,
-        "Bio-Char Sold (kg)": m_char_sold,
-        "Bio-Char Inventory (kg)": m_char_inv,
+        "Pyrolysis oil Produced (gal)": m_oil_prod,
+        "Pyrolysis oil Sold (gal)": m_oil_sold,
+        "Pyrolysis oil Inventory (gal)": m_oil_inv,
+        "Char Produced (kg)": m_char_prod,
+        "Char Sold (kg)": m_char_sold,
+        "Char Inventory (kg)": m_char_inv,
         "Syngas Produced (m³)": m_gas_prod,
         "Syngas Sold (m³)": m_gas_sold,
         f"Revenue ({curr_sym})": m_revenues,
@@ -1439,12 +1434,12 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     df_monthly_disp = df_monthly_proj.copy()
     df_monthly_disp["Days Operated"] = df_monthly_disp["Days Operated"].map(lambda x: f"{x:.1f}")
     df_monthly_disp["Sludge Treated (gal)"] = df_monthly_disp["Sludge Treated (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Oil Produced (gal)"] = df_monthly_disp["Bio-Oil Produced (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Oil Sold (gal)"] = df_monthly_disp["Bio-Oil Sold (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Oil Inventory (gal)"] = df_monthly_disp["Bio-Oil Inventory (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Char Produced (kg)"] = df_monthly_disp["Bio-Char Produced (kg)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Char Sold (kg)"] = df_monthly_disp["Bio-Char Sold (kg)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Bio-Char Inventory (kg)"] = df_monthly_disp["Bio-Char Inventory (kg)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Pyrolysis oil Produced (gal)"] = df_monthly_disp["Pyrolysis oil Produced (gal)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Pyrolysis oil Sold (gal)"] = df_monthly_disp["Pyrolysis oil Sold (gal)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Pyrolysis oil Inventory (gal)"] = df_monthly_disp["Pyrolysis oil Inventory (gal)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Char Produced (kg)"] = df_monthly_disp["Char Produced (kg)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Char Sold (kg)"] = df_monthly_disp["Char Sold (kg)"].map(lambda x: f"{x:,.1f}")
+    df_monthly_disp["Char Inventory (kg)"] = df_monthly_disp["Char Inventory (kg)"].map(lambda x: f"{x:,.1f}")
     df_monthly_disp["Syngas Produced (m³)"] = df_monthly_disp["Syngas Produced (m³)"].map(lambda x: f"{x:,.1f}")
     df_monthly_disp["Syngas Sold (m³)"] = df_monthly_disp["Syngas Sold (m³)"] .map(lambda x: f"{x:,.1f}")
     df_monthly_disp[f"Revenue ({curr_sym})"] = df_monthly_disp[f"Revenue ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
@@ -1560,7 +1555,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
     with tab_m_vol:
         fig_m_vol = go.Figure()
 
-        # Bio-Oil Production vs Sales vs Inventory
+        # Pyrolysis oil Production vs Sales vs Inventory
         fig_m_vol.add_trace(go.Bar(
             x=month_labels,
             y=m_oil_prod,
@@ -1589,7 +1584,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
         ))
 
-        # Bio-Char Production vs Sales vs Inventory (in kg)
+        # Char Production vs Sales vs Inventory (in kg)
         fig_m_vol.add_trace(go.Bar(
             x=month_labels,
             y=m_char_prod,
@@ -1620,7 +1615,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
 
         fig_m_vol.update_layout(
             title=dict(
-                text=f"{t('econ_monthly_tab_volumes')} - Bio-Oil (gal) & Bio-Char (kg) Dynamics",
+                text=f"{t('econ_monthly_tab_volumes')} - Pyrolysis oil (gal) & Char (kg) Dynamics",
                 font=dict(size=14, color="#f8fafc")
             ),
             xaxis=dict(
@@ -1949,11 +1944,11 @@ def render_sustainability_tab(summary, solver_inputs):
         margin-top: 20px;
         color: #e6f4ea;
     ">
-        <h4 style="margin: 0 0 10px 0; color: #a7f3d0; font-size: 16px; font-weight: 600;">🌿 Bio-Char & Carbon Capture Sequestration</h4>
+        <h4 style="margin: 0 0 10px 0; color: #a7f3d0; font-size: 16px; font-weight: 600;">🌿 Char & Carbon Capture Sequestration</h4>
         <p style="margin: 0; font-size: 13.5px; line-height: 1.6; color: #d1fae5;">
-            Pyrolysis converts organic waste sludge into bio-char, locking carbon in a highly stable solid form. 
-            Unlike decomposition, which releases CO2 and methane, bio-char stores carbon safely in soils for hundreds of years.
-            Each kilogram of bio-char prevents approx {rate_carbon_offset:.2f} kg of atmospheric CO2 equivalents from warming the planet.
+            Pyrolysis converts organic waste sludge into char, locking carbon in a highly stable solid form. 
+            Unlike decomposition, which releases CO2 and methane, char stores carbon safely in soils for hundreds of years.
+            Each kilogram of char prevents approx {rate_carbon_offset:.2f} kg of atmospheric CO2 equivalents from warming the planet.
         </p>
     </div>
     """, unsafe_allow_html=True)

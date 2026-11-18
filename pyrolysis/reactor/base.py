@@ -27,7 +27,7 @@ class BaseReactorSimulation:
         Cp_char: float = 1000.0,
         Cp_ash: float = 800.0,
         burner_hp: float = 300.0,
-        burner_eff_pct: float = 70.0,
+        burner_eff_pct: float = 85.0,
         syngas_hp: float = 150.0,
         fuel_lhv_mj_kg: float = 41.0,
         fuel_density_kg_l: float = 0.90,
@@ -276,8 +276,8 @@ class BaseReactorSimulation:
         m_oil_vap: float = 0.0
     ) -> Tuple[float, float, float, float]:
         """
-        Splits reacted volatile mass into bio-oil, non-condensable gas,
-        and solid char, including secondary cracking of bio-oil vapors.
+        Splits reacted volatile mass into pyrolysis oil, non-condensable gas,
+        and solid char, including secondary cracking of pyrolysis oil vapors.
 
         Returns:
             (d_oil_prod, d_gas_prod, d_char_prod, H_rxn)
@@ -306,7 +306,7 @@ class BaseReactorSimulation:
         d_gas_primary = d_non_oil * frac_gas
         d_char_prod = d_non_oil * frac_char
 
-        # Secondary cracking of bio-oil vapor
+        # Secondary cracking of pyrolysis oil vapor
         if dt_gas is not None:
             # Continuous mode differential spatial cracking
             d_oil_cracked = min(m_oil_vap * k3 * dt_gas, m_oil_vap + d_oil_primary)
@@ -322,7 +322,7 @@ class BaseReactorSimulation:
 
     def calculate_yields(self, d_volatile: float) -> Tuple[float, float, float]:
         """
-        Splits reacted volatiles into Char, Bio-Oil, and Syngas based on feedstock yields.
+        Splits reacted volatiles into Char, Pyrolysis oil, and Syngas based on feedstock yields.
 
         Returns:
             (d_char, d_oil, d_gas) yields.
@@ -383,11 +383,25 @@ class BaseReactorSimulation:
         bio_oil_density: float = 750.0
     ) -> Dict[str, float]:
         """
-        Calculates standardized ASTM fuel and crude oil quality metrics.
+        DESHABILITADO: las correlaciones anteriores (PCS, viscosidad, °API, BS&W)
+        no tenían fuente bibliográfica ni respaldo experimental. Al compararlas con
+        el informe de laboratorio (viscosidad medida 6.903 mm²/s vs 45 cSt
+        "predichos") quedaron invalidadas. Estas propiedades deben obtenerse por
+        ensayo (ASTM D240, D445, D4052, D95), no por el simulador.
 
         Returns:
-            Dictionary with HHV, viscosity, API gravity, and BS&W metrics.
+            Diccionario con valores NaN (no disponibles).
         """
+        nan = float('nan')
+        return {
+            'hhv_oil_mj_kg': nan,
+            'hhv_oil_btu_lb': nan,
+            'energy_enhancement_factor': nan,
+            'viscosity_40c_cst': nan,
+            'api_gravity': nan,
+            'bsw_moisture_pct': nan,
+        }
+        # Código anterior conservado solo como referencia histórica:
         hhv_sludge_mj_kg = 18.5
         hhv_oil_mj_kg = min(
             43.5,

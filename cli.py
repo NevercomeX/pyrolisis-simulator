@@ -7,6 +7,10 @@ from pyrolysis import PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, blend_feedstocks, Co
 def main():
     parser = argparse.ArgumentParser(description="Rotary Pyrolysis Reactor Dual-Mode Simulator (Continuous & Batch)")
     
+    # Perfil: 'tesis' reproduce la corrida documentada sin introducir datos a mano
+    parser.add_argument("--perfil", type=str, choices=["general", "tesis"], default="general",
+                        help="Perfil de simulación: 'general' (valores por defecto) o 'tesis' (corrida PROENERGÉTICOS)")
+
     # Mode selector
     parser.add_argument("--mode", type=str, choices=["batch"], default="batch",
                         help="Operation mode: only 'batch' (continuous mode is temporarily disabled)")
@@ -54,6 +58,19 @@ def main():
                         help="Output path to save the profile plot image")
     
     args = parser.parse_args()
+
+    if args.perfil == "tesis":
+        from pyrolysis.profiles import thesis_batch_kwargs
+        sim = BatchReactorSimulation(**thesis_batch_kwargs())
+        results = sim.simulate(dt_sec=2.0)
+        s = results['summary']
+        print("Perfil tesis: corrida PROENERGÉTICOS (calibrada con una sola corrida)")
+        for k in ('oil_yield_pct', 'gas_yield_pct', 'char_yield_pct', 'water_yield_pct',
+                  'conversion_pct', 'waste_oil_consumed_gal'):
+            print(f"  {k}: {s[k]:.2f}")
+        if args.out_csv:
+            pd.DataFrame({k: v for k, v in results.items() if k != 'summary'}).to_csv(args.out_csv, index=False)
+        return
     
     # Define feedstock
     if args.feed == "petroleum":
@@ -95,9 +112,9 @@ def main():
         print(f"Volatiles Conversion:      {summary['conversion_pct']:.1f} %")
         print(f"Mass Conservation Error:   {summary['mass_error_pct']:.2e} %")
         print("\nProduct Yields:")
-        print(f"  Bio-Oil:   {summary['oil_yield_kgh']:.1f} kg/h ({summary['oil_yield_pct']:.1f} wt.%)")
+        print(f"  Pyrolysis oil:   {summary['oil_yield_kgh']:.1f} kg/h ({summary['oil_yield_pct']:.1f} wt.%)")
         print(f"  Syngas:    {summary['gas_yield_kgh']:.1f} kg/h ({summary['gas_yield_pct']:.1f} wt.%)")
-        print(f"  Bio-Char:  {summary['char_yield_kgh']:.1f} kg/h ({summary['char_yield_pct']:.1f} wt.%)")
+        print(f"  Char:  {summary['char_yield_kgh']:.1f} kg/h ({summary['char_yield_pct']:.1f} wt.%)")
         print(f"  Water/Stm: {summary['water_yield_kgh']:.1f} kg/h ({summary['water_yield_pct']:.1f} wt.%)")
         print("-" * 60)
         
@@ -169,9 +186,9 @@ def main():
         print(f"Volatiles Conversion:      {summary['conversion_pct']:.1f} %")
         print(f"Mass Conservation Error:   {summary['mass_error_pct']:.2e} %")
         print("\nProduct Yields:")
-        print(f"  Bio-Oil:   {summary['oil_yield_kg']:.1f} kg ({summary['oil_yield_pct']:.1f} wt.%)")
+        print(f"  Pyrolysis oil:   {summary['oil_yield_kg']:.1f} kg ({summary['oil_yield_pct']:.1f} wt.%)")
         print(f"  Syngas:    {summary['gas_yield_kg']:.1f} kg ({summary['gas_yield_pct']:.1f} wt.%)")
-        print(f"  Bio-Char:  {summary['char_yield_kg']:.1f} kg ({summary['char_yield_pct']:.1f} wt.%)")
+        print(f"  Char:  {summary['char_yield_kg']:.1f} kg ({summary['char_yield_pct']:.1f} wt.%)")
         print(f"  Water/Stm: {summary['water_yield_kg']:.1f} kg ({summary['water_yield_pct']:.1f} wt.%)")
         print("-" * 60)
         

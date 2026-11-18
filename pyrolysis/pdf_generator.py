@@ -124,7 +124,7 @@ def _generate_matplotlib_figures(mode_option, results, summary):
     fig, ax1 = plt.subplots(figsize=(6.5, 2.7), dpi=200)
     ax1.plot(x_data, results['moisture'], label='Humedad (kg)', color='#2563EB', linewidth=1.5)
     ax1.plot(x_data, results['volatile'], label='Volátiles (kg)', color='#9333EA', linewidth=2.0)
-    ax1.plot(x_data, results['char'], label='Bio-Char (kg)', color='#1F2937', linewidth=1.5)
+    ax1.plot(x_data, results['char'], label='Char (kg)', color='#1F2937', linewidth=1.5)
     ax1.plot(x_data, results['ash'], label='Cenizas (kg)', color='#64748B', linewidth=1.2)
     ax1.set_xlabel(x_label, fontsize=8.5, fontweight='bold')
     ax1.set_ylabel("Masa en Lecho (kg" + ("/h" if is_continuous else "") + ")", fontsize=8.5, fontweight='bold')
@@ -149,7 +149,7 @@ def _generate_matplotlib_figures(mode_option, results, summary):
 
     # --- Figure 3: Volatile Vapor Yields Accumulation ---
     fig, ax = plt.subplots(figsize=(6.5, 2.7), dpi=200)
-    ax.plot(x_data, results['oil'], label='Bio-Crudo (Bio-Oil)', color='#D97706', linewidth=2.2)
+    ax.plot(x_data, results['oil'], label='Aceite pirolítico (Pyrolysis oil)', color='#D97706', linewidth=2.2)
     ax.plot(x_data, results['gas'], label='Gas de Síntesis (Syngas)', color='#0D9488', linestyle='--', linewidth=1.8)
     ax.plot(x_data, results['steam'], label='Vapor de Agua (Steam)', color='#E11D48', linestyle=':', linewidth=1.5)
     
@@ -168,7 +168,7 @@ def _generate_matplotlib_figures(mode_option, results, summary):
 
     # --- Figure 4: Mass Yields Distribution Pie Chart ---
     fig, ax = plt.subplots(figsize=(4.0, 2.4), dpi=200)
-    labels = ['Bio-Crudo', 'Syngas', 'Bio-Char', 'Vapor Agua']
+    labels = ['Aceite pirolítico', 'Syngas', 'Char', 'Vapor Agua']
     yields_pct = [
         summary['oil_yield_pct'],
         summary['gas_yield_pct'],
@@ -509,7 +509,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     mode_str_es = "POR LOTES (BATCH)"
     story.append(Paragraph("INFORME TÉCNICO DE INGENIERÍA & EVALUACIÓN DE FACTIBILIDAD", ParagraphStyle('DocTag', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=colors.HexColor("#D97706"), alignment=1, spaceAfter=4)))
     story.append(Paragraph(f"EVALUACIÓN TERMOQUÍMICA Y BALANCES DE MATERIA Y ENERGÍA EN REACTOR ROTATORIO DE PIRÓLISIS {mode_str_es}", title_style))
-    story.append(Paragraph("Modelado Cinético Multietapa, Caracterización ASTM del Bio-Crudo y Evaluación de Autosuficiencia Energética", subtitle_style))
+    story.append(Paragraph("Modelado Cinético Multietapa, Caracterización ASTM del Aceite pirolítico y Evaluación del Aporte Energética", subtitle_style))
 
     # Metadata Block Table
     current_date = datetime.datetime.now().strftime("%d/%m/%Y")
@@ -572,8 +572,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         f"Se procesó una carga nominal de <b>{load_gal:,.1f} {load_unit}</b> ({load_kg:,.1f} kg) de <b>{feed_name}</b> "
         f"con una densidad de materia prima de <b>{sludge_density:.1f} kg/m³</b>. "
         f"El modelo fenomenológico resuelve el balance conservativo de materia y energía con transferencia de calor conductivo-convectivo en el lecho sólido. "
-        f"Se alcanzó una conversión global de materia volátil del <b>{conv_pct:.1f}%</b>, rindiendo un <b>{oil_pct:.1f} wt.%</b> de bio-crudo condensable "
-        f"(densidad del bio-crudo: <b>{bio_oil_density:.1f} kg/m³</b>), un <b>{gas_pct:.1f} wt.%</b> de gas de síntesis (syngas) incondensable, y un <b>{char_pct:.1f} wt.%</b> de bio-carbón (char seco). "
+        f"Se alcanzó una conversión global de materia volátil del <b>{conv_pct:.1f}%</b>, rindiendo un <b>{oil_pct:.1f} wt.%</b> de aceite pirolítico condensable "
+        f"(densidad del aceite pirolítico: <b>{bio_oil_density:.1f} kg/m³</b>), un <b>{gas_pct:.1f} wt.%</b> de gas de síntesis (syngas) incondensable, y un <b>{char_pct:.1f} wt.%</b> de bio-carbón (char seco). "
         f"La demanda energética total calculada fue de <b>{duty_val:,.2f} {duty_unit}</b> con un error de cierre en el balance de materia de <b>{summary['mass_error_pct']:.2e}%</b>, "
         f"confirmando la consistencia física del modelo y la factibilidad del proceso industrial."
     )
@@ -589,7 +589,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     theory_intro_1 = (
         "La pirólisis termoquímica de lodos de petróleo e hidrocarburos pesados es un proceso de descomposición en atmósfera anaerobia "
         "(ausencia de oxígeno libre) que convierte fracciones orgánicas de alto peso molecular (asfaltenos, resinas y cadenas parafínicas) "
-        "en tres coproductos de alto valor agregado: vapores condensables (Bio-Crudo), gases incondensables (Syngas) y un residuo sólido seco (Bio-Carbón e inorgánicos). "
+        "en tres coproductos con potencial de aprovechamiento: vapores condensables (Aceite pirolítico), gases incondensables (Syngas) y un residuo sólido seco (Carbón e inorgánicos). "
         "La evolución termodinámica comprende tres dominios principales: (i) <i>Secado y Deshidratación</i> a 100°C; "
         "(ii) <i>Destilación y Desvolatilización Multicomponente</i> entre 350°C y 450°C; y "
         "(iii) <i>Policondensación y Coquización final</i> por encima de 450°C, estabilizando el carbono fijo en la matriz sólida."
@@ -633,7 +633,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         [Paragraph("Densidad @ 15°C & Gravedad API (ASTM D4052)", table_cell_style), Paragraph(f"{sludge_dens_kg:.1f} kg/m³ | 18.2 °API ({sludge_dens_lbgal:.2f} lb/gal)", table_cell_center), Paragraph("kg/m³ / °API", table_cell_center), Paragraph("Hidrocarburo pesado en tolvas y bombas", table_cell_style)],
         [Paragraph("Viscosidad Cinemática @ 50°C (ASTM D445)", table_cell_style), Paragraph("138.7 mm²/s (cSt)", table_cell_center), Paragraph("cSt", table_cell_center), Paragraph("Reología y precalentamiento de alimentación", table_cell_style)],
         [Paragraph("Contenido de Azufre Total (ASTM D4294)", table_cell_style), Paragraph("0.997 wt.%", table_cell_center), Paragraph("wt.%", table_cell_center), Paragraph("Azufre orgánico para balance de emisiones Syngas", table_cell_style)],
-        [Paragraph("Cenizas Promedio Inertes (ASTM D482)", table_cell_style), Paragraph(f"{feed_obj.ash:.2f} wt.%", table_cell_center), Paragraph("wt.%", table_cell_center), Paragraph("Inorgánico residual en lecho y bio-char", table_cell_style)],
+        [Paragraph("Cenizas Promedio Inertes (ASTM D482)", table_cell_style), Paragraph(f"{feed_obj.ash:.2f} wt.%", table_cell_center), Paragraph("wt.%", table_cell_center), Paragraph("Inorgánico residual en lecho y char", table_cell_style)],
         [Paragraph("Contenido de Agua / Humedad (ASTM D95)", table_cell_style), Paragraph(f"{feed_obj.moisture:.2f} wt.%", table_cell_center), Paragraph("wt.%", table_cell_center), Paragraph("Agua libre para etapa de deshidratación", table_cell_style)],
         [Paragraph("Punto de Inflamación Flash Point (ASTM D93)", table_cell_style), Paragraph("> 110.0 °C (> 230 °F)", table_cell_center), Paragraph("°C", table_cell_center), Paragraph("Umbral de seguridad operacional térmico", table_cell_style)],
         [Paragraph("Metales e Impurezas Cat Fines (IP 470)", table_cell_style), Paragraph("Al+Si: 647 mg/kg | V: 117 mg/kg | Ca: 33 mg/kg", table_cell_center), Paragraph("mg/kg (ppm)", table_cell_center), Paragraph("Partículas minerales abrasivas y vanadio", table_cell_style)],
@@ -652,12 +652,12 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(Spacer(1, 10))
 
     # ASTM Characterization Section
-    story.append(Paragraph("<b>1.2 Caracterización del Bio-Crudo Producido (Normas ASTM)</b>", h2_style))
+    story.append(Paragraph("<b>1.2 Caracterización del Aceite pirolítico Producido (Normas ASTM)</b>", h2_style))
     theory_intro_2 = (
         "La caracterización físico-química del condensado hidrocarbonado producido se realiza bajo estándares internacionales ASTM. "
         "El Poder Calorífico Superior (HHV - ASTM D240) evalúa la densidad de energía recuperada respecto al lodo bruto inicial, "
         "mientras que la viscosidad cinemática a 40°C (ASTM D445) y la gravedad API (ASTM D1298) definen la fluidez operacional, "
-        "los requerimientos de precalentamiento para bombeo y la aptitud comercial del bio-crudo como combustible secundario."
+        "los requerimientos de precalentamiento para bombeo y la aptitud comercial del aceite pirolítico como combustible secundario."
     )
     story.append(Paragraph(theory_intro_2, body_style))
     story.append(Spacer(1, 6))
@@ -674,11 +674,11 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     bsw_pct = min(8.0, max(1.5, 3.5 * (feed_obj.moisture / 30.0)))
 
     astm_table_data = [
-        [Paragraph("<b>Propiedad Físico-Química</b>", table_header_style), Paragraph("<b>Norma ASTM</b>", table_header_style), Paragraph("<b>Valor Calculado</b>", table_header_style), Paragraph("<b>Diagnóstico de Calidad</b>", table_header_style)],
-        [Paragraph("Poder Calorífico Superior (PCS/HHV)", table_cell_style), Paragraph("ASTM D240", table_cell_center), Paragraph(f"{hhv_oil:.2f} MJ/kg ({hhv_btu:,.0f} BTU/lb)", table_cell_style), Paragraph(f"Factor Mejora: x{factor_enh:.2f} vs lodo", table_cell_style)],
-        [Paragraph("Viscosidad Cinemática @ 40°C", table_cell_style), Paragraph("ASTM D445", table_cell_center), Paragraph(f"{visc_40c:.1f} cSt (mm²/s)", table_cell_style), Paragraph(pump_status, table_cell_style)],
+        [Paragraph("<b>Propiedad Físico-Química</b>", table_header_style), Paragraph("<b>Norma ASTM</b>", table_header_style), Paragraph("<b>Valor</b>", table_header_style), Paragraph("<b>Diagnóstico de Calidad</b>", table_header_style)],
+        [Paragraph("Poder Calorífico Superior (PCS/HHV)", table_cell_style), Paragraph("ASTM D240", table_cell_center), Paragraph("No calculado: requiere ensayo de laboratorio", table_cell_style), Paragraph("-", table_cell_style)],
+        [Paragraph("Viscosidad Cinemática @ 40°C", table_cell_style), Paragraph("ASTM D445", table_cell_center), Paragraph("No calculado: requiere ensayo de laboratorio", table_cell_style), Paragraph("-", table_cell_style)],
         [Paragraph("Densidad @ 15°C & Gravedad °API", table_cell_style), Paragraph("ASTM D1298", table_cell_center), Paragraph(f"{bio_oil_dens:.1f} kg/m³ | {api_deg:.1f} °API", table_cell_style), Paragraph(f"Gravedad Específica: {sg_15:.4f}", table_cell_style)],
-        [Paragraph("Contenido de Agua & Sedimentación (BS&W)", table_cell_style), Paragraph("ASTM D95", table_cell_center), Paragraph(f"{bsw_pct:.2f} wt.%", table_cell_style), Paragraph("Fase org. condensada limpia", table_cell_style)]
+        [Paragraph("Contenido de Agua & Sedimentación (BS&W)", table_cell_style), Paragraph("ASTM D95", table_cell_center), Paragraph("No calculado: requiere ensayo de laboratorio", table_cell_style), Paragraph("-", table_cell_style)]
     ]
     t_astm = Table(astm_table_data, colWidths=[2.2*inch, 1.1*inch, 1.8*inch, 1.5*inch])
     t_astm.setStyle(TableStyle([
@@ -714,7 +714,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     fill_deg = summary['filling_degree_pct']
     h_eff = solver_inputs['h_eff']
     burner_hp = solver_inputs.get('burner_hp', 300.0)
-    burner_eff = solver_inputs.get('burner_eff_pct', 70.0)
+    burner_eff = solver_inputs.get('burner_eff_pct', 85.0)
     temp_start = float(solver_inputs.get('temp_start_c', 25.0))
     heating_rate = float(solver_inputs.get('heating_rate_cmin', 1.0))
     fuel_cons = summary.get('waste_oil_consumed_galh', summary.get('waste_oil_consumed_gal', 0.0))
@@ -809,8 +809,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     
     theory_sec3_1 = (
         "El balance de materia cuantifica la transformación estequiométrica del lodo de entrada bajo el principio de conservación de la masa. "
-        "La masa total se redistribuye entre la fase condensable (Bio-Crudo), la fase gaseosa incondensable (Syngas), "
-        "el residuo sólido (Bio-Carbón) y el agua de secado, garantizando un error de cierre cercano a cero (<0.01%) que confirma la consistencia del modelo."
+        "La masa total se redistribuye entre la fase condensable (Aceite pirolítico), la fase gaseosa incondensable (Syngas), "
+        "el residuo sólido (Carbón) y el agua de secado, garantizando un error de cierre cercano a cero (<0.01%) que confirma la consistencia del modelo."
     )
     story.append(Paragraph(theory_sec3_1, body_style))
     story.append(Spacer(1, 6))
@@ -830,9 +830,9 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     mass_table_data = [
         [Paragraph("<b>Flujo / Corriente</b>", table_header_style), Paragraph("<b>Masa (kg" + ("/h" if is_continuous else "") + ")</b>", table_header_style), Paragraph("<b>Fracción wt.%</b>", table_header_style), Paragraph("<b>Volumen Estimado</b>", table_header_style)],
         [Paragraph("<b>ENTRADA:</b> " + feed_name, table_cell_bold), Paragraph(f"<b>{load_val:.2f}</b>", table_cell_center), Paragraph("<b>100.00%</b>", table_cell_center), Paragraph("-", table_cell_center)],
-        [Paragraph("<b>SALIDA:</b> Bio-Crudo (Bio-Oil)", table_cell_style), Paragraph(f"{oil_kgh:.2f}", table_cell_center), Paragraph(f"{oil_pct:.2f}%", table_cell_center), Paragraph(f"{oil_gal:.1f} gal" + ("/h" if is_continuous else ""), table_cell_style)],
+        [Paragraph("<b>SALIDA:</b> Aceite pirolítico (Pyrolysis oil)", table_cell_style), Paragraph(f"{oil_kgh:.2f}", table_cell_center), Paragraph(f"{oil_pct:.2f}%", table_cell_center), Paragraph(f"{oil_gal:.1f} gal" + ("/h" if is_continuous else ""), table_cell_style)],
         [Paragraph("<b>SALIDA:</b> Gas de Síntesis (Syngas)", table_cell_style), Paragraph(f"{gas_kgh:.2f}", table_cell_center), Paragraph(f"{gas_pct:.2f}%", table_cell_center), Paragraph(f"{gas_m3:.1f} m³" + ("/h" if is_continuous else ""), table_cell_style)],
-        [Paragraph("<b>SALIDA:</b> Bio-Carbón (Char Seco)", table_cell_style), Paragraph(f"{char_kgh:.2f}", table_cell_center), Paragraph(f"{char_pct:.2f}%", table_cell_center), Paragraph(f"{char_gal:.1f} gal" + ("/h" if is_continuous else ""), table_cell_style)],
+        [Paragraph("<b>SALIDA:</b> Carbón (Char Seco)", table_cell_style), Paragraph(f"{char_kgh:.2f}", table_cell_center), Paragraph(f"{char_pct:.2f}%", table_cell_center), Paragraph(f"{char_gal:.1f} gal" + ("/h" if is_continuous else ""), table_cell_style)],
         [Paragraph("<b>SALIDA:</b> Vapor de Agua (Steam)", table_cell_style), Paragraph(f"{water_kgh:.2f}", table_cell_center), Paragraph(f"{summary['water_yield_pct']:.2f}%", table_cell_center), Paragraph(f"{water_gal:.1f} gal" + ("/h" if is_continuous else ""), table_cell_style)],
         [Paragraph("<b>ERROR CIERRE BALANCE</b>", table_cell_bold), Paragraph(f"<b>{summary['mass_error_pct']:.2e} %</b>", table_cell_center), Paragraph("<b>Conservativo</b>", table_cell_center), Paragraph("<b>Tolerancia < 0.01%</b>", table_cell_style)]
     ]
@@ -849,7 +849,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     # Ecuación explícita del balance de masa
     mass_eq_text = (
         f"<b>Ecuación de Conservación de Masa:</b><br/>"
-        f"<i>M<sub>entrada</sub> = M<sub>bio-crudo</sub> + M<sub>syngas</sub> + M<sub>char</sub> + M<sub>vapor</sub></i><br/>"
+        f"<i>M<sub>entrada</sub> = M<sub>aceite pirolítico</sub> + M<sub>syngas</sub> + M<sub>char</sub> + M<sub>vapor</sub></i><br/>"
         f"<b>Sustitución Numérica:</b> {load_val:.2f} kg{' / h' if is_continuous else ''} = "
         f"{oil_kgh:.2f} kg + {gas_kgh:.2f} kg + {char_kgh:.2f} kg + {water_kgh:.2f} kg | "
         f"<b>Error de Cierre:</b> {summary['mass_error_pct']:.4f}%"
@@ -864,7 +864,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     theory_sec3_2 = (
         "El balance térmico global discrimina con exactitud rigurosa los distintos destinos del calor suministrado: "
         "(1) calor sensible para calentar el residuo carbonoso sólido, "
-        "(2) calor sensible para calentar los volátiles condensables (futuro Bio-Crudo líquido), "
+        "(2) calor sensible para calentar los volátiles condensables (futuro Aceite pirolítico líquido), "
         "(3) calor sensible para elevar la temperatura del gas de síntesis, "
         "(4) entalpía química de ruptura endotérmica de enlaces macromoleculares (ΔH<sub>pyro</sub> = 600 kJ/kg), y "
         "(5) energía latente y sobrecalentamiento del agua evaporada (ΔH<sub>evap</sub> = 2,256 kJ/kg)."
@@ -904,7 +904,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         energy_table_data = [
             [Paragraph("<b>Etapa de Transferencia Térmica</b>", table_header_style), Paragraph("<b>Potencia (kW)</b>", table_header_style), Paragraph("<b>Porcentaje (%)</b>", table_header_style), Paragraph("<b>Mecanismo Principal</b>", table_header_style)],
             [Paragraph("Calor Sensible del Sólido (Char)", table_cell_style), Paragraph(f"{Q_char_kw:.2f} kW", table_cell_center), Paragraph(f"{(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}%", table_cell_center), Paragraph("Conducción lecho de carbón residual", table_cell_style)],
-            [Paragraph("Calor Sensible Bio-Crudo (Fase Líquida)", table_cell_style), Paragraph(f"{Q_oil_sens_kw:.2f} kW", table_cell_center), Paragraph(f"{(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", table_cell_center), Paragraph("Precalentamiento vapores condensables", table_cell_style)],
+            [Paragraph("Calor Sensible Aceite pirolítico (Fase Líquida)", table_cell_style), Paragraph(f"{Q_oil_sens_kw:.2f} kW", table_cell_center), Paragraph(f"{(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", table_cell_center), Paragraph("Precalentamiento vapores condensables", table_cell_style)],
             [Paragraph("Calor Sensible Syngas (Fase Gas)", table_cell_style), Paragraph(f"{Q_gas_sens_kw:.2f} kW", table_cell_center), Paragraph(f"{(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", table_cell_center), Paragraph("Precalentamiento gas incondensable", table_cell_style)],
             [Paragraph("Reacción Química Endotérmica (Pirólisis)", table_cell_style), Paragraph(f"{Q_rxn_kw:.2f} kW", table_cell_center), Paragraph(f"{(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}%", table_cell_center), Paragraph("Craqueo termoquímico (ΔH=600 kJ/kg)", table_cell_style)],
             [Paragraph("Secado y Evaporación de Humedad", table_cell_style), Paragraph(f"{Q_steam_kw:.2f} kW", table_cell_center), Paragraph(f"{(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}%", table_cell_center), Paragraph("Cambio de fase latente (2,256 kJ/kg)", table_cell_style)],
@@ -930,7 +930,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         energy_table_data = [
             [Paragraph("<b>Etapa de Transferencia Térmica</b>", table_header_style), Paragraph("<b>Energía (kWh)</b>", table_header_style), Paragraph("<b>Porcentaje (%)</b>", table_header_style), Paragraph("<b>Mecanismo Principal</b>", table_header_style)],
             [Paragraph("Calor Sensible del Sólido (Char)", table_cell_style), Paragraph(f"{E_char_kwh:.2f} kWh", table_cell_center), Paragraph(f"{(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}%", table_cell_center), Paragraph("Conducción lecho de carbón residual", table_cell_style)],
-            [Paragraph("Calor Sensible Bio-Crudo (Fase Líquida)", table_cell_style), Paragraph(f"{E_oil_sens_kwh:.2f} kWh", table_cell_center), Paragraph(f"{(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", table_cell_center), Paragraph("Precalentamiento vapores condensables", table_cell_style)],
+            [Paragraph("Calor Sensible Aceite pirolítico (Fase Líquida)", table_cell_style), Paragraph(f"{E_oil_sens_kwh:.2f} kWh", table_cell_center), Paragraph(f"{(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", table_cell_center), Paragraph("Precalentamiento vapores condensables", table_cell_style)],
             [Paragraph("Calor Sensible Syngas (Fase Gas)", table_cell_style), Paragraph(f"{E_gas_sens_kwh:.2f} kWh", table_cell_center), Paragraph(f"{(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", table_cell_center), Paragraph("Precalentamiento gas incondensable", table_cell_style)],
             [Paragraph("Reacción Química Endotérmica (Pirólisis)", table_cell_style), Paragraph(f"{E_rxn_kwh:.2f} kWh", table_cell_center), Paragraph(f"{(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}%", table_cell_center), Paragraph("Craqueo termoquímico (ΔH=600 kJ/kg)", table_cell_style)],
             [Paragraph("Secado y Evaporación de Humedad", table_cell_style), Paragraph(f"{E_steam_kwh:.2f} kWh", table_cell_center), Paragraph(f"{(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}%", table_cell_center), Paragraph("Cambio de fase latente (2,256 kJ/kg)", table_cell_style)],
@@ -961,7 +961,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
                 Paragraph(f"{F_char_s*3600:.1f} kg/h · {cp_char_val:.0f} J/kg·K · {dT:.1f} K = <b>{Q_char_kw:.2f} kW</b> ({Q_char_kw/max(0.001,Q_total_kw)*100:.1f}%)", table_cell_style)
             ],
             [
-                Paragraph("<b>Calor Bio-Crudo (Líquido)</b>", table_cell_style),
+                Paragraph("<b>Calor Aceite pirolítico (Líquido)</b>", table_cell_style),
                 Paragraph("<i>Q<sub>oil</sub> = F<sub>oil</sub> · Cp<sub>oil</sub> · (T<sub>out</sub> - T<sub>in</sub>)</i>", table_cell_style),
                 Paragraph(f"{F_oil_s*3600:.1f} kg/h · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K = <b>{Q_oil_sens_kw:.2f} kW</b> ({Q_oil_sens_kw/max(0.001,Q_total_kw)*100:.1f}%)", table_cell_style)
             ],
@@ -995,7 +995,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
                 Paragraph(f"[{char_kgh:.1f} kg · {cp_char_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = <b>{E_char_kwh:.2f} kWh</b> ({E_char_kwh/max(0.001,E_total_kwh)*100:.1f}%)", table_cell_style)
             ],
             [
-                Paragraph("<b>Calor Bio-Crudo (Líquido)</b>", table_cell_style),
+                Paragraph("<b>Calor Aceite pirolítico (Líquido)</b>", table_cell_style),
                 Paragraph("<i>E<sub>oil</sub> = [M<sub>oil</sub> · Cp<sub>oil</sub> · (T<sub>hold</sub> - T<sub>start</sub>)] / 3.6e6</i>", table_cell_style),
                 Paragraph(f"[{oil_kgh:.1f} kg · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = <b>{E_oil_sens_kwh:.2f} kWh</b> ({E_oil_sens_kwh/max(0.001,E_total_kwh)*100:.1f}%)", table_cell_style)
             ],
@@ -1059,7 +1059,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(Spacer(1, 6))
 
     story.append(figs['fig_vapors'])
-    story.append(Paragraph("<b>Figura 3.</b> Masa acumulada de productos volátiles evacuados (bio-crudo, syngas y vapor de agua).", caption_style))
+    story.append(Paragraph("<b>Figura 3.</b> Masa acumulada de productos volátiles evacuados (aceite pirolítico, syngas y vapor de agua).", caption_style))
     story.append(Spacer(1, 6))
 
     # Pie chart figure layout
@@ -1080,7 +1080,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         "La evaluación financiera modela la factibilidad del proyecto mediante el análisis de Flujo de Caja Descontado (DCF) "
         "a un horizonte de 10 años con una tasa de descuento exigida del 14.0%. Se evalúan la estructura de inversión inicial (CAPEX), "
         "los costos de operación y mantenimiento (OPEX), y los ingresos derivados de la tarifa de recepción de lodos (tipping fee) "
-        "junto con la comercialización del bio-crudo valorizado."
+        "junto con la comercialización del aceite pirolítico valorizado."
     )
     story.append(Paragraph(theory_sec5, body_style))
     story.append(Spacer(1, 6))
@@ -1157,7 +1157,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     rev_table_data = [
         [Paragraph("<b>Fuente de Ingreso / Valorización</b>", table_header_style), Paragraph("<b>Ingreso Anual (RD$)</b>", table_header_style), Paragraph("<b>Participación (%)</b>", table_header_style), Paragraph("<b>Volumen y Precio Unitario</b>", table_header_style)],
         [Paragraph("Tarifa Disposición Lodos (Tipping Fee)", table_cell_style), Paragraph(f"{curr_sym}{rb['tipping']:,.2f}", table_cell_center), Paragraph(f"{(rb['tipping']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['sludge_treated_gal']:,.0f} gal a RD$ {unit_tipping:.2f}/gal", table_cell_style)],
-        [Paragraph("Venta de Bio-Crudo (Bio-Oil)", table_cell_style), Paragraph(f"{curr_sym}{rb['oil']:,.2f}", table_cell_center), Paragraph(f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['oil_produced_gal']:,.0f} gal a RD$ {unit_oil:.2f}/gal", table_cell_style)],
+        [Paragraph("Venta de Aceite pirolítico (Pyrolysis oil)", table_cell_style), Paragraph(f"{curr_sym}{rb['oil']:,.2f}", table_cell_center), Paragraph(f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", table_cell_center), Paragraph(f"{fin['oil_produced_gal']:,.0f} gal a RD$ {unit_oil:.2f}/gal", table_cell_style)],
         [Paragraph("<b>TOTAL INGRESOS ANUALES</b>", table_cell_bold), Paragraph(f"<b>{curr_sym}{tot_rev:,.2f}</b>", table_cell_center), Paragraph("<b>100.0%</b>", table_cell_bold)]
     ]
     t_rev = Table(rev_table_data, colWidths=[2.2*inch, 1.4*inch, 1.1*inch, 1.9*inch])
@@ -1269,21 +1269,19 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         f"necesario para la descomposición de la matriz orgánica pesada."
     )
     c2 = (
-        f"<b>2. Calidad Físico-Química del Bio-Crudo (Normas ASTM D240/D445):</b> "
-        f"El líquido condensable obtenido posee un Poder Calorífico Superior de <b>{hhv_oil:.2f} MJ/kg</b> ({hhv_btu:,.0f} BTU/lb), "
-        f"lo que representa un factor de concentración energética de <b>x{factor_enh:.2f}</b> respecto al lodo de entrada. "
-        f"La viscosidad cinemática a 40°C de <b>{visc_40c:.1f} cSt</b> categoriza al bio-crudo como <i>{pump_status}</i>."
+        "<b>2. Calidad del aceite pirolítico:</b> "
+        "el simulador no estima propiedades del aceite; deben tomarse del informe de laboratorio."
     )
     c3 = (
-        f"<b>3. Autosuficiencia Energética del Sistema Industrial:</b> "
+        f"<b>3. Aporte energético potencial del gas no condensable:</b> "
         f"El rendimiento de gas de síntesis (<b>{gas_pct:.1f} wt.%</b>) correspondiente a <b>{gas_m3:,.1f} m³</b> de syngas incondensable "
-        f"permite sustituir el consumo de combustible fósil auxiliar en los quemadores principales del reactor, "
-        f"garantizando la operación autógena en régimen estacionario."
+        f""
+        f"podría reducir el consumo de combustible auxiliar; la autosuficiencia no está demostrada sin medir caudal, composición y poder calorífico del gas."
     )
     c4 = (
-        f"<b>4. Conservación de Masa y Validación Numérica del Modelo:</b> "
+        f"<b>4. Consistencia numérica del balance de masa:</b> "
         f"El error de cierre en el balance de materia de <b>{summary['mass_error_pct']:.2e}%</b> "
-        f"valida la precisión matemática del esquema de integración y confirma la ausencia de pérdidas ficticias en el simulador."
+        f"confirma que el balance cierra por construcción; esto no valida el modelo físico frente a la planta."
     )
     c5 = (
         f"<b>5. Viabilidad Económica y Rentabilidad del Proyecto:</b> "
@@ -1293,8 +1291,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     )
     c6 = (
         f"<b>6. Reducción Volumétrica y Tratamiento Industrial de Residuos:</b> "
-        f"El proceso logra una reducción drástica del volumen de residuo pesado procesado, "
-        f"transformándolo eficientemente en tres coproductos de alto valor agregado (Bio-Crudo, Syngas y Bio-Char)."
+        f"El proceso logra una reducción del volumen de residuo pesado procesado, "
+        f"transformándolo eficientemente en tres coproductos con potencial de aprovechamiento (Aceite pirolítico, Syngas y Char)."
     )
     c7 = (
         f"<b>7. Dinámica del Lecho Sólido y Control Operativo:</b> "

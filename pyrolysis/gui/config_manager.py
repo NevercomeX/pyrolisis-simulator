@@ -1,8 +1,8 @@
 import streamlit as st
 import json
-import os
 
 DEFAULT_PARAMS = {
+    'profile': "general",
     'lang_option': "Español",
     'mode_option': "Batch Operation",
     'feed_option': "Blend (Petroleum + Hydrocarbon)",
@@ -23,6 +23,7 @@ DEFAULT_PARAMS = {
     'c_a2': 2e6,
     'c_ea3': 100.0,
     'c_a3': 5e5,
+    'c_t_onset': 250.0,
     'feed_rate': 100.0,
     'feed_inlet_temp': 25.0,
     'batch_size': 440.0,
@@ -44,7 +45,7 @@ DEFAULT_PARAMS = {
     'holding_time': 60.0,
     'auto_heating_rate': False,
     'burner_hp': 300.0,
-    'burner_eff_pct': 70.0,
+    'burner_eff_pct': 85.0,
     'syngas_hp': 150.0,
     'fuel_type': "Waste Oil / Aceite Residual",
     'fuel_lhv': 41.0,
@@ -104,61 +105,39 @@ DEFAULT_PARAMS = {
     'autogenous_purge': True
 }
 
-CONFIG_FILE = "pyrolysis_config.json"
+def apply_profile(profile_key):
+    """Carga un perfil completo en session_state: 'general' restablece los valores por defecto
+    y 'tesis' aplica además los datos de la corrida documentada."""
+    from pyrolysis.profiles import PROFILE_THESIS, THESIS_GUI_OVERRIDES
+    params = dict(DEFAULT_PARAMS)
+    if profile_key == PROFILE_THESIS:
+        params.update(THESIS_GUI_OVERRIDES)
+    params['profile'] = profile_key
+    params['lang_option'] = st.session_state.get('lang_option', DEFAULT_PARAMS['lang_option'])
+    for k, v in params.items():
+        st.session_state[k] = v
 
 from .utils import get_lang, t
 
 def init_session_state():
-    """Loads configuration on startup from localStorage (with file fallback) and initializes session state."""
-    # 1. First, make sure every default parameter is initialized in session state
+    """Initializes session state with defaults, then loads this browser's saved configuration from localStorage.
+    Nothing is read from a server-side file: each visitor only sees their own settings."""
     for k, v in DEFAULT_PARAMS.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # 2. Access localStorage using the custom component
     if not st.session_state.get('local_storage_loaded', False):
         from pyrolysis.gui.local_storage import local_storage_get
         ls_config = local_storage_get("pyrolysis_config", key_suffix="init")
-        
-        if ls_config is not None:
-            if isinstance(ls_config, dict) and "__empty__" not in ls_config:
-                # We found a configuration in localStorage! Apply it.
+        # None = the browser has not answered yet; a dict means the check finished
+        if isinstance(ls_config, dict):
+            if "__empty__" not in ls_config:
                 for k in DEFAULT_PARAMS.keys():
                     if k in ls_config:
                         st.session_state[k] = ls_config[k]
-                st.session_state['local_storage_loaded'] = True
-                st.session_state['fallback_loaded'] = True
-                st.session_state['_last_saved_config'] = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
-                st.rerun()
-            elif isinstance(ls_config, dict) and ls_config.get("__empty__", False):
-                # The browser completed the check and found nothing. Try file fallback.
-                if not st.session_state.get('fallback_loaded', False):
-                    if os.path.exists(CONFIG_FILE):
-                        try:
-                            with open(CONFIG_FILE, 'r') as f:
-                                loaded_config = json.load(f)
-                                for k in DEFAULT_PARAMS.keys():
-                                    if k in loaded_config:
-                                        st.session_state[k] = loaded_config[k]
-                        except Exception:
-                            pass
-                    st.session_state['fallback_loaded'] = True
-                st.session_state['local_storage_loaded'] = True
-                st.session_state['_last_saved_config'] = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
-                st.rerun()
-        else:
-            # First frame fallback - load from JSON file while localStorage is fetching
-            if not st.session_state.get('fallback_loaded', False):
-                if os.path.exists(CONFIG_FILE):
-                    try:
-                        with open(CONFIG_FILE, 'r') as f:
-                            loaded_config = json.load(f)
-                            for k in DEFAULT_PARAMS.keys():
-                                if k in loaded_config:
-                                    st.session_state[k] = loaded_config[k]
-                    except Exception:
-                        pass
-                st.session_state['fallback_loaded'] = True
+            st.session_state['local_storage_loaded'] = True
+            st.session_state['_last_saved_config'] = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
+            st.rerun()
 
 def render_config_manager(current_config_data):
     """Renders the config manager section at the bottom of the sidebar."""
@@ -186,20 +165,10 @@ def render_config_manager(current_config_data):
             from pyrolysis.gui.local_storage import local_storage_set
             local_storage_set("pyrolysis_config", full_config_data, key_suffix="auto_save")
             st.session_state['_last_saved_config'] = dict(full_config_data)
-            try:
-                with open(CONFIG_FILE, 'w') as f:
-                    json.dump(full_config_data, f, indent=4)
-            except Exception:
-                pass
 
-    # Save to local storage (primary) and local file (fallback) manually
+    # Save to browser localStorage manually
     if st.sidebar.button(t("save_config_default"), key="save_config_btn", use_container_width=True):
         st.session_state['trigger_save_ls'] = True
-        try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(full_config_data, f, indent=4)
-        except Exception:
-            pass
 
     if st.session_state.get('trigger_save_ls', False):
         from pyrolysis.gui.local_storage import local_storage_set

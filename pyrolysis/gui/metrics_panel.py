@@ -287,9 +287,9 @@ def render_metrics_panel(mode_option, summary, results):
             with pcol4:
                 st.metric(t("syngas_flare_metric"), f"{summary.get('syngas_flare_m3', 0.0):.1f} m³", f"{summary.get('syngas_flare_kg', 0.0):.1f} kg")
             with pcol5:
-                st.metric(t("astm_hhv_metric"), f"{summary.get('hhv_oil_mj_kg', 38.0):.1f} MJ/kg", f"Factor x{summary.get('energy_enhancement_factor', 2.0):.2f}")
+                st.metric(t("astm_hhv_metric"), "N/D", "Requiere ensayo ASTM D240", delta_color="off")
             with pcol6:
-                st.metric(t("astm_viscosity_metric"), f"{summary.get('viscosity_40c_cst', 25.0):.1f} cSt", f"°API {summary.get('api_gravity', 30.0):.1f}")
+                st.metric(t("astm_viscosity_metric"), "N/D", "Requiere ensayo ASTM D445", delta_color="off")
             
         fill_deg = summary['filling_degree_pct']
         if fill_deg > 50.0:

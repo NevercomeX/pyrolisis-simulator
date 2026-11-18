@@ -30,11 +30,12 @@ class BatchReactorSimulation(BaseReactorSimulation):
         h_eff: float = 80.0,
         auto_heating_rate: bool = False,
         burner_hp: float = 300.0,
-        burner_eff_pct: float = 70.0,
+        burner_eff_pct: float = 85.0,
         syngas_hp: float = 150.0,
         shell_material_dict: Optional[Dict[str, float]] = None,
         shell_thickness_mm: float = 15.0,
         h_loss: float = 5.0,
+        T_ambient_C: float = 30.0,
         bulk_density: float = 944.7,
         Cp_volatile: float = 1800.0,
         Cp_char: float = 1000.0,
@@ -77,6 +78,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
         self.shell_material_dict = shell_material_dict or {'density': 7850.0, 'Cp': 480.0, 'k': 50.0}
         self.shell_thickness_mm = float(shell_thickness_mm)
         self.h_loss = float(h_loss)
+        self.T_ambient = float(T_ambient_C) + 273.15
         self.bio_oil_density = float(bio_oil_density)
 
     def get_filling_degree_pct(self) -> float:
@@ -321,7 +323,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
             q_syngas_thermal = min(r_syngas_prod * 12e6 * self.burner_efficiency, q_syngas_nominal)
 
             q_needed_wall = max(0.0, (T_w - T_s) * self.h_eff * A_heat)
-            q_loss = max(0.0, self.h_loss * a_outer * (T_w - self.T_start))
+            q_loss = max(0.0, self.h_loss * a_outer * (T_w - self.T_ambient))
 
             if self.auto_heating_rate:
                 # Thermostat: full burner power while ramping, modulated to hold T_hold afterwards

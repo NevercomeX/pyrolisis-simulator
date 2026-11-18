@@ -81,6 +81,15 @@ class Feedstock:
         self.angle_of_repose = float(angle_of_repose)
 
     @property
+    def T_end_K(self) -> float:
+        """End of the pyrolysis window (K). If the onset is at or above it, the window moves to onset + 60 K."""
+        return self._T_end_K if self._T_end_K > self.T_onset_K else self.T_onset_K + 60.0
+
+    @T_end_K.setter
+    def T_end_K(self, value: float) -> None:
+        self._T_end_K = float(value)
+
+    @property
     def fractions(self) -> Dict[str, float]:
         """Returns the mass fractions of proximate components on a wet basis (0 to 1)."""
         return {

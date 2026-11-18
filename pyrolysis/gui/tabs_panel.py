@@ -58,58 +58,14 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
         })
         st.table(yields_df)
 
-    # ASTM Standards Characterization Section for PROENERGETICOS Bio-Oil
+    # ASTM Standards Characterization Section for PROENERGETICOS Pyrolysis oil
     st.markdown("---")
-    st.markdown(f"### 🔬 Caracterización Físico-Química del Bio-Crudo (Normas ASTM)")
-    
-    astm_col1, astm_col2, astm_col3, astm_col4 = st.columns(4)
-    
-    # HHV / PCS ASTM D240
-    temp_hold = float(st.session_state.get('holding_temp', 550.0))
-    vol_pct = current_feed.volatile
-    hhv_oil = min(43.5, max(36.0, 38.0 + 0.008 * (temp_hold - 450.0) + 0.10 * (vol_pct - 50.0)))
-    hhv_btu = hhv_oil * 429.923
-    factor_enh = hhv_oil / 18.5
-    
-    # Viscosity ASTM D445
-    visc_40c = max(12.0, 45.0 - 0.08 * (temp_hold - 400.0))
-    pump_status = "Directamente Bombeable @ 25°C" if visc_40c <= 25.0 else ("Bombeable con Precalentamiento a 40°C" if visc_40c <= 50.0 else "Alta Viscosidad - Precalentar a 60°C")
-    
-    # Density ASTM D1298
-    bio_oil_dens = float(st.session_state.get('bio_oil_density', 750.0))
-    sg_15 = bio_oil_dens / 999.1
-    api_deg = (141.5 / max(0.1, sg_15)) - 131.5
-    
-    # BS&W ASTM D95
-    bsw_pct = min(8.0, max(1.5, 3.5 * (current_feed.moisture / 30.0)))
-    
-    with astm_col1:
-        st.info(
-            f"**🔥 Poder Calorífico Superior (ASTM D240)**  \n"
-            f"* **PCS / HHV:** `{hhv_oil:.2f} MJ/kg` (`{hhv_btu:,.0f} BTU/lb`)  \n"
-            f"* **PCS Lodo Original:** `18.50 MJ/kg`  \n"
-            f"* **Factor de Mejora:** `x{factor_enh:.2f}`"
-        )
-    with astm_col2:
-        st.info(
-            f"**🧪 Viscosidad Cinemática (ASTM D445)**  \n"
-            f"* **Viscosidad @ 40°C:** `{visc_40c:.1f} cSt (mm²/s)`  \n"
-            f"* **Diagnóstico Bombeo:** `{pump_status}`"
-        )
-    with astm_col3:
-        st.info(
-            f"**⚖️ Densidad & °API (ASTM D1298)**  \n"
-            f"* **Densidad @ 15°C:** `{bio_oil_dens:.1f} kg/m³`  \n"
-            f"* **Gravedad Específica (SG):** `{sg_15:.4f}`  \n"
-            f"* **Gravedad °API:** `{api_deg:.1f} °API`"
-        )
-    with astm_col4:
-        st.info(
-            f"**💧 Humedad & BS&W (ASTM D95)**  \n"
-            f"* **Humedad en Condensado:** `{bsw_pct:.2f} wt.%`  \n"
-            f"* **Sistema Condensación:** `Tanque 28,000 gal`  \n"
-            f"* **Separación:** `Furgón Sellado Etapa 2`"
-        )
+    st.markdown("### 🔬 Caracterización fisicoquímica del aceite pirolítico")
+    st.warning(
+        "El simulador no predice propiedades del aceite (PCS, viscosidad, °API, agua). "
+        "Las correlaciones anteriores no tenían respaldo y no coincidían con el laboratorio. "
+        "Use los resultados del ensayo (ASTM D240, D445, D4052, D95)."
+    )
 
 def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_kgh, batch_load_kg, feed_option):
     """Renders the mass and energy balances tab content."""
@@ -138,9 +94,9 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         
         mass_out_df = pd.DataFrame({
             t("analysis_component", "Component"): [
-                t("analysis_bio_oil_name", "Bio-Oil"), 
+                t("analysis_bio_oil_name", "Pyrolysis oil"), 
                 t("analysis_syngas_name", "Syngas"), 
-                t("analysis_char_res_name", "Bio-Char"), 
+                t("analysis_char_res_name", "Char"), 
                 t("water_vapor_metric", "Water Vapor (Steam)")
             ],
             t("analysis_wt_pct", "wt%"): [
@@ -178,11 +134,11 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             #### 📝 Ecuaciones del Balance de Materia (Continuo)
             El balance de materia se basa en la conservación de la masa de sólidos y gases en el reactor:
             $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam} + F_{moist, final}$$
-            * **Bio-Crudo (Bio-Oil)**: Integrado localmente a partir de la formación primaria y craqueo secundario a gas:
+            * **Aceite pirolítico (Pyrolysis oil)**: Integrado localmente a partir de la formación primaria y craqueo secundario a gas:
               $$F_{oil} = \int_{0}^{L} \left( k_1 \cdot C_{\text{slug}} - k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-            * **Gas de Síntesis (Syngas)**: Integrado localmente a partir del craqueo primario y secundario de bio-oil:
+            * **Gas de Síntesis (Syngas)**: Integrado localmente a partir del craqueo primario y secundario de pyrolysis oil:
               $$F_{gas} = \int_{0}^{L} \left( k_2 \cdot C_{\text{slug}} + k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-            * **Bio-Carbón Residual (Char - Seco)**: Suma del carbón fijo inicial, cenizas iniciales y materia volátil sin reaccionar:
+            * **Carbón Residual (Char - Seco)**: Suma del carbón fijo inicial, cenizas iniciales y materia volátil sin reaccionar:
               $$F_{char} = F_{fixed\_carbon, initial} + F_{ash, initial} + F_{volatile, unreacted}$$
             * **Vapor de Agua (Steam)**: Humedad evaporada del lecho sólido:
               $$F_{steam} = F_{moisture, initial} - F_{moisture, final}$$
@@ -232,7 +188,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         energy_df = pd.DataFrame({
             "Process Stage / Etapa del Proceso": [
                 "Sensible Heat of Bed Solids / Calor Sensible Char",
-                "Sensible Heat Bio-Oil / Calor Sensible Vapores Bio-Crudo (Líquido)",
+                "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
                 "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
                 "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
                 "Evaporation & Dehydration / Evaporación del Agua",
@@ -264,7 +220,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
             * **Calor Sensible del Char ($Q_{{char}}$)**:
               $$Q_{{char}} = F_{{char}} \cdot Cp_{{char}} \cdot (T_{{out}} - T_{{in}}) = {F_char_s*3600:.2f}\text{{ kg/h}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
-            * **Calor Sensible del Bio-Crudo Líquido ($Q_{{oil\_sens}}$)**:
+            * **Calor Sensible del Aceite pirolítico Líquido ($Q_{{oil\_sens}}$)**:
               $$Q_{{oil}} = F_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{out}} - T_{{in}}) = {F_oil_s*3600:.2f}\text{{ kg/h}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
             * **Calor Sensible del Syngas ($Q_{{gas\_sens}}$)**:
               $$Q_{{gas}} = F_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{out}} - T_{{in}}) = {F_gas_s*3600:.2f}\text{{ kg/h}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
@@ -279,7 +235,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             The total thermal demand ($Q_{{total}}$) is rigorously separated into five thermal duties:
             $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
             * **Char Sensible Heat**: $Q_{{char}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
-            * **Bio-Oil Sensible Heat**: $Q_{{oil}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
+            * **Pyrolysis oil Sensible Heat**: $Q_{{oil}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
             * **Syngas Sensible Heat**: $Q_{{gas}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
             * **Pyrolysis Chemical Endotherm**: $Q_{{rxn}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
             * **Moisture Dehydration & Evaporation**: $Q_{{steam}} = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
@@ -308,9 +264,9 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         
         mass_out_df = pd.DataFrame({
             t("analysis_component", "Component"): [
-                t("analysis_bio_oil_name", "Bio-Oil"), 
+                t("analysis_bio_oil_name", "Pyrolysis oil"), 
                 t("analysis_syngas_name", "Syngas"), 
-                t("analysis_char_res_name", "Bio-Char"), 
+                t("analysis_char_res_name", "Char"), 
                 t("water_vapor_metric", "Water Vapor (Steam)")
             ],
             t("analysis_wt_pct", "wt%"): [
@@ -348,11 +304,11 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             #### 📝 Ecuaciones del Balance de Materia (Lote)
             El balance de materia total en modo lote representa el inventario final acumulado frente a la carga inicial:
             $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam} + M_{moist, final}$$
-            * **Bio-Crudo (Bio-Oil)**: Acumulado a partir del rendimiento neto de lodo y craqueo secundario del vapor:
+            * **Aceite pirolítico (Pyrolysis oil)**: Acumulado a partir del rendimiento neto de lodo y craqueo secundario del vapor:
               $$M_{oil} = \int \left( dM_{\text{oil, primary}} - dM_{\text{oil, cracked}} \right)$$
             * **Gas de Síntesis (Syngas)**: Acumulado de la producción primaria y del craqueo secundario del vapor:
               $$M_{gas} = \int \left( dM_{\text{gas, primary}} + dM_{\text{oil, cracked}} \right)$$
-            * **Bio-Carbón Residual (Char - Seco)**: Masa sólida remanente (carbón fijo, cenizas y volátiles residuales):
+            * **Carbón Residual (Char - Seco)**: Masa sólida remanente (carbón fijo, cenizas y volátiles residuales):
               $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
             * **Agua Evaporada (Steam)**: Humedad total vaporizada:
               $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
@@ -364,11 +320,11 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             #### 📝 Mass Balance Equations (Batch)
             The total batch mass balance represents the final accumulated inventory relative to the initial load:
             $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam} + M_{moist, final}$$
-            * **Bio-Oil**: Accumulated from primary sludge conversion and secondary vapor cracking:
+            * **Pyrolysis oil**: Accumulated from primary sludge conversion and secondary vapor cracking:
               $$M_{oil} = \int \left( dM_{\text{oil, primary}} - dM_{\text{oil, cracked}} \right)$$
             * **Syngas**: Accumulated from primary gasification and secondary vapor cracking:
               $$M_{gas} = \int \left( dM_{\text{gas, primary}} + dM_{\text{oil, cracked}} \right)$$
-            * **Residual Bio-Char (Char - Dry)**: Remaining solid mass (fixed carbon, ash, and residual volatiles):
+            * **Residual Char (Char - Dry)**: Remaining solid mass (fixed carbon, ash, and residual volatiles):
               $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
             * **Evaporated Water (Steam)**: Total vaporized moisture:
               $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
@@ -409,7 +365,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         energy_df = pd.DataFrame({
             "Process Stage / Etapa del Proceso": [
                 "Sensible Heat of Bed Solids / Calor Sensible Char",
-                "Sensible Heat Bio-Oil / Calor Sensible Vapores Bio-Crudo (Líquido)",
+                "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
                 "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
                 "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
                 "Evaporation & Dehydration / Evaporación del Agua",
@@ -478,7 +434,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
             * **Calor Sensible del Char ($E_{{char}}$)**:
               $$E_{{char}} = \frac{{M_{{char}} \cdot Cp_{{char}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_char:.2f}\text{{ kg}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
-            * **Calor Sensible del Bio-Crudo Líquido ($E_{{oil\_sens}}$)**:
+            * **Calor Sensible del Aceite pirolítico Líquido ($E_{{oil\_sens}}$)**:
               $$E_{{oil}} = \frac{{M_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_oil:.2f}\text{{ kg}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
             * **Calor Sensible del Syngas ($E_{{gas\_sens}}$)**:
               $$E_{{gas}} = \frac{{M_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_gas:.2f}\text{{ kg}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
@@ -493,7 +449,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
             The total thermal energy ($E_{{total}}$) is rigorously separated into five thermal duties:
             $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
             * **Char Sensible Heat**: $E_{{char}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
-            * **Bio-Oil Sensible Heat**: $E_{{oil}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
+            * **Pyrolysis oil Sensible Heat**: $E_{{oil}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
             * **Syngas Sensible Heat**: $E_{{gas}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
             * **Pyrolysis Chemical Endotherm**: $E_{{rxn}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
             * **Moisture Dehydration & Evaporation**: $E_{{steam}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
@@ -516,7 +472,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
     
     *Where / Donde:*
     *   $C_{\text{slug}}$: Unreacted volatile matter / Materia volátil sin reaccionar ($M_{\text{volatile}}$).
-    *   $C_{\text{medios}}$: Bio-oil (tars / condensables) / Bio-crudo (condensables).
+    *   $C_{\text{medios}}$: Pyrolysis oil (tars / condensables) / Aceite pirolítico (condensables).
     *   $C_{\text{gases}}$: Pyrolysis gases (syngas / non-condensables) / Gases de pirólisis.
     """)
     
@@ -526,7 +482,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(
-            f"**Reaction 1 / Reacción 1 (Sludge → Bio-oil):**  \n"
+            f"**Reaction 1 / Reacción 1 (Sludge → Pyrolysis oil):**  \n"
             f"*   $E_{{a,1}} = {current_feed.Ea1 / 1000.0:.1f}\\text{{ kJ/mol}}$  \n"
             f"*   $A_1 = {current_feed.A1:.2e}\\text{{ s}}^{{-1}}$  \n"
             f"$$k_1 = A_1 \\cdot \\exp\\left(-\\frac{{E_{{a,1}}}}{{R \\cdot T_s}}\\right)$$"
@@ -540,7 +496,7 @@ def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_k
         )
     with col3:
         st.markdown(
-            f"**Reaction 3 / Reacción 3 (Bio-oil → Gases):**  \n"
+            f"**Reaction 3 / Reacción 3 (Pyrolysis oil → Gases):**  \n"
             f"*   $E_{{a,3}} = {current_feed.Ea3 / 1000.0:.1f}\\text{{ kJ/mol}}$  \n"
             f"*   $A_3 = {current_feed.A3:.2e}\\text{{ s}}^{{-1}}$  \n"
             f"$$k_3 = A_3 \\cdot \\exp\\left(-\\frac{{E_{{a,3}}}}{{R \\cdot T_s}}\\right)$$"
@@ -557,7 +513,7 @@ def render_guide_tab():
         "1. **Operación Autógena y Purga de Aire:** El desplazamiento volumétrico inicial del aire contenido en el domo del reactor (14.0 m³) se completa de forma autógena en los primeros minutos del ciclo mediante la rápida expansión del agua de humedad y primeros volátiles, garantizando una atmósfera inerte sin consumo de nitrógeno comercial.  \n"
         "2. **Hidrodinámica del Manifold (8'' / 4x4''):** El manifold de evacuación de 8 pulgadas conectado a las 4 líneas secundarias de 4 pulgadas ofrece una sección transversal amplia (0.0324 m²), manteniendo las velocidades de vapor por debajo de los límites erosinadores y limitando la contrapresión a niveles seguros de operación.  \n"
         "3. **Autosuficiencia Energética y Antorcha (Flare):** El syngas generado cubre la demanda térmica del quemador principal, canalizándose el excedente incondensable hacia la antorcha (flare) para su destrucción limpia conforme a normativas ambientales.  \n"
-        "4. **Condensación en 2 Etapas (Tanque 28,000 gal & Furgón Sellado):** La condensación secuencial permite recuperar el bio-crudo con alta eficiencia térmica, separando el agua de arrastre (BS&W) y concentrando una fracción pesada directamente comercializable."
+        "4. **Condensación en 2 Etapas (Tanque 28,000 gal & Furgón Sellado):** La condensación secuencial permite recuperar el aceite pirolítico con alta eficiencia térmica, separando el agua de arrastre (BS&W) y concentrando una fracción pesada directamente comercializable."
     )
     
     st.subheader(t("guide_sec_1"))

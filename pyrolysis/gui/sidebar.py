@@ -27,6 +27,29 @@ def render_sidebar():
     st.session_state['lang_option'] = lang_option
     lang = 'en' if lang_option == "English" else 'es'
 
+    # Perfil de simulación: general (público) o caso de estudio de la tesis
+    from pyrolysis.profiles import PROFILE_GENERAL, PROFILE_THESIS, PROFILE_LABELS, THESIS_NOTE
+    from .config_manager import apply_profile
+    profile_keys = [PROFILE_GENERAL, PROFILE_THESIS]
+    current_profile = st.session_state.get('profile', PROFILE_GENERAL)
+    if current_profile not in profile_keys:
+        current_profile = PROFILE_GENERAL
+    chosen_profile = st.sidebar.selectbox(
+        "📁 Perfil" if lang == 'es' else "📁 Profile",
+        profile_keys,
+        index=profile_keys.index(current_profile),
+        format_func=lambda k: PROFILE_LABELS[k][lang],
+    )
+    if chosen_profile != current_profile:
+        apply_profile(chosen_profile)
+        st.rerun()
+    if chosen_profile == PROFILE_THESIS:
+        st.sidebar.info(THESIS_NOTE[lang])
+        if st.sidebar.button("↺ Restablecer datos de la corrida" if lang == 'es' else "↺ Reset run data",
+                             use_container_width=True):
+            apply_profile(PROFILE_THESIS)
+            st.rerun()
+
     # Operation Mode Selection
     st.sidebar.header(t("op_mode"))
     # Continuous mode is temporarily disabled: only Batch Operation is available.
@@ -129,6 +152,12 @@ def render_sidebar():
         c_fc = st.sidebar.number_input(t("fixed_carbon_val"), min_value=0.0, max_value=50.0, value=float(st.session_state.get('c_fc', 10.0)), step=0.5, format="%.2f")
         c_ash = st.sidebar.number_input(t("ash_val"), min_value=0.0, max_value=50.0, value=float(st.session_state.get('c_ash', 10.0)), step=0.5, format="%.2f")
         
+        c_t_onset = st.sidebar.number_input(
+            "Temperatura de inicio de pirólisis (°C)" if lang == 'es' else "Pyrolysis onset temperature (°C)",
+            min_value=100.0, max_value=600.0, value=float(st.session_state.get('c_t_onset', 250.0)),
+            step=5.0, format="%.1f")
+        st.session_state['c_t_onset'] = c_t_onset
+
         total = c_moist + c_vol + c_fc + c_ash
         if abs(total - 100.0) > 1e-2:
             st.sidebar.warning(t("normalize_warn").format(total))
@@ -216,6 +245,7 @@ def render_sidebar():
             Ea2=c_ea2, A2=c_a2,
             Ea3=c_ea3, A3=c_a3
         )
+        current_feed.T_onset_K = float(c_t_onset) + 273.15
 
     st.session_state['feed_option'] = feed_option
     if feed_option == "Blend (Petroleum + Hydrocarbon)":
@@ -338,14 +368,14 @@ def render_sidebar():
             format="%.1f"
         )
         
-        if 'burner_eff_pct' not in st.session_state or st.session_state.get('burner_eff_pct') == 95.0:
+        if 'burner_eff_pct' not in st.session_state:
             st.session_state['burner_eff_pct'] = 70.0
 
         burner_eff_pct = st.number_input(
             t("burner_eff"),
             min_value=5.0,
             max_value=100.0,
-            value=float(st.session_state.get('burner_eff_pct', 70.0)),
+            value=float(st.session_state.get('burner_eff_pct', 85.0)),
             step=1.0,
             format="%.1f"
         )

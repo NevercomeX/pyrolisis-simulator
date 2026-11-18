@@ -77,7 +77,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     # Subtitle
     p_sub = doc.add_paragraph()
     p_sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run_sub = p_sub.add_run("Modelado Cinético Multietapa, Caracterización ASTM del Bio-Crudo y Evaluación de Autosuficiencia Energética")
+    run_sub = p_sub.add_run("Modelado Cinético Multietapa, Caracterización ASTM del Aceite pirolítico y Evaluación del Aporte Energética")
     run_sub.italic = True
     run_sub.font.size = Pt(10.5)
     run_sub.font.color.rgb = RGBColor(71, 85, 105)
@@ -141,8 +141,8 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         f"Se procesó una carga nominal de {load_gal:,.1f} {load_unit} ({load_kg:,.1f} kg) de {feed_name} "
         f"con una densidad de materia prima de {sludge_density:.1f} kg/m³. "
         f"El modelo fenomenológico resuelve el balance conservativo de materia y energía con transferencia de calor conductivo-convectivo en el lecho sólido. "
-        f"Se alcanzó una conversión global de materia volátil del {conv_pct:.1f}%, rindiendo un {oil_pct:.1f} wt.% de bio-crudo condensable "
-        f"(densidad del bio-crudo: {bio_oil_density:.1f} kg/m³), un {gas_pct:.1f} wt.% de gas de síntesis (syngas) incondensable, y un {char_pct:.1f} wt.% de bio-carbón (char seco). "
+        f"Se alcanzó una conversión global de materia volátil del {conv_pct:.1f}%, rindiendo un {oil_pct:.1f} wt.% de aceite pirolítico condensable "
+        f"(densidad del aceite pirolítico: {bio_oil_density:.1f} kg/m³), un {gas_pct:.1f} wt.% de gas de síntesis (syngas) incondensable, y un {char_pct:.1f} wt.% de bio-carbón (char seco). "
         f"La demanda energética total calculada fue de {duty_val:,.2f} {duty_unit} con un error de cierre en el balance de materia de {summary['mass_error_pct']:.2e}%, "
         f"confirmando la consistencia física del modelo y la factibilidad del proceso industrial."
     )
@@ -159,7 +159,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     run_t1 = p_t1.add_run(
         "La pirólisis termoquímica de lodos de petróleo e hidrocarburos pesados es un proceso de descomposición en atmósfera anaerobia "
         "(ausencia de oxígeno libre) que convierte fracciones orgánicas de alto peso molecular (asfaltenos, resinas y cadenas parafínicas) "
-        "en tres coproductos de alto valor agregado: vapores condensables (Bio-Crudo), gases incondensables (Syngas) y un residuo sólido seco (Bio-Carbón e inorgánicos). "
+        "en tres coproductos con potencial de aprovechamiento: vapores condensables (Aceite pirolítico), gases incondensables (Syngas) y un residuo sólido seco (Carbón e inorgánicos). "
         "La evolución termodinámica comprende tres dominios principales: (i) Secado y Deshidratación a 100°C; "
         "(ii) Destilación y Desvolatilización Multicomponente entre 350°C y 450°C; y "
         "(iii) Policondensación y Coquización final por encima de 450°C, estabilizando el carbono fijo en la matriz sólida."
@@ -233,7 +233,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         ["Densidad @ 15°C & Gravedad API (ASTM D4052)", f"{sludge_dens_kg:.1f} kg/m³ | 18.2 °API ({sludge_dens_lbgal:.2f} lb/gal)", "kg/m³ / °API", "Hidrocarburo pesado en tolvas y bombas"],
         ["Viscosidad Cinemática @ 50°C (ASTM D445)", "138.7 mm²/s (cSt)", "cSt", "Reología y precalentamiento de alimentación"],
         ["Contenido de Azufre Total (ASTM D4294)", "0.997 wt.%", "wt.%", "Azufre orgánico para balance de emisiones Syngas"],
-        ["Cenizas Promedio Inertes (ASTM D482)", f"{feed_obj.ash:.2f} wt.%", "wt.%", "Inorgánico residual en lecho y bio-char"],
+        ["Cenizas Promedio Inertes (ASTM D482)", f"{feed_obj.ash:.2f} wt.%", "wt.%", "Inorgánico residual en lecho y char"],
         ["Contenido de Agua / Humedad (ASTM D95)", f"{feed_obj.moisture:.2f} wt.%", "wt.%", "Agua libre para etapa de deshidratación"],
         ["Punto de Inflamación Flash Point (ASTM D93)", "> 110.0 °C (> 230 °F)", "°C", "Umbral de seguridad operacional térmico"],
         ["Metales e Impurezas Cat Fines (IP 470)", "Al+Si: 647 mg/kg | V: 117 mg/kg | Ca: 33 mg/kg", "mg/kg (ppm)", "Partículas minerales abrasivas y vanadio"],
@@ -254,7 +254,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     # 1.2 ASTM
     h12 = doc.add_heading(level=2)
-    run_h12 = h12.add_run("1.2 Caracterización del Bio-Crudo Producido (Normas ASTM)")
+    run_h12 = h12.add_run("1.2 Caracterización del Aceite pirolítico Producido (Normas ASTM)")
     run_h12.font.size = Pt(11)
     run_h12.font.color.rgb = RGBColor(15, 118, 110)
 
@@ -273,7 +273,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     t_astm.alignment = WD_TABLE_ALIGNMENT.CENTER
     set_table_borders(t_astm, "CBD5E1")
 
-    headers_astm = ["Propiedad Físico-Química", "Norma ASTM", "Valor Calculado", "Diagnóstico de Calidad"]
+    headers_astm = ["Propiedad Físico-Química", "Norma ASTM", "Valor", "Observación"]
     for c_idx, h in enumerate(headers_astm):
         cell = t_astm.cell(0, c_idx)
         set_cell_background(cell, "0D9488")
@@ -284,10 +284,10 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         run.font.size = Pt(9.5)
 
     rows_astm = [
-        ["Poder Calorífico Superior (PCS/HHV)", "ASTM D240", f"{hhv_oil:.2f} MJ/kg ({hhv_btu:,.0f} BTU/lb)", f"Factor Mejora: x{factor_enh:.2f} vs lodo"],
-        ["Viscosidad Cinemática @ 40°C", "ASTM D445", f"{visc_40c:.1f} cSt (mm²/s)", pump_status],
+        ["Poder Calorífico Superior (PCS/HHV)", "ASTM D240", "No calculado: requiere ensayo de laboratorio", "-"],
+        ["Viscosidad Cinemática @ 40°C", "ASTM D445", "No calculado: requiere ensayo de laboratorio", "-"],
         ["Densidad @ 15°C & Gravedad °API", "ASTM D1298", f"{bio_oil_dens:.1f} kg/m³ | {api_deg:.1f} °API", f"Gravedad Específica: {sg_15:.4f}"],
-        ["Contenido de Agua & Sedimentación (BS&W)", "ASTM D95", f"{bsw_pct:.2f} wt.%", "Fase org. condensada limpia"]
+        ["Contenido de Agua & Sedimentación (BS&W)", "ASTM D95", "No calculado: requiere ensayo de laboratorio", "-"]
     ]
     for r_idx, r_data in enumerate(rows_astm):
         for c_idx, val in enumerate(r_data):
@@ -322,7 +322,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     fill_deg = summary['filling_degree_pct']
     h_eff = solver_inputs['h_eff']
     burner_hp = solver_inputs.get('burner_hp', 300.0)
-    burner_eff = solver_inputs.get('burner_eff_pct', 70.0)
+    burner_eff = solver_inputs.get('burner_eff_pct', 85.0)
     fuel_cons = summary.get('waste_oil_consumed_galh', summary.get('waste_oil_consumed_gal', 0.0))
     fuel_unit = "/h" if is_continuous else "/lote"
 
@@ -428,8 +428,8 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     p_t31 = doc.add_paragraph()
     run_t31 = p_t31.add_run(
         "El balance de materia cuantifica la transformación estequiométrica del lodo de entrada bajo el principio de conservación de la masa. "
-        "La masa total se redistribuye entre la fase condensable (Bio-Crudo), la fase gaseosa incondensable (Syngas), "
-        "el residuo sólido (Bio-Carbón) y el agua de secado, garantizando un error de cierre cercano a cero (<0.01%) que confirma la consistencia del modelo."
+        "La masa total se redistribuye entre la fase condensable (Aceite pirolítico), la fase gaseosa incondensable (Syngas), "
+        "el residuo sólido (Carbón) y el agua de secado, garantizando un error de cierre cercano a cero (<0.01%) que confirma la consistencia del modelo."
     )
     run_t31.font.size = Pt(10)
 
@@ -458,9 +458,9 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     rows_mass = [
         ["ENTRADA: " + feed_name, f"{load_kg:.2f}", "100.00%", "-"],
-        ["SALIDA: Bio-Crudo (Bio-Oil)", f"{oil_kgh:.2f}", f"{oil_pct:.2f}%", f"{oil_gal_v:.1f} gal" + ("/h" if is_continuous else "")],
+        ["SALIDA: Aceite pirolítico (Pyrolysis oil)", f"{oil_kgh:.2f}", f"{oil_pct:.2f}%", f"{oil_gal_v:.1f} gal" + ("/h" if is_continuous else "")],
         ["SALIDA: Gas de Síntesis (Syngas)", f"{gas_kgh:.2f}", f"{gas_pct:.2f}%", f"{gas_m3_v:.1f} m³" + ("/h" if is_continuous else "")],
-        ["SALIDA: Bio-Carbón (Char Seco)", f"{char_kgh:.2f}", f"{char_pct:.2f}%", f"{char_gal_v:.1f} gal" + ("/h" if is_continuous else "")],
+        ["SALIDA: Carbón (Char Seco)", f"{char_kgh:.2f}", f"{char_pct:.2f}%", f"{char_gal_v:.1f} gal" + ("/h" if is_continuous else "")],
         ["SALIDA: Vapor de Agua (Steam)", f"{water_kgh:.2f}", f"{summary['water_yield_pct']:.2f}%", f"{water_gal_v:.1f} gal" + ("/h" if is_continuous else "")],
         ["ERROR CIERRE BALANCE", f"{summary['mass_error_pct']:.2e} %", "Conservativo", "Tolerancia < 0.01%"]
     ]
@@ -482,7 +482,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     # Ecuación explícita del balance de masa en Word
     p_meq = doc.add_paragraph()
     r_meq = p_meq.add_run(
-        f"Ecuación de Conservación de Masa: M_entrada = M_bio-crudo + M_syngas + M_char + M_vapor\n"
+        f"Ecuación de Conservación de Masa: M_entrada = M_aceite pirolítico + M_syngas + M_char + M_vapor\n"
         f"Sustitución Numérica: {load_kg:.2f} kg{' / h' if is_continuous else ''} = "
         f"{oil_kgh:.2f} kg + {gas_kgh:.2f} kg + {char_kgh:.2f} kg + {water_kgh:.2f} kg | "
         f"Error de Cierre: {summary['mass_error_pct']:.4f}%"
@@ -501,7 +501,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     run_t32 = p_t32.add_run(
         "El balance térmico global discrimina con exactitud rigurosa los distintos destinos del calor suministrado: "
         "(1) calor sensible para calentar el residuo carbonoso sólido, "
-        "(2) calor sensible para calentar los volátiles condensables (futuro Bio-Crudo líquido), "
+        "(2) calor sensible para calentar los volátiles condensables (futuro Aceite pirolítico líquido), "
         "(3) calor sensible para elevar la temperatura del gas de síntesis, "
         "(4) entalpía química de ruptura endotérmica de enlaces macromoleculares (ΔH_pyro = 600 kJ/kg), y "
         "(5) energía latente y sobrecalentamiento del agua evaporada (ΔH_evap = 2,256 kJ/kg)."
@@ -536,7 +536,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
         rows_nrg = [
             ["Calor Sensible del Sólido (Char)", f"{Q_char_kw:.2f} kW", f"{(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}%", "Conducción lecho carbón residual"],
-            ["Calor Sensible Bio-Crudo (Fase Líquida)", f"{Q_oil_sens_kw:.2f} kW", f"{(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", "Precalentamiento vapores condensables"],
+            ["Calor Sensible Aceite pirolítico (Fase Líquida)", f"{Q_oil_sens_kw:.2f} kW", f"{(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", "Precalentamiento vapores condensables"],
             ["Calor Sensible Syngas (Fase Gas)", f"{Q_gas_sens_kw:.2f} kW", f"{(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}%", "Precalentamiento gas incondensable"],
             ["Reacción Química Endotérmica (Pirólisis)", f"{Q_rxn_kw:.2f} kW", f"{(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}%", "Craqueo térmico (ΔH=600 kJ/kg)"],
             ["Secado y Evaporación Humedad", f"{Q_steam_kw:.2f} kW", f"{(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}%", "Vaporización latente (2,256 kJ/kg)"],
@@ -560,7 +560,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
         rows_nrg = [
             ["Calor Sensible del Sólido (Char)", f"{E_char_kwh:.2f} kWh", f"{(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Conducción lecho carbón residual"],
-            ["Calor Sensible Bio-Crudo (Fase Líquida)", f"{E_oil_sens_kwh:.2f} kWh", f"{(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Precalentamiento vapores condensables"],
+            ["Calor Sensible Aceite pirolítico (Fase Líquida)", f"{E_oil_sens_kwh:.2f} kWh", f"{(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Precalentamiento vapores condensables"],
             ["Calor Sensible Syngas (Fase Gas)", f"{E_gas_sens_kwh:.2f} kWh", f"{(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Precalentamiento gas incondensable"],
             ["Reacción Química Endotérmica (Pirólisis)", f"{E_rxn_kwh:.2f} kWh", f"{(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Craqueo térmico (ΔH=600 kJ/kg)"],
             ["Secado y Evaporación Humedad", f"{E_steam_kwh:.2f} kWh", f"{(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}%", "Vaporización latente (2,256 kJ/kg)"],
@@ -604,7 +604,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     if is_continuous:
         rows_calc = [
             ["Calor Char (Sólido)", "Q_char = F_char · Cp_char · (T_out - T_in)", f"{F_char_s*3600:.1f} kg/h · {cp_char_val:.0f} J/kg·K · {dT:.1f} K = {Q_char_kw:.2f} kW ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
-            ["Calor Bio-Crudo (Líquido)", "Q_oil = F_oil · Cp_oil · (T_out - T_in)", f"{F_oil_s*3600:.1f} kg/h · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K = {Q_oil_sens_kw:.2f} kW ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
+            ["Calor Aceite pirolítico (Líquido)", "Q_oil = F_oil · Cp_oil · (T_out - T_in)", f"{F_oil_s*3600:.1f} kg/h · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K = {Q_oil_sens_kw:.2f} kW ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
             ["Calor Syngas (Gas)", "Q_gas = F_gas · Cp_gas · (T_out - T_in)", f"{F_gas_s*3600:.1f} kg/h · {cp_gas_val:.0f} J/kg·K · {dT:.1f} K = {Q_gas_sens_kw:.2f} kW ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
             ["Reacción Química Craqueo", "Q_rxn = (F_oil + F_gas) · ΔH_pyro", f"{(F_oil_s+F_gas_s)*3600:.1f} kg/h · {dh_pyro_val:,.0f} J/kg = {Q_rxn_kw:.2f} kW ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
             ["Evaporación del Agua", "Q_steam = F_steam · [Cp_wΔT_w + ΔH_evap + Cp_sΔT_s]", f"{F_steam_s*3600:.1f} kg/h · [Evap 2.256 MJ/kg + Sobrecalent.] = {Q_steam_kw:.2f} kW ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}%)"],
@@ -613,7 +613,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     else:
         rows_calc = [
             ["Calor Char (Sólido)", "E_char = [M_char · Cp_char · (T_hold - T_start)] / 3.6e6", f"[{char_kgh:.1f} kg · {cp_char_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_char_kwh:.2f} kWh ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
-            ["Calor Bio-Crudo (Líquido)", "E_oil = [M_oil · Cp_oil · (T_hold - T_start)] / 3.6e6", f"[{oil_kgh:.1f} kg · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_oil_sens_kwh:.2f} kWh ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
+            ["Calor Aceite pirolítico (Líquido)", "E_oil = [M_oil · Cp_oil · (T_hold - T_start)] / 3.6e6", f"[{oil_kgh:.1f} kg · {cp_oil_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_oil_sens_kwh:.2f} kWh ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
             ["Calor Syngas (Gas)", "E_gas = [M_gas · Cp_gas · (T_hold - T_start)] / 3.6e6", f"[{gas_kgh:.1f} kg · {cp_gas_val:.0f} J/kg·K · {dT:.1f} K] / 3.6e6 = {E_gas_sens_kwh:.2f} kWh ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
             ["Reacción Química Craqueo", "E_rxn = [(M_oil + M_gas) · ΔH_pyro] / 3.6e6", f"[{(oil_kgh + gas_kgh):.1f} kg · {dh_pyro_val:,.0f} J/kg] / 3.6e6 = {E_rxn_kwh:.2f} kWh ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
             ["Evaporación del Agua", "E_steam = [M_steam · (Cp_wΔT_w + ΔH_evap + Cp_sΔT_s)] / 3.6e6", f"[{water_kgh:.1f} kg · (4184·{max(0.0, 100-T_start):.0f} + 2.256e6 + 2000·{max(0.0, T_hold-100):.0f})] / 3.6e6 = {E_steam_kwh:.2f} kWh ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}%)"],
@@ -661,7 +661,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         "La evaluación financiera modela la factibilidad del proyecto mediante el análisis de Flujo de Caja Descontado (DCF) "
         "a un horizonte de 10 años con una tasa de descuento exigida del 14.0%. Se evalúan la estructura de inversión inicial (CAPEX), "
         "los costos de operación y mantenimiento (OPEX), y los ingresos derivados de la tarifa de recepción de lodos (tipping fee) "
-        "junto con la comercialización del bio-crudo valorizado."
+        "junto con la comercialización del aceite pirolítico valorizado."
     )
     run_t5.font.size = Pt(10)
 
@@ -788,7 +788,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     rows_rev = [
         ["Tarifa Disposición Lodos (Tipping Fee)", f"{curr_sym}{rb['tipping']:,.2f}", f"{(rb['tipping']/max(1,tot_rev)*100):.1f}%", f"{fin['sludge_treated_gal']:,.0f} gal a RD$ {unit_tipping:.2f}/gal"],
-        ["Venta de Bio-Crudo (Bio-Oil)", f"{curr_sym}{rb['oil']:,.2f}", f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", f"{fin['oil_produced_gal']:,.0f} gal a RD$ {unit_oil:.2f}/gal"],
+        ["Venta de Aceite pirolítico (Pyrolysis oil)", f"{curr_sym}{rb['oil']:,.2f}", f"{(rb['oil']/max(1,tot_rev)*100):.1f}%", f"{fin['oil_produced_gal']:,.0f} gal a RD$ {unit_oil:.2f}/gal"],
         ["TOTAL INGRESOS ANUALES", f"{curr_sym}{tot_rev:,.2f}", "100.0%", "Ingreso Bruto Proyectado Año 1"]
     ]
     for r_idx, r_data in enumerate(rows_rev):
@@ -867,11 +867,11 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     conclusions = [
         f"1. Viabilidad Térmica y Rendimiento de Conversión: La pirólisis de {feed_name} alcanza una conversión del {conv_pct:.1f}% de la materia volátil, demostrando que el perfil térmico aplicado (temperatura máxima de {temp_hold:.0f}°C) proporciona el aporte entálpico necesario para la descomposición de la matriz orgánica pesada.",
-        f"2. Calidad Físico-Química del Bio-Crudo (Normas ASTM D240/D445): El líquido condensable obtenido posee un Poder Calorífico Superior de {hhv_oil:.2f} MJ/kg ({hhv_btu:,.0f} BTU/lb), representando un factor de concentración energética de x{factor_enh:.2f} respecto al lodo de entrada. La viscosidad cinemática a 40°C de {visc_40c:.1f} cSt categoriza al bio-crudo como {pump_status}.",
-        f"3. Autosuficiencia Energética del Sistema Industrial: El rendimiento de gas de síntesis ({gas_pct:.1f} wt.%) correspondiente a {gas_m3_v:,.1f} m³ de syngas incondensable permite sustituir el consumo de combustible fósil auxiliar en los quemadores principales del reactor, garantizando la operación autógena en régimen estacionario.",
-        f"4. Conservación de Masa y Validación Numérica del Modelo: El error de cierre en el balance de materia de {summary['mass_error_pct']:.2e}% valida la precisión matemática del esquema de integración y confirma la ausencia de pérdidas ficticias en el simulador.",
+        "2. Calidad del aceite pirolítico: el simulador no estima propiedades del aceite; deben tomarse del informe de laboratorio.",
+        f"3. Aporte energético potencial del gas no condensable: El rendimiento de gas de síntesis ({gas_pct:.1f} wt.%) correspondiente a {gas_m3_v:,.1f} m³ de syngas incondensable podría reducir el consumo de combustible auxiliar; la autosuficiencia no está demostrada sin medir caudal, composición y poder calorífico del gas.",
+        f"4. Consistencia numérica del balance de masa: El error de cierre en el balance de materia de {summary['mass_error_pct']:.2e}% confirma que el balance cierra por construcción; esto no valida el modelo físico frente a la planta.",
         f"5. Viabilidad Económica y Rentabilidad del Proyecto: El análisis financiero proyecta un Valor Actual Neto (VAN) de {curr_sym}{fin['npv']:,.2f} y una Tasa Interna de Retorno (TIR) del {irr_str} (superando la tasa de descuento de 14.0%), con un período de recuperación estimado de {payback_str}, confirmando la rentabilidad de la instalación.",
-        f"6. Reducción Volumétrica y Tratamiento Industrial de Residuos: El proceso logra una reducción drástica del volumen de residuo pesado procesado, transformándolo eficientemente en tres coproductos de alto valor agregado (Bio-Crudo, Syngas y Bio-Char).",
+        f"6. Reducción Volumétrica y Tratamiento Industrial de Residuos: El proceso logra una reducción del volumen de residuo pesado procesado, transformándolo eficientemente en tres coproductos con potencial de aprovechamiento (Aceite pirolítico, Syngas y Char).",
         f"7. Dinámica del Lecho Sólido y Control Operativo: Operando a un grado de llenado del lecho de {fill_deg:.1f}%, con temperatura inicial de {temp_start:.1f}°C (activación de desvolatilización a 350.0°C), un tiempo eficiente de residencia de {pyro_residence_min:.1f} min ({pyro_residence_min/60.0:.2f} h) y un tiempo total de ciclo de {total_cycle_min:.1f} min ({total_cycle_min/60.0:.2f} h), se asegura la agitación constante del sólido en el tambor rotatorio, previniendo la formación de incrustaciones de coque duro en las paredes internas."
     ]
 

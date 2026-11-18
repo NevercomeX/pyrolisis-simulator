@@ -33,7 +33,7 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
         Cp_char: float = 1000.0,
         Cp_ash: float = 800.0,
         burner_hp: float = 300.0,
-        burner_eff_pct: float = 70.0,
+        burner_eff_pct: float = 85.0,
         syngas_hp: float = 150.0,
         fuel_lhv_mj_kg: float = 41.0,
         fuel_density_kg_l: float = 0.90,

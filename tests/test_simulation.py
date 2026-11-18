@@ -187,13 +187,13 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertEqual(len(res['p_oil']), len(res['time']))
         self.assertEqual(len(res['p_syngas']), len(res['time']))
         self.assertGreater(max(res['p_oil']), 0.0)
-        self.assertLessEqual(max(res['p_syngas']), 150.0 * 745.7 * 0.70 / 1000.0 + 1e-6)
+        self.assertLessEqual(max(res['p_syngas']), 150.0 * 745.7 * 0.85 / 1000.0 + 1e-6)
 
-    def test_batch_bio_oil_density_affects_api_gravity(self):
-        """bio_oil_density must reach the ASTM/API calculation."""
-        light = self._batch(bio_oil_density=750.0)['summary']['api_gravity']
-        heavy = self._batch(bio_oil_density=900.0)['summary']['api_gravity']
-        self.assertGreater(light, heavy)
+    def test_batch_api_gravity_not_predicted(self):
+        """°API is no longer predicted (must come from ASTM D4052): NaN for any oil density."""
+        import math
+        for density in (750.0, 900.0):
+            self.assertTrue(math.isnan(self._batch(bio_oil_density=density)['summary']['api_gravity']))
 
     def test_batch_reaction_never_exceeds_heat_input(self):
         """Solid temperature must not drop while heated (no energy created by the endothermic term)."""
@@ -240,6 +240,16 @@ class TestPyrolysisSimulation(unittest.TestCase):
         at_end = [c for c, temp in zip(conv, T) if temp >= 440.0]
         self.assertGreater(min(at_end), 0.99)
 
+    def test_batch_onset_above_430_moves_window_end(self):
+        """An onset above the default 430 °C end must be honoured: the window becomes onset → onset + 60."""
+        import copy
+        feed = copy.copy(HYDROCARBON_SLUDGE)
+        feed.T_onset_K = 480.0 + 273.15
+        self.assertAlmostEqual(feed.T_end_K - 273.15, 540.0)
+        res = self._batch(feedstock=feed)
+        below = [c for c, temp in zip(res['conversion'], res['T_solid']) if temp < 479.0]
+        self.assertLess(max(below), 0.001)
+
     def test_batch_air_displacement_unreached_is_nan(self):
         """If headspace air is never displaced, report NaN instead of an arbitrary time."""
         res = self._batch(T_hold_C=50.0, hold_time_min=30.0)
@@ -265,7 +275,7 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertEqual(blend.E_a, expected_Ea)
 
     def test_char_yield_sensitivity(self):
-        """Verify that increasing feedstock yield_char increases produced bio-char."""
+        """Verify that increasing feedstock yield_char increases produced char."""
         feed1 = Feedstock("LowChar", moisture=10.0, volatile=60.0, fixed_carbon=10.0, ash=20.0,
                           E_a=1e5, A=1e7, yield_oil=0.60, yield_gas=0.35, yield_char=0.05)
         feed2 = Feedstock("HighChar", moisture=10.0, volatile=60.0, fixed_carbon=10.0, ash=20.0,
@@ -322,11 +332,10 @@ class TestPyrolysisSimulation(unittest.TestCase):
             moisture_feed_pct=20.0
         )
         
-        self.assertGreater(astm['hhv_oil_mj_kg'], 35.0)
-        self.assertLess(astm['hhv_oil_mj_kg'], 45.0)
-        self.assertGreater(astm['api_gravity'], 10.0)
-        self.assertGreater(astm['viscosity_40c_cst'], 10.0)
-        self.assertGreater(astm['bsw_moisture_pct'], 1.0)
+        # Las propiedades del aceite ya no se predicen: deben venir del laboratorio.
+        import math
+        for key in ('hhv_oil_mj_kg', 'api_gravity', 'viscosity_40c_cst', 'bsw_moisture_pct'):
+            self.assertTrue(math.isnan(astm[key]))
 
     def test_devolatilization_kinetics_onset_threshold(self):
         """Verify reaction rate is zero below onset (370°C) and positive above it."""
@@ -395,6 +404,44 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertLessEqual(d_moist, m_moist)
         # Should be clamped near boiling point
         self.assertAlmostEqual(T_res, 373.15, places=1)
+
+
+
+class TestThesisProfile(unittest.TestCase):
+    def test_thesis_profile_reproduces_run(self):
+        from pyrolysis.profiles import thesis_batch_kwargs
+        from pyrolysis.reactor.batch import BatchReactorSimulation
+        s = BatchReactorSimulation(**thesis_batch_kwargs()).simulate(dt_sec=2.0)['summary']
+        # aceite al apagar: 2,431 gal = 60.56 % de la carga (h_eff 266.0, A2 × 0.703, sostenimiento 96.5 min)
+        self.assertAlmostEqual(s['oil_yield_pct'], 60.56, delta=0.1)
+        # rampa 50 → 550 °C a 1.5 °C/min (333.3 min) + 96.5 min de sostenimiento
+        self.assertAlmostEqual(s['cycle_time_min'], 429.8, delta=1.0)
+        self.assertAlmostEqual(s['water_yield_pct'], 2.0, delta=0.05)
+
+
+class TestFinancialModel(unittest.TestCase):
+    # Loses money with no tipping fee (no tax) and pays tax above ~6 RD$/gal: NPV is not a straight line.
+    BASE = dict(
+        total_capex=1e6, sludge_treated_gal=1e5, oil_produced_gal=0, char_produced_kg=0, gas_produced_m3=0,
+        fuel_consumed_gal=0, elec_consumed_kwh=0, generator_fuel_consumed_gal=0,
+        opex_handling=0, opex_fuel=0, opex_electricity=0, opex_aux_utilities=5e5, price_generator_fuel=0,
+        opex_labor=0, opex_maint=0, opex_insurance_tax=0, opex_tipping=9.0,
+        price_oil=0, price_char=0, price_gas=0, price_carbon=0, rate_carbon_offset=0,
+        discount_rate=14.0, project_lifetime=10, tax_rate=25.0, inflation_rate=4.0,
+    )
+
+    def _model(self, **kw):
+        from pyrolysis.gui.economics_panel import run_financial_model
+        return run_financial_model(**dict(self.BASE, **kw))
+
+    def test_npv_is_zero_at_breakeven_tipping_fee(self):
+        breakeven = self._model()['breakeven_tipping']
+        self.assertAlmostEqual(self._model(opex_tipping=breakeven)['npv'], 0.0, delta=1.0)
+
+    def test_npv_is_zero_at_irr(self):
+        irr = self._model()['irr']
+        self.assertIsNotNone(irr)
+        self.assertAlmostEqual(self._model(discount_rate=irr)['npv'], 0.0, delta=1.0)
 
 
 if __name__ == "__main__":

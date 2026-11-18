@@ -102,4 +102,18 @@ When moisture is present and solid temperature $T_s$ reaches $100^\circ\text{C}$
 Thermal decomposition of volatile hydrocarbons is modeled using a first-order rate:
 $$r_{pyro} = k_{pyro} \cdot M_{volatile}$$
 $$k_{pyro} = A \cdot \exp\left(-\frac{E_a}{R \cdot T_s}\right)$$
-Reaction heat consumption is $\Delta H_{pyro} = 600$ kJ/kg of volatiles reacted (endothermic). Pyrolyzed volatiles are split into Bio-Oil, Syngas, and solid Char residue.
+Reaction heat consumption is $\Delta H_{pyro} = 600$ kJ/kg of volatiles reacted (endothermic). Pyrolyzed volatiles are split into Pyrolysis oil, Syngas, and solid Char residue.
+
+
+## Perfiles de simulación
+
+La barra lateral incluye un selector **Perfil**:
+
+- **General (uso público):** valores por defecto del simulador.
+- **Caso de estudio: corrida PROENERGÉTICOS (tesis):** carga los datos medidos y calibrados de la corrida
+  industrial documentada en la tesina (3,700 gal, inicio de pirólisis a 370 °C, rampa de 1.5 °C/min,
+  h_eff calibrado con la ventana de aceite de 158 min). No requiere introducir datos a mano.
+  El botón "Restablecer datos de la corrida" vuelve a los valores originales del caso.
+
+Desde la línea de comandos: `python cli.py --perfil tesis`.
+El origen de cada valor (medido, calibrado o supuesto) está documentado en `pyrolysis/profiles.py`.
