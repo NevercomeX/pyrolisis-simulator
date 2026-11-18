@@ -6,6 +6,7 @@ from pyrolysis import (
     HYDROCARBON_SLUDGE,
     blend_feedstocks
 )
+from pyrolysis.reactor.base import BHP_TO_W
 from .config_manager import DEFAULT_PARAMS
 from .utils import get_lang, t
 
@@ -51,9 +52,9 @@ def render_sidebar():
             st.rerun()
 
     # Operation Mode Selection
-    st.sidebar.header(t("op_mode"))
+    _box = st.sidebar.expander(t("op_mode"), expanded=False)
     # Continuous mode is temporarily disabled: only Batch Operation is available.
-    st.sidebar.radio(
+    _box.radio(
         t("select_op_mode"),
         [t("mode_batch")],
         index=0
@@ -61,8 +62,7 @@ def render_sidebar():
     mode_option = "Batch Operation"
     st.session_state['mode_option'] = mode_option
 
-    st.sidebar.markdown("---")
-    st.sidebar.header(t("feedstock_cond"))
+    _box = st.sidebar.expander(t("feedstock_cond"), expanded=False)
 
     feed_blend_str = t("feed_blend")
     feed_petroleum_str = t("feed_petroleum")
@@ -82,7 +82,7 @@ def render_sidebar():
     else:  # Custom Feedstock
         default_feed_idx = 3
 
-    feed_option_translated = st.sidebar.selectbox(
+    feed_option_translated = _box.selectbox(
         t("select_feed_type"),
         feed_options_list,
         index=default_feed_idx
@@ -129,7 +129,7 @@ def render_sidebar():
         c_a3 = current_feed.A3
     elif feed_option_translated == feed_blend_str:
         feed_option = "Blend (Petroleum + Hydrocarbon)"
-        blend_ratio = st.sidebar.number_input(
+        blend_ratio = _box.number_input(
             t("petroleum_frac"),
             min_value=0.0,
             max_value=100.0,
@@ -146,13 +146,13 @@ def render_sidebar():
         c_a3 = current_feed.A3
     else:  # Custom
         feed_option = "Custom Feedstock"
-        st.sidebar.markdown(t("custom_props"))
-        c_moist = st.sidebar.number_input(t("moisture_val"), min_value=0.0, max_value=90.0, value=float(st.session_state.get('c_moist', 30.0)), step=0.5, format="%.2f")
-        c_vol = st.sidebar.number_input(t("volatile_val"), min_value=0.0, max_value=95.0, value=float(st.session_state.get('c_vol', 50.0)), step=0.5, format="%.2f")
-        c_fc = st.sidebar.number_input(t("fixed_carbon_val"), min_value=0.0, max_value=50.0, value=float(st.session_state.get('c_fc', 10.0)), step=0.5, format="%.2f")
-        c_ash = st.sidebar.number_input(t("ash_val"), min_value=0.0, max_value=50.0, value=float(st.session_state.get('c_ash', 10.0)), step=0.5, format="%.2f")
+        _box.markdown(t("custom_props"))
+        c_moist = _box.number_input(t("moisture_val"), min_value=0.0, max_value=90.0, value=float(st.session_state.get('c_moist', 30.0)), step=0.5, format="%.2f")
+        c_vol = _box.number_input(t("volatile_val"), min_value=0.0, max_value=95.0, value=float(st.session_state.get('c_vol', 50.0)), step=0.5, format="%.2f")
+        c_fc = _box.number_input(t("fixed_carbon_val"), min_value=0.0, max_value=50.0, value=float(st.session_state.get('c_fc', 10.0)), step=0.5, format="%.2f")
+        c_ash = _box.number_input(t("ash_val"), min_value=0.0, max_value=50.0, value=float(st.session_state.get('c_ash', 10.0)), step=0.5, format="%.2f")
         
-        c_t_onset = st.sidebar.number_input(
+        c_t_onset = _box.number_input(
             "Temperatura de inicio de pirólisis (°C)" if lang == 'es' else "Pyrolysis onset temperature (°C)",
             min_value=100.0, max_value=600.0, value=float(st.session_state.get('c_t_onset', 250.0)),
             step=5.0, format="%.1f")
@@ -160,25 +160,25 @@ def render_sidebar():
 
         total = c_moist + c_vol + c_fc + c_ash
         if abs(total - 100.0) > 1e-2:
-            st.sidebar.warning(t("normalize_warn").format(total))
+            _box.warning(t("normalize_warn").format(total))
             
-        st.sidebar.markdown(t("pyro_kinetics"))
-        use_advanced = st.sidebar.checkbox(
+        _box.markdown(t("pyro_kinetics"))
+        use_advanced = _box.checkbox(
             t("use_advanced_kinetics"),
             value=bool(st.session_state.get('use_advanced_kinetics', False)),
             key="use_advanced_kinetics"
         )
         
         if use_advanced:
-            st.sidebar.markdown(f"*{t('kinetics_multi_step_desc')}*")
-            c_ea1_input = st.sidebar.number_input(t("ea1_label"), 40.0, 300.0, float(st.session_state.get('c_ea1', 120.0)), 5.0)
-            c_a1 = st.sidebar.number_input(t("a1_label"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a1', 6e6)), format="%e")
+            _box.markdown(f"*{t('kinetics_multi_step_desc')}*")
+            c_ea1_input = _box.number_input(t("ea1_label"), 40.0, 300.0, float(st.session_state.get('c_ea1', 120.0)), 5.0)
+            c_a1 = _box.number_input(t("a1_label"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a1', 6e6)), format="%e")
             
-            c_ea2_input = st.sidebar.number_input(t("ea2_label"), 40.0, 300.0, float(st.session_state.get('c_ea2', 125.0)), 5.0)
-            c_a2 = st.sidebar.number_input(t("a2_label"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a2', 4e6)), format="%e")
+            c_ea2_input = _box.number_input(t("ea2_label"), 40.0, 300.0, float(st.session_state.get('c_ea2', 125.0)), 5.0)
+            c_a2 = _box.number_input(t("a2_label"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a2', 4e6)), format="%e")
             
-            c_ea3_input = st.sidebar.number_input(t("ea3_label"), 40.0, 300.0, float(st.session_state.get('c_ea3', 100.0)), 5.0)
-            c_a3 = st.sidebar.number_input(t("a3_label"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a3', 5e5)), format="%e")
+            c_ea3_input = _box.number_input(t("ea3_label"), 40.0, 300.0, float(st.session_state.get('c_ea3', 100.0)), 5.0)
+            c_a3 = _box.number_input(t("a3_label"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a3', 5e5)), format="%e")
             
             c_ea1 = c_ea1_input * 1000.0
             c_ea2 = c_ea2_input * 1000.0
@@ -197,16 +197,16 @@ def render_sidebar():
             c_y_gas = c_a2 / c_a if c_a > 0 else 0.25
             c_y_char = max(0.0, 1.0 - (c_y_oil + c_y_gas))
         else:
-            c_ea_input = st.sidebar.number_input(t("activation_energy"), 40.0, 300.0, float(st.session_state.get('c_ea', 100.0)), 5.0)
-            c_a = st.sidebar.number_input(t("pre_exponential"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a', 1e7)), format="%e")
+            c_ea_input = _box.number_input(t("activation_energy"), 40.0, 300.0, float(st.session_state.get('c_ea', 100.0)), 5.0)
+            c_a = _box.number_input(t("pre_exponential"), min_value=0.0, max_value=1e16, value=float(st.session_state.get('c_a', 1e7)), format="%e")
             c_ea = c_ea_input * 1000.0
             st.session_state['c_ea'] = c_ea_input
             st.session_state['c_a'] = c_a
             
-            st.sidebar.markdown(t("pyro_yields"))
-            c_y_oil = st.sidebar.number_input(t("bio_oil_yield"), min_value=0.0, max_value=100.0, value=float(st.session_state.get('c_y_oil', 60.0)), step=1.0, format="%.1f") / 100.0
-            c_y_gas = st.sidebar.number_input(t("syngas_yield"), min_value=0.0, max_value=100.0, value=float(st.session_state.get('c_y_gas', 25.0)), step=1.0, format="%.1f") / 100.0
-            c_y_char = st.sidebar.number_input(t("char_yield"), min_value=0.0, max_value=100.0, value=float(st.session_state.get('c_y_char', 15.0)), step=1.0, format="%.1f") / 100.0
+            _box.markdown(t("pyro_yields"))
+            c_y_oil = _box.number_input(t("bio_oil_yield"), min_value=0.0, max_value=100.0, value=float(st.session_state.get('c_y_oil', 60.0)), step=1.0, format="%.1f") / 100.0
+            c_y_gas = _box.number_input(t("syngas_yield"), min_value=0.0, max_value=100.0, value=float(st.session_state.get('c_y_gas', 25.0)), step=1.0, format="%.1f") / 100.0
+            c_y_char = _box.number_input(t("char_yield"), min_value=0.0, max_value=100.0, value=float(st.session_state.get('c_y_char', 15.0)), step=1.0, format="%.1f") / 100.0
             
             y_sum = c_y_oil + c_y_gas + c_y_char
             if y_sum > 0:
@@ -261,11 +261,11 @@ def render_sidebar():
     batch_load_gal = float(st.session_state.get('batch_size', 440.0))
 
     if mode_option == "Continuous Operation":
-        feed_rate_kgh = st.sidebar.number_input(t("feed_rate"), min_value=1.0, max_value=50000.0, value=float(st.session_state.get('feed_rate', 100.0)), step=10.0, format="%.1f")
-        temp_inlet_c = st.sidebar.number_input(t("feed_inlet_temp"), min_value=-20.0, max_value=300.0, value=float(st.session_state.get('feed_inlet_temp', 25.0)), step=1.0, format="%.1f")
+        feed_rate_kgh = _box.number_input(t("feed_rate"), min_value=1.0, max_value=50000.0, value=float(st.session_state.get('feed_rate', 100.0)), step=10.0, format="%.1f")
+        temp_inlet_c = _box.number_input(t("feed_inlet_temp"), min_value=-20.0, max_value=300.0, value=float(st.session_state.get('feed_inlet_temp', 25.0)), step=1.0, format="%.1f")
         batch_load_kg = batch_load_gal * KG_PER_GALLON
     else:
-        batch_load_gal = st.sidebar.number_input(
+        batch_load_gal = _box.number_input(
             t("batch_size"), 
             min_value=0.0, 
             max_value=100000.0, 
@@ -275,7 +275,7 @@ def render_sidebar():
         )
         batch_load_kg = batch_load_gal * KG_PER_GALLON
 
-    bio_oil_density = st.sidebar.number_input(
+    bio_oil_density = _box.number_input(
         t("bio_oil_density"),
         min_value=500.0,
         max_value=2000.0,
@@ -285,7 +285,7 @@ def render_sidebar():
         key="bio_oil_density"
     )
 
-    bio_char_density = st.sidebar.number_input(
+    bio_char_density = _box.number_input(
         t("bio_char_density"),
         min_value=100.0,
         max_value=2500.0,
@@ -296,22 +296,18 @@ def render_sidebar():
     )
 
     # Reactor geometry
-    st.sidebar.markdown("---")
-    st.sidebar.header(t("reactor_geom"))
-    length = st.sidebar.number_input(t("reactor_len"), min_value=0.5, max_value=50.0, value=float(st.session_state.get('reactor_len', 8.0)), step=0.5, format="%.2f")
-    diameter = st.sidebar.number_input(t("reactor_dia"), min_value=0.1, max_value=15.0, value=float(st.session_state.get('reactor_dia', 3.0)), step=0.1, format="%.2f")
-    rpm = st.sidebar.number_input(t("rotation_speed"), min_value=0.1, max_value=30.0, value=float(st.session_state.get('rotation_speed', 3.0)), step=0.5, format="%.2f")
+    _box = st.sidebar.expander(t("reactor_geom"), expanded=False)
+    length = _box.number_input(t("reactor_len"), min_value=0.5, max_value=50.0, value=float(st.session_state.get('reactor_len', 8.0)), step=0.5, format="%.2f")
+    diameter = _box.number_input(t("reactor_dia"), min_value=0.1, max_value=15.0, value=float(st.session_state.get('reactor_dia', 3.0)), step=0.1, format="%.2f")
+    rpm = _box.number_input(t("rotation_speed"), min_value=0.1, max_value=30.0, value=float(st.session_state.get('rotation_speed', 3.0)), step=0.5, format="%.2f")
 
     slope_pct = float(st.session_state.get('reactor_slope', 2.0))
     slope = slope_pct / 100.0
     if mode_option == "Continuous Operation":
-        slope_pct = st.sidebar.number_input(t("reactor_slope"), min_value=0.1, max_value=20.0, value=float(st.session_state.get('reactor_slope', 2.0)), step=0.1, format="%.2f")
+        slope_pct = _box.number_input(t("reactor_slope"), min_value=0.1, max_value=20.0, value=float(st.session_state.get('reactor_slope', 2.0)), step=0.1, format="%.2f")
         slope = slope_pct / 100.0
 
     # Heating configuration
-    st.sidebar.markdown("---")
-    st.sidebar.header(t("heating_config"))
-    h_eff = st.sidebar.number_input(t("heat_transfer_coeff"), min_value=1.0, max_value=1000.0, value=float(st.session_state.get('heat_transfer_coeff', 80.0)), step=5.0, format="%.1f")
 
     # Burner and Shell Calibration expander
     with st.sidebar.expander(t("burner_calib_header"), expanded=False):
@@ -551,6 +547,10 @@ def render_sidebar():
             t("autogenous_purge_opt"), value=bool(st.session_state.get('autogenous_purge', True)), key='autogenous_purge'
         )
 
+    # Heating program (after the burner/fuel expanders: it uses auto_heating_rate and the shell data)
+    _box = st.sidebar.expander(t("heating_config"), expanded=False)
+    h_eff = _box.number_input(t("heat_transfer_coeff"), min_value=1.0, max_value=1000.0, value=float(st.session_state.get('heat_transfer_coeff', 80.0)), step=5.0, format="%.1f")
+
     # Pre-declare/initialize heating params to avoid unbound variables
     T_wall_type_str = "uniform"
     T_wall_params = {}
@@ -581,31 +581,31 @@ def render_sidebar():
         else:
             default_wall_idx = 0
             
-        wall_profile_type_translated = st.sidebar.selectbox(
+        wall_profile_type_translated = _box.selectbox(
             t("wall_heating_type"),
             wall_heating_options,
             index=default_wall_idx
         )
         
         if wall_profile_type_translated == heating_uniform_str:
-            t_uniform = st.sidebar.number_input(t("wall_temp"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('wall_temp', 550.0)), step=10.0, format="%.1f")
+            t_uniform = _box.number_input(t("wall_temp"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('wall_temp', 550.0)), step=10.0, format="%.1f")
             T_wall_params = {'T_wall': t_uniform}
             T_wall_type_str = 'uniform'
         elif wall_profile_type_translated == heating_linear_str:
-            t_in = st.sidebar.number_input(t("wall_temp_inlet"), min_value=50.0, max_value=1000.0, value=float(st.session_state.get('wall_temp_inlet', 300.0)), step=10.0, format="%.1f")
-            t_out = st.sidebar.number_input(t("wall_temp_outlet"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('wall_temp_outlet', 600.0)), step=10.0, format="%.1f")
+            t_in = _box.number_input(t("wall_temp_inlet"), min_value=50.0, max_value=1000.0, value=float(st.session_state.get('wall_temp_inlet', 300.0)), step=10.0, format="%.1f")
+            t_out = _box.number_input(t("wall_temp_outlet"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('wall_temp_outlet', 600.0)), step=10.0, format="%.1f")
             T_wall_params = {'T_wall_in': t_in, 'T_wall_out': t_out}
             T_wall_type_str = 'linear'
         else:  # 3-Zone
-            st.sidebar.markdown(t("zone_temps"))
-            t_z1 = st.sidebar.number_input(t("zone_1"), min_value=50.0, max_value=1000.0, value=float(st.session_state.get('zone_1', 350.0)), step=10.0, format="%.1f")
-            t_z2 = st.sidebar.number_input(t("zone_2"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('zone_2', 550.0)), step=10.0, format="%.1f")
-            t_z3 = st.sidebar.number_input(t("zone_3"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('zone_3', 500.0)), step=10.0, format="%.1f")
+            _box.markdown(t("zone_temps"))
+            t_z1 = _box.number_input(t("zone_1"), min_value=50.0, max_value=1000.0, value=float(st.session_state.get('zone_1', 350.0)), step=10.0, format="%.1f")
+            t_z2 = _box.number_input(t("zone_2"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('zone_2', 550.0)), step=10.0, format="%.1f")
+            t_z3 = _box.number_input(t("zone_3"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('zone_3', 500.0)), step=10.0, format="%.1f")
             T_wall_params = {'zones': [(0.3, t_z1), (0.7, t_z2), (1.0, t_z3)]}
             T_wall_type_str = 'zones'
     else:
-        st.sidebar.markdown(t("batch_temp_prog"))
-        temp_start_c = st.sidebar.number_input(t("starting_temp"), min_value=0.0, max_value=500.0, value=float(st.session_state.get('starting_temp', 25.0)), step=5.0, format="%.1f")
+        _box.markdown(t("batch_temp_prog"))
+        temp_start_c = _box.number_input(t("starting_temp"), min_value=0.0, max_value=500.0, value=float(st.session_state.get('starting_temp', 25.0)), step=5.0, format="%.1f")
         
         if auto_heating_rate:
             # Dynamically compute nominal heating rate based on physical mass
@@ -624,17 +624,17 @@ def render_sidebar():
             Cp_s_init = (m_moist * 4184.0 + m_volatile * custom_cp_oil + m_char * custom_cp_char + m_ash * custom_cp_ash) / m_solid_total if m_solid_total > 0 else 1000.0
             C_solids_init = m_solid_total * Cp_s_init
             
-            Q_main_nominal = burner_hp * 745.7 * (burner_eff_pct / 100.0)
+            Q_main_nominal = burner_hp * BHP_TO_W   # nameplate in boiler hp = useful heat output
             C_total_init = C_steel + C_solids_init
             nominal_rate_csec = Q_main_nominal / C_total_init if C_total_init > 0 else 0.1
             heating_rate_cmin = nominal_rate_csec * 60.0
             
-            st.sidebar.info(t("nominal_heating_rate_info").format(heating_rate_cmin))
+            _box.info(t("nominal_heating_rate_info").format(heating_rate_cmin))
         else:
-            heating_rate_cmin = st.sidebar.number_input(t("heating_rate"), min_value=0.1, max_value=100.0, value=float(st.session_state.get('heating_rate', 10.0)), step=0.5, format="%.2f")
+            heating_rate_cmin = _box.number_input(t("heating_rate"), min_value=0.1, max_value=100.0, value=float(st.session_state.get('heating_rate', 10.0)), step=0.5, format="%.2f")
             
-        temp_hold_c = st.sidebar.number_input(t("holding_temp"), min_value=100.0, max_value=1200.0, value=float(st.session_state.get('holding_temp', 550.0)), step=10.0, format="%.1f")
-        hold_time_min = st.sidebar.number_input(t("holding_time"), min_value=1.0, max_value=10000.0, value=float(st.session_state.get('holding_time', 60.0)), step=10.0, format="%.1f")
+        temp_hold_c = _box.number_input(t("holding_temp"), min_value=100.0, max_value=1200.0, value=float(st.session_state.get('holding_temp', 550.0)), step=10.0, format="%.1f")
+        hold_time_min = _box.number_input(t("holding_time"), min_value=1.0, max_value=10000.0, value=float(st.session_state.get('holding_time', 60.0)), step=10.0, format="%.1f")
 
     # Compile the active configurations dictionary
     config_dict = {

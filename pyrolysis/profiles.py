@@ -25,6 +25,10 @@ from .feedstock import Feedstock
 
 PROFILE_GENERAL = "general"
 PROFILE_THESIS = "tesis"
+# Súbalo cada vez que cambie THESIS_GUI_OVERRIDES: una configuración guardada con el perfil de tesis y otra
+# versión (o sin versión) vuelve a recibir los valores del perfil al cargarse.
+THESIS_PROFILE_VERSION = 2
+THESIS_OIL_AT_SHUTDOWN_PCT = 60.56   # aceite medido al apagar (2,431 gal), % de la carga
 
 PROFILE_LABELS = {
     PROFILE_GENERAL: {"es": "General (uso público)", "en": "General (public use)"},

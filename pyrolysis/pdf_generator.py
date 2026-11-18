@@ -781,7 +781,7 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         [Paragraph("Diámetro Interno (D)", table_cell_style), Paragraph(f"{dia_m:.2f} m", table_cell_center), Paragraph("Temperatura Máxima (T_hold)", table_cell_style), Paragraph(f"{temp_hold:.1f} °C", table_cell_center)],
         [Paragraph("Relación de Aspecto (L/D)", table_cell_style), Paragraph(f"{aspect_ratio:.2f}", table_cell_center), Paragraph("Tasa de Calentamiento", table_cell_style), Paragraph(f"{heating_rate:.1f} °C/min", table_cell_center)],
         [Paragraph("Velocidad de Rotación", table_cell_style), Paragraph(f"{rpm_val:.1f} RPM", table_cell_center), Paragraph("Coef. Transf. Calor (h_eff)", table_cell_style), Paragraph(f"{h_eff:.1f} W/m²·K", table_cell_center)],
-        [Paragraph("Grado de Llenado del Lecho", table_cell_style), Paragraph(f"{fill_deg:.2f} %", table_cell_center), Paragraph("Potencia Quemadores", table_cell_style), Paragraph(f"{burner_hp:.0f} HP", table_cell_center)],
+        [Paragraph("Grado de Llenado del Lecho", table_cell_style), Paragraph(f"{fill_deg:.2f} %", table_cell_center), Paragraph("Potencia Quemadores", table_cell_style), Paragraph(f"{burner_hp:.0f} BHP", table_cell_center)],
         [Paragraph("Tiempo Evaporación Agua (Secado)", table_cell_style), Paragraph(f"{t_drying_end:.1f} min" if not is_continuous else "N/A", table_cell_center), Paragraph("Eficiencia Térmica Quemador", table_cell_style), Paragraph(f"{burner_eff:.1f} %", table_cell_center)],
         [Paragraph(time_label_1, table_cell_style), Paragraph(time_val_1, table_cell_center), Paragraph("Consumo Combustible Auxiliar", table_cell_style), Paragraph(f"{fuel_cons:.1f} gal{fuel_unit}", table_cell_center)],
         [Paragraph(time_label_2, table_cell_style), Paragraph(time_val_2, table_cell_center), Paragraph("Conversión Volátiles Total", table_cell_style), Paragraph(f"{conv_pct:.1f} %", table_cell_center)],
@@ -1173,7 +1173,8 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(Spacer(1, 10))
 
     # --- 5.4 Evaluación de Indicadores Financieros Clave (KPIs) ---
-    irr_str = f"{fin['irr']:.1f}%" if fin['irr'] is not None else "N/A"
+    from pyrolysis.gui.economics_panel import format_irr
+    irr_str = format_irr(fin['irr'], 1)
     payback_str = f"{fin['payback']:.1f} años" if fin['payback'] != float('inf') else "N/A"
     disc_payback_str = f"{fin['disc_payback']:.1f} años" if fin['disc_payback'] != float('inf') else "N/A"
 
@@ -1258,7 +1259,9 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(Paragraph("6. Discusión Técnica y Conclusiones Académicas", h1_style))
     story.append(HRFlowable(width="100%", thickness=0.75, color=colors.HexColor("#CBD5E1"), spaceBefore=0, spaceAfter=8))
     
-    irr_str = f"{fin['irr']:.1f}%" if fin.get('irr') is not None else "N/A"
+    from pyrolysis.gui.economics_panel import format_irr
+    
+    irr_str = format_irr(fin.get('irr'), 1)
     payback_str = f"{fin['payback']:.1f} años" if fin.get('payback') != float('inf') else "N/A"
     co2_tons = fin.get('annual_co2_sequestered_ton', 0.0)
 

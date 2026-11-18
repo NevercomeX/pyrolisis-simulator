@@ -8,7 +8,7 @@ kiln wall thermal inertia, manifold autogenous pressure dynamics, and drying.
 from typing import Dict, Any, Optional
 import numpy as np
 from ..feedstock import Feedstock
-from .base import BaseReactorSimulation
+from .base import BaseReactorSimulation, BHP_TO_W
 
 
 class BatchReactorSimulation(BaseReactorSimulation):
@@ -319,7 +319,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
             # 4. Reactor shell & burner heat balance
             q_main_nominal = self.burner_nominal_power_watts
             r_syngas_prod = d_gas_prod / dt_sec if dt_sec > 0.0 else 0.0
-            q_syngas_nominal = self.syngas_hp * 745.7 * self.burner_efficiency
+            q_syngas_nominal = self.syngas_hp * BHP_TO_W   # nameplate in boiler hp = useful heat output
             q_syngas_thermal = min(r_syngas_prod * 12e6 * self.burner_efficiency, q_syngas_nominal)
 
             q_needed_wall = max(0.0, (T_w - T_s) * self.h_eff * A_heat)

@@ -187,7 +187,8 @@ class TestPyrolysisSimulation(unittest.TestCase):
         self.assertEqual(len(res['p_oil']), len(res['time']))
         self.assertEqual(len(res['p_syngas']), len(res['time']))
         self.assertGreater(max(res['p_oil']), 0.0)
-        self.assertLessEqual(max(res['p_syngas']), 150.0 * 745.7 * 0.85 / 1000.0 + 1e-6)
+        from pyrolysis.reactor.base import BHP_TO_W
+        self.assertLessEqual(max(res['p_syngas']), 150.0 * BHP_TO_W / 1000.0 + 1e-6)   # 150 BHP
 
     def test_batch_api_gravity_not_predicted(self):
         """°API is no longer predicted (must come from ASTM D4052): NaN for any oil density."""
@@ -418,6 +419,15 @@ class TestThesisProfile(unittest.TestCase):
         self.assertAlmostEqual(s['cycle_time_min'], 429.8, delta=1.0)
         self.assertAlmostEqual(s['water_yield_pct'], 2.0, delta=0.05)
 
+    def test_thesis_burner_300_bhp_covers_the_ramp(self):
+        """The plant burner is 300 BHP (boiler hp, 33,475 BTU/h each ≈ 2.94 MW), not 300 mechanical hp."""
+        from pyrolysis.profiles import thesis_batch_kwargs
+        from pyrolysis.reactor.batch import BatchReactorSimulation
+        sim = BatchReactorSimulation(**thesis_batch_kwargs())
+        self.assertAlmostEqual(sim.burner_nominal_power_watts / 1000.0, 2943.2, delta=0.5)
+        s = sim.simulate(dt_sec=2.0)['summary']
+        self.assertEqual(s['burner_shortfall_min'], 0.0)
+
 
 class TestFinancialModel(unittest.TestCase):
     # Loses money with no tipping fee (no tax) and pays tax above ~6 RD$/gal: NPV is not a straight line.
@@ -437,6 +447,12 @@ class TestFinancialModel(unittest.TestCase):
     def test_npv_is_zero_at_breakeven_tipping_fee(self):
         breakeven = self._model()['breakeven_tipping']
         self.assertAlmostEqual(self._model(opex_tipping=breakeven)['npv'], 0.0, delta=1.0)
+
+    def test_irr_above_1000_pct_and_beyond_search_bound(self):
+        from pyrolysis.gui.economics_panel import solve_irr, format_irr
+        self.assertAlmostEqual(solve_irr([-1e5] + [5e6] * 10), 5000.0, delta=0.01)   # was "N/A" (bound 1,000 %)
+        self.assertEqual(format_irr(solve_irr([-1.0] + [1e7] * 10)), "> 100,000 %")
+        self.assertEqual(format_irr(solve_irr([0.0, 1.0, 1.0])), "N/A")               # no investment: undefined
 
     def test_npv_is_zero_at_irr(self):
         irr = self._model()['irr']

@@ -10,23 +10,33 @@ EF_CO2_FUEL_OIL_KG_PER_KG = 3.15   # waste / fuel oil combustion
 EF_CO2_DIESEL_KG_PER_GAL = 10.21   # diesel generator
 EF_CO2_SYNGAS_KG_PER_KG = 0.84     # pyrolysis gas at ~12 MJ/kg and ~0.07 kg CO2/MJ
 
+IRR_SEARCH_MAX = 1000.0   # upper search bound for the IRR as a fraction (= 100,000 %)
+
+
 def solve_irr(cash_flows):
     """
     Calculates the Internal Rate of Return (IRR) for a given series of cash flows.
-    Returns the percentage or None if it cannot be solved.
+    Returns the percentage, float('inf') when a conventional project (investment first, then non-negative
+    flows) still has NPV > 0 at IRR_SEARCH_MAX, or None if it cannot be solved.
     """
     if not cash_flows or all(x >= 0 for x in cash_flows) or all(x <= 0 for x in cash_flows):
         return None
-    
+
     def npv_func(r):
         return sum(cf / ((1.0 + r)**t) for t, cf in enumerate(cash_flows))
-    
+
     low = -0.99
     high = 10.0
-    
+
     val_low = npv_func(low)
     val_high = npv_func(high)
-    
+    # Very profitable projects: widen the bracket instead of giving up at 1,000 %
+    while val_low * val_high > 0 and high < IRR_SEARCH_MAX:
+        high = min(high * 10.0, IRR_SEARCH_MAX)
+        val_high = npv_func(high)
+    if val_low * val_high > 0 and val_high > 0 and cash_flows[0] < 0 and all(x >= 0 for x in cash_flows[1:]):
+        return float('inf')
+
     if val_low * val_high > 0:
         found = False
         steps = 100
@@ -58,6 +68,15 @@ def solve_irr(cash_flows):
                 high = mid
                 
     return ((low + high) / 2.0) * 100.0
+
+def format_irr(irr, decimals=2):
+    """IRR text: 'N/A' when undefined, '> 100,000 %' above the search bound, otherwise the value."""
+    if irr is None:
+        return "N/A"
+    if irr == float('inf'):
+        return f"> {IRR_SEARCH_MAX * 100.0:,.0f} %"
+    return f"{irr:,.{decimals}f} %"
+
 
 SLUDGE_SCENARIOS = ('purchase', 'free', 'tipping')
 SLUDGE_SCENARIO_LABELS = {
@@ -658,357 +677,278 @@ def render_pre_drying_evaluator(
         </div>
         """, unsafe_allow_html=True)
 
-def render_economics_tab(mode_option, results, summary, solver_inputs):
-    """Renders the interactive Economic Viability tab (Standardized in DOP - RD$)."""
+def _econ_defaults(is_continuous):
+    """Fallback values of the economic inputs (session_state normally already holds them via DEFAULT_PARAMS)."""
+    return {
+        'capex_equip': 9000000.0 if is_continuous else 4800000.0,
+        'capex_install': 3150000.0 if is_continuous else 1680000.0,
+        'capex_civil': 2250000.0 if is_continuous else 1200000.0,
+        'capex_piping_elec': 2250000.0 if is_continuous else 1200000.0,
+        'capex_eng': 1350000.0 if is_continuous else 720000.0,
+        'capex_permits': 450000.0,
+        'capex_cont': 900000.0,
+        'opex_handling': 3.00,
+        'opex_tipping': 9.00,
+        'opex_fuel': 180.00,
+        'opex_electricity': 7.50,
+        'opex_aux_utilities': 300000.0,
+        'price_generator_fuel': 262.80,
+        'opex_labor': 3000000.0,
+        'opex_maint': 3.0,
+        'opex_insurance_tax': 1.0,
+        'price_oil': 120.00,
+        'price_char': 21.00,
+        'price_gas': 3.60,
+        'price_carbon': 1200.0,
+        'rate_carbon_offset': 2.2,
+        'discount_rate': 14.0,
+        'project_lifetime': 10,
+        'tax_rate': 25.0,
+        'inflation_rate': 4.0,
+        'shutdown_days': 15,
+        'holidays_days': 15,
+        'gen_diesel_rate': 1.2,    # gal/h (continuous)
+        'gen_diesel_batch': 1.0,   # gal/batch
+        'batch_cooldown_h': 0.50,
+        'batch_loading_h': 0.50,
+        'batches_before_cleaning': 20,
+        'cleaning_time_h': 4.0,
+        'maint_cooldown_h': 6.0,
+        'econ_sludge_scenario': 'tipping',
+        'econ_sludge_cost': 0.0,
+        'econ_batches_per_year': 0,
+        'econ_oil_gal_per_batch': 0.0,
+        'econ_fuel_gal_per_batch': 0.0,
+    }
+
+
+def render_economics_inputs(mode_option):
+    """Economic parameters inside a form: new values reach session_state (and every section) only when the
+    user presses "Recalcular", so typing a number does not reload the page."""
     lang = get_lang()
-    
-    # Callback for saving current financial parameters to browser LocalStorage
-    def _save_econ_to_ls_cb():
-        st.session_state['trigger_save_ls'] = True
-        st.session_state['econ_saved_flag'] = True
-
-    # Header with LocalStorage Save Button
-    col_hdr_txt, col_hdr_btn = st.columns([3, 2])
-    with col_hdr_txt:
-        st.markdown(f"### 💸 {t('econ_title')}")
-        st.markdown(t('econ_desc'))
-    with col_hdr_btn:
-        st.button(t('econ_save_ls_btn'), key='btn_save_econ_ls', on_click=_save_econ_to_ls_cb, use_container_width=True)
-
-    if st.session_state.get('trigger_save_ls', False):
-        from pyrolysis.gui.config_manager import DEFAULT_PARAMS
-        from pyrolysis.gui.local_storage import local_storage_set
-        full_config_data = {k: st.session_state.get(k, DEFAULT_PARAMS.get(k)) for k in DEFAULT_PARAMS.keys()}
-        res = local_storage_set("pyrolysis_config", full_config_data, key_suffix="econ_save")
-        if res is True or st.session_state.get('econ_saved_flag', False):
-            st.session_state['trigger_save_ls'] = False
-            st.session_state['econ_saved_flag'] = False
-            st.success(t('econ_save_ls_success'))
-
-    st.markdown("---")
-    
-    curr_sym = "RD$"
-    
-    # Default values based on operational mode (Standardized in DOP RD$)
     is_continuous = (mode_option == "Continuous Operation")
-    default_equip = 9000000.0 if is_continuous else 4800000.0
-    default_install = 3150000.0 if is_continuous else 1680000.0
-    default_civil = 2250000.0 if is_continuous else 1200000.0
-    default_piping_elec = 2250000.0 if is_continuous else 1200000.0
-    default_eng = 1350000.0 if is_continuous else 720000.0
-    default_permits = 450000.0
-    default_contingency = 900000.0
-    
-    default_handling = 3.00
-    default_tipping = 9.00
-    default_fuel_price = 180.00
-    default_electricity = 7.50
-    default_aux_utilities = 300000.0
-    default_gen_fuel_price = 262.80
-    default_labor = 3000000.0
-    default_maint_rate = 3.0
-    default_insurance_tax = 1.0
-    
-    default_oil_price = 120.00
-    default_char_price = 21.00
-    default_gas_price = 3.60
-    default_price_carbon = 1200.0
-    default_rate_carbon_offset = 2.2
-    
-    default_discount = 14.0
-    default_lifetime = 10
-    default_days = 246
-    default_tax_rate = 25.0
-    default_inflation_rate = 4.0
+    d = _econ_defaults(is_continuous)
+    ss = st.session_state
 
-    # Default generator fuel consumption (Continuous: gal/h, Batch: gal/batch)
-    default_gen_consumption = 1.2 if is_continuous else 1.0
-    
-    # Callback for applying industrial CAPEX ratios
+    def num(label, key, **kw):
+        cast = int if isinstance(d[key], int) else float
+        return st.number_input(label, value=cast(ss.get(key, d[key])), key=key, **kw)
+
     def _apply_capex_ratios_cb():
-        eq_val = st.session_state.get('capex_equip', default_equip)
-        st.session_state['capex_install'] = float(round(eq_val * 0.35, 2))
-        st.session_state['capex_civil'] = float(round(eq_val * 0.25, 2))
-        st.session_state['capex_piping_elec'] = float(round(eq_val * 0.25, 2))
-        st.session_state['capex_eng'] = float(round(eq_val * 0.15, 2))
-        st.session_state['capex_permits'] = float(round(eq_val * 0.05, 2))
-        st.session_state['capex_cont'] = float(round(eq_val * 0.10, 2))
+        eq_val = ss.get('capex_equip', d['capex_equip'])
+        ss['capex_install'] = float(round(eq_val * 0.35, 2))
+        ss['capex_civil'] = float(round(eq_val * 0.25, 2))
+        ss['capex_piping_elec'] = float(round(eq_val * 0.25, 2))
+        ss['capex_eng'] = float(round(eq_val * 0.15, 2))
+        ss['capex_permits'] = float(round(eq_val * 0.05, 2))
+        ss['capex_cont'] = float(round(eq_val * 0.10, 2))
 
-    # Columns for parameters (using expanders)
-    col_param_l, col_param_r = st.columns(2)
-    
-    with col_param_l:
-        with st.expander(f"🏗️ {t('econ_section_capex')}", expanded=True):
-            col_cx1, col_cx2 = st.columns(2)
-            with col_cx1:
-                capex_equip = st.number_input(t('econ_input_reactor_cost'), min_value=0.0, value=float(st.session_state.get('capex_equip', default_equip)), step=250000.0, key='capex_equip')
-                capex_civil = st.number_input(t('econ_input_civil_works'), min_value=0.0, value=float(st.session_state.get('capex_civil', default_civil)), step=100000.0, key='capex_civil')
-                capex_eng = st.number_input(t('econ_input_engineering'), min_value=0.0, value=float(st.session_state.get('capex_eng', default_eng)), step=100000.0, key='capex_eng')
-            with col_cx2:
-                capex_install = st.number_input(t('econ_input_installation'), min_value=0.0, value=float(st.session_state.get('capex_install', default_install)), step=100000.0, key='capex_install')
-                capex_piping_elec = st.number_input(t('econ_input_piping_elec'), min_value=0.0, value=float(st.session_state.get('capex_piping_elec', default_piping_elec)), step=100000.0, key='capex_piping_elec')
-                capex_permits = st.number_input(t('econ_input_permits'), min_value=0.0, value=float(st.session_state.get('capex_permits', default_permits)), step=50000.0, key='capex_permits')
-            capex_cont = st.number_input(t('econ_input_contingency'), min_value=0.0, value=float(st.session_state.get('capex_cont', default_contingency)), step=50000.0, key='capex_cont')
-            
-            st.button(t('econ_btn_apply_ratios'), key='btn_apply_capex_ratios', on_click=_apply_capex_ratios_cb)
+    if ss.get('econ_sludge_scenario') not in SLUDGE_SCENARIOS:
+        ss['econ_sludge_scenario'] = 'tipping'
 
-        with st.expander(f"⚙️ {t('econ_section_opex')}", expanded=True):
-            col_ox1, col_ox2 = st.columns(2)
-            with col_ox1:
-                opex_handling = st.number_input(t('econ_input_handling'), min_value=0.0, value=float(st.session_state.get('opex_handling', default_handling)), step=0.5, key='opex_handling')
-                opex_electricity = st.number_input(t('econ_input_electricity'), min_value=0.0, value=float(st.session_state.get('opex_electricity', default_electricity)), step=0.5, key='opex_electricity')
-                price_generator_fuel = st.number_input(t('econ_input_gen_fuel'), min_value=0.0, value=float(st.session_state.get('price_generator_fuel', default_gen_fuel_price)), step=5.0, key='price_generator_fuel')
-                opex_labor = st.number_input(t('econ_input_labor'), min_value=0.0, value=float(st.session_state.get('opex_labor', default_labor)), step=250000.0, key='opex_labor')
-            with col_ox2:
-                opex_fuel = st.number_input(t('econ_input_fuel'), min_value=0.0, value=float(st.session_state.get('opex_fuel', default_fuel_price)), step=5.0, key='opex_fuel')
-                opex_aux_utilities = st.number_input(t('econ_input_aux_utilities'), min_value=0.0, value=float(st.session_state.get('opex_aux_utilities', default_aux_utilities)), step=25000.0, key='opex_aux_utilities')
-                if is_continuous:
-                    gen_diesel_rate = st.number_input(t('econ_input_gen_fuel_rate'), min_value=0.0, value=float(st.session_state.get('gen_diesel_rate', default_gen_consumption)), step=0.1, key='gen_diesel_rate')
-                else:
-                    gen_diesel_batch = st.number_input(t('econ_input_gen_fuel_batch'), min_value=0.0, value=float(st.session_state.get('gen_diesel_batch', default_gen_consumption)), step=0.5, key='gen_diesel_batch')
-                opex_maint = st.number_input(t('econ_input_maintenance'), min_value=0.0, max_value=25.0, value=float(st.session_state.get('opex_maint', default_maint_rate)), step=0.5, key='opex_maint')
-            opex_insurance_tax = st.number_input(t('econ_input_insurance_tax'), min_value=0.0, max_value=10.0, value=float(st.session_state.get('opex_insurance_tax', default_insurance_tax)), step=0.1, key='opex_insurance_tax')
-            
-    with col_param_r:
-        with st.expander(f"🏷️ {t('econ_section_revenue')}", expanded=True):
-            if st.session_state.get('econ_sludge_scenario') not in SLUDGE_SCENARIOS:
-                st.session_state['econ_sludge_scenario'] = 'tipping'
-            sludge_scenario = st.radio(
-                "Escenario económico del lodo" if lang == 'es' else "Sludge economic scenario",
-                SLUDGE_SCENARIOS, format_func=lambda k: SLUDGE_SCENARIO_LABELS[k][lang],
-                key='econ_sludge_scenario')
-            col_sc1, col_sc2 = st.columns(2)
-            with col_sc1:
-                sludge_cost = st.number_input(
-                    "Costo de compra del lodo, X (RD$/gal)" if lang == 'es' else "Sludge purchase cost, X (RD$/gal)",
-                    min_value=0.0, value=float(st.session_state.get('econ_sludge_cost', 0.0)), step=1.0,
-                    key='econ_sludge_cost')
-            with col_sc2:
-                tipping_y = st.number_input(t('econ_input_tipping') + ", Y", min_value=0.0,
-                                            value=float(st.session_state.get('opex_tipping', default_tipping)),
-                                            step=1.0, key='opex_tipping')
-            # Fee used by the whole tab (negative = the plant pays for the sludge)
-            opex_tipping = scenario_tipping_fee(sludge_scenario, sludge_cost, tipping_y)
-            col_rv1, col_rv2 = st.columns(2)
-            with col_rv1:
-                price_oil = st.number_input(t('econ_input_price_oil'), min_value=0.0, value=float(st.session_state.get('price_oil', default_oil_price)), step=5.0, key='price_oil')
-                price_char = st.number_input(t('econ_input_price_char'), min_value=0.0, value=float(st.session_state.get('price_char', default_char_price)), step=1.0, key='price_char')
-            with col_rv2:
-                price_gas = st.number_input(t('econ_input_price_gas'), min_value=0.0, value=float(st.session_state.get('price_gas', default_gas_price)), step=0.5, key='price_gas')
-                price_carbon = st.number_input(t('econ_input_carbon_price'), min_value=0.0, value=float(st.session_state.get('price_carbon', default_price_carbon)), step=50.0, key='price_carbon')
-            rate_carbon_offset = st.number_input(t('econ_input_carbon_rate'), min_value=0.0, value=float(st.session_state.get('rate_carbon_offset', default_rate_carbon_offset)), step=0.1, key='rate_carbon_offset')
-            
-        with st.expander(f"📈 {t('econ_section_params')}", expanded=True):
-            col_pr1, col_pr2 = st.columns(2)
-            with col_pr1:
-                discount_rate = st.number_input(t('econ_input_discount'), min_value=0.0, max_value=50.0, value=float(st.session_state.get('discount_rate', default_discount)), step=0.5, key='discount_rate')
-                tax_rate = st.number_input(t('econ_input_income_tax'), min_value=0.0, max_value=80.0, value=float(st.session_state.get('tax_rate', default_tax_rate)), step=1.0, key='tax_rate')
-                project_lifetime = st.number_input(t('econ_input_lifetime'), min_value=1, max_value=30, value=int(st.session_state.get('project_lifetime', default_lifetime)), step=1, key='project_lifetime')
-            with col_pr2:
-                inflation_rate = st.number_input(t('econ_input_inflation'), min_value=0.0, max_value=50.0, value=float(st.session_state.get('inflation_rate', default_inflation_rate)), step=0.5, key='inflation_rate')
-                shutdown_days = st.number_input(
-                    t('econ_input_shutdown_days'),
-                    min_value=0, max_value=200,
-                    value=int(st.session_state.get('shutdown_days', 15)),
-                    step=1,
-                    key='shutdown_days',
-                    help="Días al año para paradas técnicas mayores, averías o mantenimiento anual general."
-                )
-                holidays_days = st.number_input(
-                    t('econ_input_holidays_days'),
-                    min_value=0, max_value=200,
-                    value=int(st.session_state.get('holidays_days', 15)),
-                    step=1,
-                    key='holidays_days',
-                    help="Días feriados o no laborables al año según calendario legal/laboral."
-                )
+    with st.form("econ_params_form"):
+        st.markdown("##### ⚙️ " + ("Parámetros económicos" if lang == 'es' else "Economic parameters"))
+        st.caption("Los cambios se aplican al pulsar «Recalcular»." if lang == 'es'
+                   else "Changes are applied when you press “Recalculate”.")
+        col_param_l, col_param_r = st.columns(2)
+        with col_param_l:
+            with st.expander(f"🏗️ {t('econ_section_capex')}", expanded=True):
+                col_cx1, col_cx2 = st.columns(2)
+                with col_cx1:
+                    num(t('econ_input_reactor_cost'), 'capex_equip', min_value=0.0, step=250000.0)
+                    num(t('econ_input_civil_works'), 'capex_civil', min_value=0.0, step=100000.0)
+                    num(t('econ_input_engineering'), 'capex_eng', min_value=0.0, step=100000.0)
+                with col_cx2:
+                    num(t('econ_input_installation'), 'capex_install', min_value=0.0, step=100000.0)
+                    num(t('econ_input_piping_elec'), 'capex_piping_elec', min_value=0.0, step=100000.0)
+                    num(t('econ_input_permits'), 'capex_permits', min_value=0.0, step=50000.0)
+                num(t('econ_input_contingency'), 'capex_cont', min_value=0.0, step=50000.0)
 
-            available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
-            annual_days = available_calendar_days
-            st.session_state['annual_days'] = annual_days
-            
-            # Special batch variables: Separated Cooldown and Loading/Unloading times
-            if not is_continuous:
-                col_b1, col_b2 = st.columns(2)
-                with col_b1:
-                    batch_cooldown_h = st.number_input(
-                        "Tiempo de Enfriamiento por Lote (h)",
-                        min_value=0.0,
-                        max_value=200.0,
-                        value=float(st.session_state.get('batch_cooldown_h', 0.50)),
-                        step=0.25,
-                        format="%.2f",
-                        key='batch_cooldown_h'
-                    )
-                with col_b2:
-                    batch_loading_h = st.number_input(
-                        "Tiempo de Carga y Descarga por Lote (h)",
-                        min_value=0.0,
-                        max_value=200.0,
-                        value=float(st.session_state.get('batch_loading_h', 0.50)),
-                        step=0.25,
-                        format="%.2f",
-                        key='batch_loading_h'
-                    )
-                batch_turnaround_h = batch_cooldown_h + batch_loading_h
-                st.session_state['batch_turnaround_h'] = batch_turnaround_h
-                st.caption(f"⏱️ **Tiempo Operativo Fuera de Proceso / Routine Turnaround:** `{batch_turnaround_h:.2f} h` (`{batch_cooldown_h*60:.0f} min` enfriamiento + `{batch_loading_h*60:.0f} min` carga/descarga)")
-                
-                # Mantenimiento y limpieza periódica
-                st.markdown("##### 🧹 Mantenimiento Periódico y Limpieza")
-                col_m1, col_m2, col_m3 = st.columns(3)
-                with col_m1:
-                    batches_before_cleaning = st.number_input(
-                        "Cantidad de Lotes antes de Limpieza",
-                        min_value=1,
-                        max_value=1000,
-                        value=int(st.session_state.get('batches_before_cleaning', 20)),
-                        step=1,
-                        key='batches_before_cleaning',
-                        help="Cantidad de lotes operados antes de detener el reactor para limpieza y mantenimiento."
-                    )
-                with col_m2:
-                    cleaning_time_h = st.number_input(
-                        "Tiempo de Limpieza (h)",
-                        min_value=0.0,
-                        max_value=200.0,
-                        value=float(st.session_state.get('cleaning_time_h', 4.0)),
-                        step=0.5,
-                        format="%.2f",
-                        key='cleaning_time_h',
-                        help="Duración del trabajo de limpieza física, decoking e inspección interna."
-                    )
-                with col_m3:
-                    maint_cooldown_h = st.number_input(
-                        "Tiempo de Enfriamiento para Mantenimiento (h)",
-                        min_value=0.0,
-                        max_value=200.0,
-                        value=float(st.session_state.get('maint_cooldown_h', 6.0)),
-                        step=0.5,
-                        format="%.2f",
-                        key='maint_cooldown_h',
-                        help="Tiempo de enfriamiento profundo necesario para poder abrir e intervenir el reactor de forma segura."
-                    )
-                
-                maint_stop_total_h = maint_cooldown_h + cleaning_time_h
-                maint_penalty_per_batch_h = maint_stop_total_h / max(batches_before_cleaning, 1)
-                st.caption(f"🔧 **Parada de Mantenimiento:** Cada `{batches_before_cleaning}` lotes se detiene `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento profundo + `{cleaning_time_h:.2f} h` limpieza). Impacto promedio ponderado: `+{maint_penalty_per_batch_h:.2f} h/lote`.")
+            with st.expander(f"⚙️ {t('econ_section_opex')}", expanded=True):
+                col_ox1, col_ox2 = st.columns(2)
+                with col_ox1:
+                    num(t('econ_input_handling'), 'opex_handling', min_value=0.0, step=0.5)
+                    num(t('econ_input_electricity'), 'opex_electricity', min_value=0.0, step=0.5)
+                    num(t('econ_input_gen_fuel'), 'price_generator_fuel', min_value=0.0, step=5.0)
+                    num(t('econ_input_labor'), 'opex_labor', min_value=0.0, step=250000.0)
+                with col_ox2:
+                    num(t('econ_input_fuel'), 'opex_fuel', min_value=0.0, step=5.0, format="%.4f")
+                    num(t('econ_input_aux_utilities'), 'opex_aux_utilities', min_value=0.0, step=25000.0)
+                    if is_continuous:
+                        num(t('econ_input_gen_fuel_rate'), 'gen_diesel_rate', min_value=0.0, step=0.1)
+                    else:
+                        num(t('econ_input_gen_fuel_batch'), 'gen_diesel_batch', min_value=0.0, step=0.5)
+                    num(t('econ_input_maintenance'), 'opex_maint', min_value=0.0, max_value=25.0, step=0.5)
+                num(t('econ_input_insurance_tax'), 'opex_insurance_tax', min_value=0.0, max_value=10.0, step=0.1)
 
-                # Plant data that override the simulation in the economics (0 = use the simulated value)
-                st.markdown("##### 📌 " + ("Datos de planta para la economía (0 = usar la simulación)" if lang == 'es'
-                                           else "Plant data for the economics (0 = use the simulation)"))
-                col_f1, col_f2, col_f3 = st.columns(3)
-                with col_f1:
-                    econ_batches_fixed = st.number_input(
-                        "Lotes por año (fijo)" if lang == 'es' else "Batches per year (fixed)",
-                        min_value=0, max_value=10000, step=1, key='econ_batches_per_year',
-                        value=int(st.session_state.get('econ_batches_per_year', 0)),
-                        help="Si es mayor que 0, no se calculan a partir del tiempo de ciclo simulado." if lang == 'es'
-                        else "If above 0, batches are not derived from the simulated cycle time.")
-                with col_f2:
-                    econ_oil_gal_batch = st.number_input(
-                        "Aceite por lote (gal)" if lang == 'es' else "Oil per batch (gal)",
-                        min_value=0.0, step=10.0, format="%.2f", key='econ_oil_gal_per_batch',
-                        value=float(st.session_state.get('econ_oil_gal_per_batch', 0.0)))
-                with col_f3:
-                    econ_fuel_gal_batch = st.number_input(
-                        "Combustible auxiliar por lote (gal)" if lang == 'es' else "Auxiliary fuel per batch (gal)",
-                        min_value=0.0, step=10.0, format="%.2f", key='econ_fuel_gal_per_batch',
-                        value=float(st.session_state.get('econ_fuel_gal_per_batch', 0.0)))
+        with col_param_r:
+            with st.expander(f"🏷️ {t('econ_section_revenue')}", expanded=True):
+                st.radio("Escenario económico del lodo" if lang == 'es' else "Sludge economic scenario",
+                         SLUDGE_SCENARIOS, format_func=lambda k: SLUDGE_SCENARIO_LABELS[k][lang],
+                         key='econ_sludge_scenario')
+                col_sc1, col_sc2 = st.columns(2)
+                with col_sc1:
+                    num("Costo de compra del lodo, X (RD$/gal)" if lang == 'es' else "Sludge purchase cost, X (RD$/gal)",
+                        'econ_sludge_cost', min_value=0.0, step=1.0)
+                with col_sc2:
+                    num(t('econ_input_tipping') + ", Y", 'opex_tipping', min_value=0.0, step=1.0)
+                col_rv1, col_rv2 = st.columns(2)
+                with col_rv1:
+                    num(t('econ_input_price_oil'), 'price_oil', min_value=0.0, step=5.0)
+                    num(t('econ_input_price_char'), 'price_char', min_value=0.0, step=1.0)
+                with col_rv2:
+                    num(t('econ_input_price_gas'), 'price_gas', min_value=0.0, step=0.5)
+                    num(t('econ_input_carbon_price'), 'price_carbon', min_value=0.0, step=50.0)
+                num(t('econ_input_carbon_rate'), 'rate_carbon_offset', min_value=0.0, step=0.1)
 
-                # Cálculos automáticos de días de operación al año
-                t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
-                t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
-                t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
-                available_hours = available_calendar_days * 24.0
-                if econ_batches_fixed > 0:
-                    batches_per_year_est = float(econ_batches_fixed)
-                else:
-                    batches_per_year_est = np.floor(available_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
-                operating_days_batches = (batches_per_year_est * t_op_batch_hours) / 24.0
-                cleaning_days_annual = (batches_per_year_est * maint_penalty_per_batch_h) / 24.0
-                campaign_active_days = operating_days_batches + cleaning_days_annual
+            with st.expander(f"📈 {t('econ_section_params')}", expanded=True):
+                col_pr1, col_pr2 = st.columns(2)
+                with col_pr1:
+                    num(t('econ_input_discount'), 'discount_rate', min_value=0.0, max_value=50.0, step=0.5)
+                    num(t('econ_input_income_tax'), 'tax_rate', min_value=0.0, max_value=80.0, step=1.0)
+                    num(t('econ_input_lifetime'), 'project_lifetime', min_value=1, max_value=30, step=1)
+                with col_pr2:
+                    num(t('econ_input_inflation'), 'inflation_rate', min_value=0.0, max_value=50.0, step=0.5)
+                    num(t('econ_input_shutdown_days'), 'shutdown_days', min_value=0, max_value=200, step=1,
+                        help="Días al año para paradas técnicas mayores, averías o mantenimiento anual general.")
+                    num(t('econ_input_holidays_days'), 'holidays_days', min_value=0, max_value=200, step=1,
+                        help="Días feriados o no laborables al año según calendario legal/laboral.")
 
-                if lang == 'es':
-                    title_text = "📅 Calendario Anual y Capacidad (Base 365 días)"
-                    badge_text = f"{batches_per_year_est:.0f} lotes/año"
-                    lbl_disp = "Días Disponibles de Planta"
-                    sub_disp = f"(365 - {shutdown_days}d parada - {holidays_days}d feriados)"
-                    lbl_op = "Días de Operación Efectiva (Lotes)"
-                    sub_op = f"({batches_per_year_est * t_op_batch_hours:.1f} h proceso)"
-                    lbl_clean = "Días de Parada por Limpieza / Mant."
-                    sub_clean = f"({batches_per_year_est * maint_penalty_per_batch_h:.1f} h paradas)"
-                    lbl_tot = "Días Totales Activos de Campaña"
-                    sub_tot = f"(Ciclo: {t_cycle_hours:.2f} h/lote)"
-                    days_unit = "días/año"
-                else:
-                    title_text = "📅 Annual Calendar & Throughput (365 days base)"
-                    badge_text = f"{batches_per_year_est:.0f} batches/yr"
-                    lbl_disp = "Plant Available Days"
-                    sub_disp = f"(365 - {shutdown_days}d shutdown - {holidays_days}d holidays)"
-                    lbl_op = "Effective Batch Operating Days"
-                    sub_op = f"({batches_per_year_est * t_op_batch_hours:.1f} h process)"
-                    lbl_clean = "Cleaning & Maintenance Downtime Days"
-                    sub_clean = f"({batches_per_year_est * maint_penalty_per_batch_h:.1f} h downtime)"
-                    lbl_tot = "Total Active Campaign Days"
-                    sub_tot = f"(Cycle: {t_cycle_hours:.2f} h/batch)"
-                    days_unit = "days/yr"
+                if not is_continuous:
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        num("Tiempo de Enfriamiento por Lote (h)", 'batch_cooldown_h',
+                            min_value=0.0, max_value=200.0, step=0.25, format="%.2f")
+                    with col_b2:
+                        num("Tiempo de Carga y Descarga por Lote (h)", 'batch_loading_h',
+                            min_value=0.0, max_value=200.0, step=0.25, format="%.2f")
 
-                st.markdown(f"""
-                <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-top: 10px; margin-bottom: 8px;">
-                    <div style="font-weight: 600; font-size: 0.90rem; color: #f1f5f9; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-                        <span>{title_text}</span>
-                        <span style="background-color: #1e293b; color: #38bdf8; font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284c7;">{badge_text}</span>
-                    </div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #cbd5e1;">
-                        <tr style="border-bottom: 1px solid #1e293b;">
-                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_disp}</td>
-                            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #f8fafc;">{available_calendar_days} {days_unit}</td>
-                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_disp}</td>
-                        </tr>
-                        <tr style="border-bottom: 1px solid #1e293b;">
-                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_op}</td>
-                            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #34d399;">{operating_days_batches:.1f} {days_unit}</td>
-                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_op}</td>
-                        </tr>
-                        <tr style="border-bottom: 1px solid #1e293b;">
-                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_clean}</td>
-                            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #fbbf24;">{cleaning_days_annual:.1f} {days_unit}</td>
-                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_clean}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 5px 0; color: #94a3b8;">{lbl_tot}</td>
-                            <td style="padding: 5px 8px; text-align: right; font-weight: 700; color: #38bdf8;">{campaign_active_days:.1f} {days_unit}</td>
-                            <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_tot}</td>
-                        </tr>
-                    </table>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                batch_cooldown_h = 0.50
-                batch_loading_h = 0.50
-                batch_turnaround_h = 1.0
-                batches_before_cleaning = 20
-                cleaning_time_h = 4.0
-                maint_cooldown_h = 6.0
-                maint_stop_total_h = 10.0
-                maint_penalty_per_batch_h = 0.0
-                econ_batches_fixed, econ_oil_gal_batch, econ_fuel_gal_batch = 0, 0.0, 0.0
-                st.session_state['batch_turnaround_h'] = 1.0
-                operating_days_batches = float(available_calendar_days)
-                cleaning_days_annual = 0.0
-                campaign_active_days = float(available_calendar_days)
-                st.caption(f"📅 **Calendario Anual Continuo:** `{available_calendar_days} días disponibles/año` (365 días base - `{shutdown_days}` días parada - `{holidays_days}` feriados = `{available_calendar_days * 24:.0f} h/año`).")
+                    st.markdown("##### 🧹 Mantenimiento Periódico y Limpieza")
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        num("Cantidad de Lotes antes de Limpieza", 'batches_before_cleaning',
+                            min_value=1, max_value=1000, step=1,
+                            help="Cantidad de lotes operados antes de detener el reactor para limpieza y mantenimiento.")
+                    with col_m2:
+                        num("Tiempo de Limpieza (h)", 'cleaning_time_h', min_value=0.0, max_value=200.0, step=0.5,
+                            format="%.2f", help="Duración del trabajo de limpieza física, decoking e inspección interna.")
+                    with col_m3:
+                        num("Tiempo de Enfriamiento para Mantenimiento (h)", 'maint_cooldown_h',
+                            min_value=0.0, max_value=200.0, step=0.5, format="%.2f",
+                            help="Tiempo de enfriamiento profundo necesario para poder abrir e intervenir el reactor de forma segura.")
+
+                    # Plant data that override the simulation in the economics (0 = use the simulated value)
+                    st.markdown("##### 📌 " + ("Datos de planta para la economía (0 = usar la simulación)" if lang == 'es'
+                                               else "Plant data for the economics (0 = use the simulation)"))
+                    col_f1, col_f2, col_f3 = st.columns(3)
+                    with col_f1:
+                        num("Lotes por año (fijo)" if lang == 'es' else "Batches per year (fixed)",
+                            'econ_batches_per_year', min_value=0, max_value=10000, step=1,
+                            help="Si es mayor que 0, no se calculan a partir del tiempo de ciclo simulado." if lang == 'es'
+                            else "If above 0, batches are not derived from the simulated cycle time.")
+                    with col_f2:
+                        num("Aceite por lote (gal)" if lang == 'es' else "Oil per batch (gal)",
+                            'econ_oil_gal_per_batch', min_value=0.0, step=10.0, format="%.4f")
+                    with col_f3:
+                        num("Combustible auxiliar por lote (gal)" if lang == 'es' else "Auxiliary fuel per batch (gal)",
+                            'econ_fuel_gal_per_batch', min_value=0.0, step=10.0, format="%.2f")
+
+        col_btn1, col_btn2 = st.columns([1, 1])
+        with col_btn1:
+            st.form_submit_button("🔄 " + ("Recalcular" if lang == 'es' else "Recalculate"), type="primary",
+                                  use_container_width=True)
+        with col_btn2:
+            st.form_submit_button(t('econ_btn_apply_ratios'), on_click=_apply_capex_ratios_cb,
+                                  use_container_width=True)
+
+
+def compute_economics(mode_option, summary, solver_inputs):
+    """Every economic result, computed from the parameters stored in session_state (no widgets).
+    The Summary and Economy sections both use it, so they always show the same numbers."""
+    ss = st.session_state
+    is_continuous = (mode_option == "Continuous Operation")
+    d = _econ_defaults(is_continuous)
+
+    def g(key):
+        return ss.get(key, d[key])
+
+    capex_equip = float(g('capex_equip'))
+    capex_install = float(g('capex_install'))
+    capex_civil = float(g('capex_civil'))
+    capex_piping_elec = float(g('capex_piping_elec'))
+    capex_eng = float(g('capex_eng'))
+    capex_permits = float(g('capex_permits'))
+    capex_cont = float(g('capex_cont'))
+
+    opex_handling = float(g('opex_handling'))
+    opex_electricity = float(g('opex_electricity'))
+    price_generator_fuel = float(g('price_generator_fuel'))
+    opex_labor = float(g('opex_labor'))
+    opex_fuel = float(g('opex_fuel'))
+    opex_aux_utilities = float(g('opex_aux_utilities'))
+    opex_maint = float(g('opex_maint'))
+    opex_insurance_tax = float(g('opex_insurance_tax'))
+
+    sludge_scenario = g('econ_sludge_scenario')
+    if sludge_scenario not in SLUDGE_SCENARIOS:
+        sludge_scenario = 'tipping'
+    sludge_cost = float(g('econ_sludge_cost'))
+    tipping_y = float(g('opex_tipping'))
+    # Fee used by the whole economics (negative = the plant pays for the sludge)
+    opex_tipping = scenario_tipping_fee(sludge_scenario, sludge_cost, tipping_y)
+    price_oil = float(g('price_oil'))
+    price_char = float(g('price_char'))
+    price_gas = float(g('price_gas'))
+    price_carbon = float(g('price_carbon'))
+    rate_carbon_offset = float(g('rate_carbon_offset'))
+
+    discount_rate = float(g('discount_rate'))
+    tax_rate = float(g('tax_rate'))
+    project_lifetime = int(g('project_lifetime'))
+    inflation_rate = float(g('inflation_rate'))
+    shutdown_days = int(g('shutdown_days'))
+    holidays_days = int(g('holidays_days'))
+
+    available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
+    annual_days = available_calendar_days
+    ss['annual_days'] = annual_days
+
+    if not is_continuous:
+        gen_diesel_batch = float(g('gen_diesel_batch'))
+        batch_cooldown_h = float(g('batch_cooldown_h'))
+        batch_loading_h = float(g('batch_loading_h'))
+        batch_turnaround_h = batch_cooldown_h + batch_loading_h
+        ss['batch_turnaround_h'] = batch_turnaround_h
+        batches_before_cleaning = int(g('batches_before_cleaning'))
+        cleaning_time_h = float(g('cleaning_time_h'))
+        maint_cooldown_h = float(g('maint_cooldown_h'))
+        maint_stop_total_h = maint_cooldown_h + cleaning_time_h
+        maint_penalty_per_batch_h = maint_stop_total_h / max(batches_before_cleaning, 1)
+        econ_batches_fixed = int(g('econ_batches_per_year'))
+        econ_oil_gal_batch = float(g('econ_oil_gal_per_batch'))
+        econ_fuel_gal_batch = float(g('econ_fuel_gal_per_batch'))
+    else:
+        gen_diesel_rate = float(g('gen_diesel_rate'))
+        batch_cooldown_h = 0.50
+        batch_loading_h = 0.50
+        batch_turnaround_h = 1.0
+        batches_before_cleaning = 20
+        cleaning_time_h = 4.0
+        maint_cooldown_h = 6.0
+        maint_stop_total_h = 10.0
+        maint_penalty_per_batch_h = 0.0
+        econ_batches_fixed, econ_oil_gal_batch, econ_fuel_gal_batch = 0, 0.0, 0.0
+        ss['batch_turnaround_h'] = 1.0
 
     total_capex = capex_equip + capex_install + capex_civil + capex_piping_elec + capex_eng + capex_permits + capex_cont
 
     # ----------------------------------------------------
     # CORE COMPUTATIONS PREPARATION
     # ----------------------------------------------------
-    sludge_density = float(st.session_state.get('sludge_density', 944.7))
-    oil_density = float(st.session_state.get('bio_oil_density', 750.0))
+    sludge_density = float(ss.get('sludge_density', 944.7))
+    oil_density = float(ss.get('bio_oil_density', 750.0))
     gas_density = 1.15
-    
+
     if is_continuous:
         annual_hours = annual_days * 24.0
         batches_per_year = 0.0
@@ -1018,7 +958,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         operating_days_batches = float(annual_days)
         cleaning_days_annual = 0.0
         campaign_active_days = float(annual_days)
-        
+
         sludge_treated_kg = summary['feed_rate_kgh'] * annual_hours
         oil_produced_kg = summary['oil_yield_kgh'] * annual_hours
         char_produced_kg = summary['char_yield_kgh'] * annual_hours
@@ -1032,7 +972,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
         t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
         t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
-        
+
         annual_hours = annual_days * 24.0
         if econ_batches_fixed > 0:
             batches_per_year = float(econ_batches_fixed)
@@ -1042,7 +982,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         operating_days_batches = (batches_per_year * t_op_batch_hours) / 24.0
         cleaning_days_annual = (batches_per_year * maint_penalty_per_batch_h) / 24.0
         campaign_active_days = operating_days_batches + cleaning_days_annual
-        
+
         sludge_treated_kg = summary['batch_load_kg'] * batches_per_year
         oil_produced_kg = summary['oil_yield_kg'] * batches_per_year
         char_produced_kg = summary['char_yield_kg'] * batches_per_year
@@ -1078,6 +1018,185 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         )
 
     m = _model(opex_tipping)
+    return {k: v for k, v in locals().items() if k not in ('ss', 'd', 'g')}
+
+
+def _render_batch_calendar(econ, lang):
+    """Annual calendar card of the batch campaign (same values the economics uses)."""
+    e = econ
+    bpy = e['batches_per_year']
+    if lang == 'es':
+        title_text = "📅 Calendario Anual y Capacidad (Base 365 días)"
+        badge_text = f"{bpy:.0f} lotes/año"
+        lbl_disp, sub_disp = "Días Disponibles de Planta", f"(365 - {e['shutdown_days']}d parada - {e['holidays_days']}d feriados)"
+        lbl_op, sub_op = "Días de Operación Efectiva (Lotes)", f"({bpy * e['t_op_batch_hours']:.1f} h proceso)"
+        lbl_clean, sub_clean = "Días de Parada por Limpieza / Mant.", f"({bpy * e['maint_penalty_per_batch_h']:.1f} h paradas)"
+        lbl_tot, sub_tot = "Días Totales Activos de Campaña", f"(Ciclo: {e['t_cycle_hours']:.2f} h/lote)"
+        days_unit = "días/año"
+    else:
+        title_text = "📅 Annual Calendar & Throughput (365 days base)"
+        badge_text = f"{bpy:.0f} batches/yr"
+        lbl_disp, sub_disp = "Plant Available Days", f"(365 - {e['shutdown_days']}d shutdown - {e['holidays_days']}d holidays)"
+        lbl_op, sub_op = "Effective Batch Operating Days", f"({bpy * e['t_op_batch_hours']:.1f} h process)"
+        lbl_clean, sub_clean = "Cleaning & Maintenance Downtime Days", f"({bpy * e['maint_penalty_per_batch_h']:.1f} h downtime)"
+        lbl_tot, sub_tot = "Total Active Campaign Days", f"(Cycle: {e['t_cycle_hours']:.2f} h/batch)"
+        days_unit = "days/yr"
+
+    st.markdown(f"""
+    <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px 14px; margin-top: 10px; margin-bottom: 8px;">
+        <div style="font-weight: 600; font-size: 0.90rem; color: #f1f5f9; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <span>{title_text}</span>
+            <span style="background-color: #1e293b; color: #38bdf8; font-size: 0.8rem; padding: 2px 8px; border-radius: 4px; border: 1px solid #0284c7;">{badge_text}</span>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; color: #cbd5e1;">
+            <tr style="border-bottom: 1px solid #1e293b;">
+                <td style="padding: 5px 0; color: #94a3b8;">{lbl_disp}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #f8fafc;">{e['available_calendar_days']} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_disp}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #1e293b;">
+                <td style="padding: 5px 0; color: #94a3b8;">{lbl_op}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #34d399;">{e['operating_days_batches']:.1f} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_op}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #1e293b;">
+                <td style="padding: 5px 0; color: #94a3b8;">{lbl_clean}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #fbbf24;">{e['cleaning_days_annual']:.1f} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_clean}</td>
+            </tr>
+            <tr>
+                <td style="padding: 5px 0; color: #94a3b8;">{lbl_tot}</td>
+                <td style="padding: 5px 8px; text-align: right; font-weight: 700; color: #38bdf8;">{e['campaign_active_days']:.1f} {days_unit}</td>
+                <td style="padding: 5px 0; text-align: right; color: #64748b; font-size: 0.75rem;">{sub_tot}</td>
+            </tr>
+        </table>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+_DARK_LAYOUT = dict(paper_bgcolor="#0f172a", plot_bgcolor="#0f172a", font=dict(color="#94a3b8"),
+                    margin=dict(l=40, r=20, t=50, b=40))
+
+
+def _render_npv_vs_sludge_price(econ, lang):
+    """NPV as a function of what the plant receives per gallon of sludge (negative = it pays for it)."""
+    es = lang == 'es'
+    m, model = econ['m'], econ['_model']
+    be = m['breakeven_tipping']
+    scen = {sc: scenario_tipping_fee(sc, econ['sludge_cost'], econ['tipping_y']) for sc in SLUDGE_SCENARIOS}
+    lo = min([be] + list(scen.values())) - 10.0
+    hi = max([be] + list(scen.values())) + 10.0
+    xs = list(np.linspace(lo, hi, 41))
+    npvs = [model(x)['npv'] for x in xs]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=xs, y=npvs, mode='lines', line=dict(color="#38bdf8", width=3),
+                             name="VAN" if es else "NPV"))
+    fig.add_trace(go.Scatter(x=[scen[s] for s in SLUDGE_SCENARIOS], y=[model(scen[s])['npv'] for s in SLUDGE_SCENARIOS],
+                             mode='markers+text', marker=dict(size=10, color="#f59e0b"),
+                             text=[SLUDGE_SCENARIO_LABELS[s][lang] for s in SLUDGE_SCENARIOS],
+                             textposition="top center", name="Escenarios" if es else "Scenarios"))
+    fig.add_hline(y=0, line=dict(color="#64748b", width=1))
+    fig.add_vline(x=be, line=dict(color="#ef4444", dash='dash'),
+                  annotation_text=(f"VAN = 0 en {be:,.2f} RD$/gal" if es else f"NPV = 0 at {be:,.2f} RD$/gal"),
+                  annotation_font_color="#fca5a5")
+    fig.update_layout(
+        title=("VAN contra precio del lodo" if es else "NPV vs. sludge price"),
+        xaxis=dict(title=("Precio del lodo para la planta (RD$/gal): negativo = costo de compra, positivo = tarifa"
+                          if es else "Sludge price for the plant (RD$/gal): negative = purchase cost, positive = fee"),
+                   gridcolor="#334155"),
+        yaxis=dict(title="VAN (RD$)" if es else "NPV (RD$)", gridcolor="#334155"),
+        showlegend=False, height=380, **_DARK_LAYOUT)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_cost_composition(econ, lang):
+    """CAPEX and year-1 OPEX composition (same breakdown the cash-flow table uses)."""
+    es = lang == 'es'
+    capex = {
+        ("Equipo principal" if es else "Main equipment"): econ['capex_equip'],
+        ("Instalación" if es else "Installation"): econ['capex_install'],
+        ("Obras civiles" if es else "Civil works"): econ['capex_civil'],
+        ("Tuberías y electricidad" if es else "Piping & electrical"): econ['capex_piping_elec'],
+        ("Ingeniería" if es else "Engineering"): econ['capex_eng'],
+        ("Permisos" if es else "Permits"): econ['capex_permits'],
+        ("Contingencias" if es else "Contingency"): econ['capex_cont'],
+    }
+    ob = econ['m']['opex_breakdown']
+    opex = {
+        ("Manejo de lodos" if es else "Sludge handling"): ob['handling'],
+        ("Combustible auxiliar" if es else "Auxiliary fuel"): ob['fuel'],
+        ("Electricidad" if es else "Electricity"): ob['electricity'],
+        ("Insumos auxiliares" if es else "Aux. utilities"): ob['aux_utilities'],
+        ("Diésel planta" if es else "Generator diesel"): ob['gen_diesel'],
+        ("Mano de obra" if es else "Labor"): ob['labor'],
+        ("Mantenimiento" if es else "Maintenance"): ob['maintenance'],
+        ("Seguros y licencias" if es else "Insurance"): ob['insurance_tax'],
+    }
+    col_a, col_b = st.columns(2)
+    for col, data, title in (
+        (col_a, capex, f"CAPEX: RD$ {sum(capex.values()):,.2f}"),
+        (col_b, opex, f"OPEX {'año' if es else 'year'} 1: RD$ {sum(opex.values()):,.2f}"),
+    ):
+        data = {k: v for k, v in data.items() if v > 0}
+        fig = go.Figure(go.Pie(labels=list(data), values=list(data.values()), hole=0.5, sort=False,
+                               textinfo='percent', hovertemplate="%{label}<br>RD$ %{value:,.2f}<extra></extra>"))
+        fig.update_layout(title=title, height=360, legend=dict(font=dict(size=10)), **_DARK_LAYOUT)
+        with col:
+            st.plotly_chart(fig, use_container_width=True)
+
+
+def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None):
+    """Renders the Economy section (Standardized in DOP - RD$): parameters form, then results.
+    `econ` is the compute_economics() result already used by the other sections (computed here if omitted)."""
+    lang = get_lang()
+
+    # Callback for saving current financial parameters to browser LocalStorage
+    def _save_econ_to_ls_cb():
+        st.session_state['trigger_save_ls'] = True
+        st.session_state['econ_saved_flag'] = True
+
+    # Header with LocalStorage Save Button
+    col_hdr_txt, col_hdr_btn = st.columns([3, 2])
+    with col_hdr_txt:
+        st.markdown(f"### 💸 {t('econ_title')}")
+        st.markdown(t('econ_desc'))
+    with col_hdr_btn:
+        st.button(t('econ_save_ls_btn'), key='btn_save_econ_ls', on_click=_save_econ_to_ls_cb, use_container_width=True)
+
+    if st.session_state.get('trigger_save_ls', False):
+        from pyrolysis.gui.config_manager import DEFAULT_PARAMS
+        from pyrolysis.gui.local_storage import local_storage_set
+        full_config_data = {k: st.session_state.get(k, DEFAULT_PARAMS.get(k)) for k in DEFAULT_PARAMS.keys()}
+        res = local_storage_set("pyrolysis_config", full_config_data, key_suffix="econ_save")
+        if res is True or st.session_state.get('econ_saved_flag', False):
+            st.session_state['trigger_save_ls'] = False
+            st.session_state['econ_saved_flag'] = False
+            st.success(t('econ_save_ls_success'))
+
+    st.markdown("---")
+
+    curr_sym = "RD$"
+
+    render_economics_inputs(mode_option)
+    if econ is None:
+        econ = compute_economics(mode_option, summary, solver_inputs)
+    # Same names the result code below has always used, now taken from compute_economics()
+    annual_days, annual_hours, available_calendar_days, batch_cooldown_h, batch_loading_h, batches_before_cleaning = econ.get('annual_days'), econ.get('annual_hours'), econ.get('available_calendar_days'), econ.get('batch_cooldown_h'), econ.get('batch_loading_h'), econ.get('batches_before_cleaning')
+    batches_per_year, campaign_active_days, char_carbon_kg, char_produced_kg, cleaning_days_annual, cleaning_time_h = econ.get('batches_per_year'), econ.get('campaign_active_days'), econ.get('char_carbon_kg'), econ.get('char_produced_kg'), econ.get('cleaning_days_annual'), econ.get('cleaning_time_h')
+    discount_rate, elec_consumed_kwh, fuel_consumed_gal, gas_density, gas_produced_m3, gen_diesel_batch = econ.get('discount_rate'), econ.get('elec_consumed_kwh'), econ.get('fuel_consumed_gal'), econ.get('gas_density'), econ.get('gas_produced_m3'), econ.get('gen_diesel_batch')
+    gen_diesel_rate, generator_fuel_consumed_gal, holidays_days, inflation_rate, is_continuous, m = econ.get('gen_diesel_rate'), econ.get('generator_fuel_consumed_gal'), econ.get('holidays_days'), econ.get('inflation_rate'), econ.get('is_continuous'), econ.get('m')
+    maint_cooldown_h, maint_penalty_per_batch_h, maint_stop_total_h, oil_density, oil_produced_gal, operating_days_batches = econ.get('maint_cooldown_h'), econ.get('maint_penalty_per_batch_h'), econ.get('maint_stop_total_h'), econ.get('oil_density'), econ.get('oil_produced_gal'), econ.get('operating_days_batches')
+    opex_aux_utilities, opex_electricity, opex_fuel, opex_handling, opex_insurance_tax, opex_labor = econ.get('opex_aux_utilities'), econ.get('opex_electricity'), econ.get('opex_fuel'), econ.get('opex_handling'), econ.get('opex_insurance_tax'), econ.get('opex_labor')
+    opex_maint, opex_tipping, price_carbon, price_char, price_gas, price_generator_fuel = econ.get('opex_maint'), econ.get('opex_tipping'), econ.get('price_carbon'), econ.get('price_char'), econ.get('price_gas'), econ.get('price_generator_fuel')
+    price_oil, project_lifetime, rate_carbon_offset, shutdown_days, sludge_cost, sludge_density = econ.get('price_oil'), econ.get('project_lifetime'), econ.get('rate_carbon_offset'), econ.get('shutdown_days'), econ.get('sludge_cost'), econ.get('sludge_density')
+    sludge_treated_gal, t_cycle_hours, t_heat_min, t_hold_min, t_op_batch_hours, tax_rate = econ.get('sludge_treated_gal'), econ.get('t_cycle_hours'), econ.get('t_heat_min'), econ.get('t_hold_min'), econ.get('t_op_batch_hours'), econ.get('tax_rate')
+    tipping_y, total_capex = econ.get('tipping_y'), econ.get('total_capex')
+    _model = econ['_model']   # financial model for any tipping fee (scenarios, charts)
+
+    if not is_continuous:
+        _render_batch_calendar(econ, lang)
+    else:
+        st.caption(f"📅 **Calendario Anual Continuo:** `{available_calendar_days} días disponibles/año` (365 días base - `{shutdown_days}` días parada - `{holidays_days}` feriados = `{available_calendar_days * 24:.0f} h/año`).")
 
     # ----------------------------------------------------
     # RENDERING FINANCIAL KPI CARDS
@@ -1095,7 +1214,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         )
         
     with col_kpi2:
-        irr_val_str = f"{m['irr']:.2f}%" if m['irr'] is not None else "N/A"
+        irr_val_str = format_irr(m['irr'])
         render_kpi_card(
             t('econ_metric_irr'),
             irr_val_str,
@@ -1163,7 +1282,7 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
             ("Costo del lodo año 1 (RD$)" if lang == 'es' else "Year-1 sludge cost (RD$)", f"{sludge_cost_y1:,.2f}"),
             ("EBITDA año 1 (RD$)" if lang == 'es' else "Year-1 EBITDA (RD$)", f"{ms['rev_flows'][1] - ms['opex_flows'][1]:,.2f}"),
             ("VAN (RD$)" if lang == 'es' else "NPV (RD$)", f"{ms['npv']:,.2f}"),
-            ("TIR" if lang == 'es' else "IRR", f"{ms['irr']:.2f} %" if ms['irr'] is not None else "N/A"),
+            ("TIR" if lang == 'es' else "IRR", format_irr(ms['irr'])),
             ("Recuperación simple" if lang == 'es' else "Simple payback",
              f"{ms['payback']:.2f} {yrs}" if ms['payback'] != float('inf') else "N/A"),
             ("Recuperación descontada" if lang == 'es' else "Discounted payback",
@@ -1251,6 +1370,9 @@ def render_economics_tab(mode_option, results, summary, solver_inputs):
         height=380
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    _render_npv_vs_sludge_price(econ, lang)
+    _render_cost_composition(econ, lang)
 
     # ----------------------------------------------------
     # DATA TABLES AND BREAKDOWNS

@@ -10,6 +10,7 @@ from .tabs_panel import (
     render_export_tab,
     ENABLE_REPORTS
 )
-from .economics_panel import render_economics_tab, render_sustainability_tab
+from .economics_panel import render_economics_tab, render_sustainability_tab, compute_economics
+from .summary_panel import render_summary_section
 from .utils import get_lang, t, format_number
 

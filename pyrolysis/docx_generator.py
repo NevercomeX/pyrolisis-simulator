@@ -396,7 +396,7 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         ["Diámetro Interno (D)", f"{dia_m:.2f} m", "Temperatura Máxima (T_hold)", f"{temp_hold:.1f} °C"],
         ["Relación de Aspecto (L/D)", f"{aspect_ratio:.2f}", "Tasa de Calentamiento", f"{heating_rate:.1f} °C/min"],
         ["Velocidad de Rotación", f"{rpm_val:.1f} RPM", "Coef. Transf. Calor (h_eff)", f"{h_eff:.1f} W/m²·K"],
-        ["Grado de Llenado del Lecho", f"{fill_deg:.2f} %", "Potencia Quemadores", f"{burner_hp:.0f} HP"],
+        ["Grado de Llenado del Lecho", f"{fill_deg:.2f} %", "Potencia Quemadores", f"{burner_hp:.0f} BHP"],
         ["Tiempo Evaporación Agua (Secado)", f"{t_drying_end:.1f} min" if not is_continuous else "N/A", "Eficiencia Térmica Quemador", f"{burner_eff:.1f} %"],
         [time_label_1, time_val_1, "Consumo Combustible Auxiliar", f"{fuel_cons:.1f} gal{fuel_unit}"],
         [time_label_2, time_val_2, "Conversión Volátiles Total", f"{conv_pct:.1f} %"],
@@ -811,7 +811,9 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
     run_h54 = h54.add_run("4.4 Evaluación de Indicadores Financieros (KPIs)")
     run_h54.font.size = Pt(11)
 
-    irr_str = f"{fin['irr']:.1f}%" if fin['irr'] is not None else "N/A"
+    from pyrolysis.gui.economics_panel import format_irr
+
+    irr_str = format_irr(fin['irr'], 1)
     payback_str = f"{fin['payback']:.1f} años" if fin['payback'] != float('inf') else "N/A"
     disc_payback_str = f"{fin['disc_payback']:.1f} años" if fin['disc_payback'] != float('inf') else "N/A"
     ebitda_base = tot_rev - tot_op

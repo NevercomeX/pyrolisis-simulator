@@ -113,9 +113,9 @@ TRANSLATIONS = {
         # Burner Calibration
         'burner_calib_header': "🔥 Burner & Shell Calibration",
         'auto_heating_rate': "Calculate Heating Rate automatically",
-        'burner_hp': "Main Burner Power (HP)",
+        'burner_hp': "Main Burner Power (BHP, boiler hp)",
         'burner_eff': "Burner Thermal Efficiency (%)",
-        'syngas_hp': "Syngas Burners Power (HP)",
+        'syngas_hp': "Syngas Burners Power (BHP, boiler hp)",
         'shell_material': "Reactor Shell Material",
         'shell_thickness': "Shell Thickness (mm)",
         'h_loss': "Heat Loss Coeff h_loss (W/m²·K)",
@@ -472,9 +472,9 @@ TRANSLATIONS = {
         # Burner Calibration
         'burner_calib_header': "Calibración del Quemador y Tambor",
         'auto_heating_rate': "Calcular Tasa de Calentamiento automáticamente",
-        'burner_hp': "Potencia del Quemador Principal (HP)",
+        'burner_hp': "Potencia del Quemador Principal (BHP, caballos de caldera)",
         'burner_eff': "Eficiencia Térmica del Quemador (%)",
-        'syngas_hp': "Potencia de Quemadores de Syngas (HP)",
+        'syngas_hp': "Potencia de Quemadores de Syngas (BHP, caballos de caldera)",
         'shell_material': "Material del Tambor del Reactor",
         'shell_thickness': "Espesor del Tambor (mm)",
         'h_loss': "Coef. Pérdidas de Calor h_loss (W/m²·K)",

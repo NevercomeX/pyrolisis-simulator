@@ -3,6 +3,7 @@ import json
 
 DEFAULT_PARAMS = {
     'profile': "general",
+    'profile_version': 0,   # version of the profile values stored in this configuration (see profiles.py)
     'lang_option': "Español",
     'mode_option': "Batch Operation",
     'feed_option': "Blend (Petroleum + Hydrocarbon)",
@@ -114,14 +115,29 @@ DEFAULT_PARAMS = {
 def apply_profile(profile_key):
     """Carga un perfil completo en session_state: 'general' restablece los valores por defecto
     y 'tesis' aplica además los datos de la corrida documentada."""
-    from pyrolysis.profiles import PROFILE_THESIS, THESIS_GUI_OVERRIDES
+    from pyrolysis.profiles import PROFILE_THESIS, THESIS_GUI_OVERRIDES, THESIS_PROFILE_VERSION
     params = dict(DEFAULT_PARAMS)
     if profile_key == PROFILE_THESIS:
         params.update(THESIS_GUI_OVERRIDES)
+        params['profile_version'] = THESIS_PROFILE_VERSION
     params['profile'] = profile_key
     params['lang_option'] = st.session_state.get('lang_option', DEFAULT_PARAMS['lang_option'])
     for k, v in params.items():
         st.session_state[k] = v
+
+
+def load_saved_config(config):
+    """Copies a saved configuration (localStorage or uploaded JSON) into session_state.
+    A thesis-profile configuration saved with an older profile version gets the current profile values
+    again; returns True when that happened."""
+    from pyrolysis.profiles import PROFILE_THESIS, THESIS_PROFILE_VERSION
+    for k in DEFAULT_PARAMS.keys():
+        if k in config:
+            st.session_state[k] = config[k]
+    if config.get('profile') == PROFILE_THESIS and config.get('profile_version') != THESIS_PROFILE_VERSION:
+        apply_profile(PROFILE_THESIS)
+        return True
+    return False
 
 from .utils import get_lang, t
 
@@ -131,6 +147,12 @@ def init_session_state():
     for k, v in DEFAULT_PARAMS.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    # Streamlit drops the state of widgets that a run does not draw (a hidden section, or a st.rerun()
+    # issued before the navigation is drawn). Re-assigning the values at the start of every run keeps
+    # them: the economic inputs, and the active section.
+    for k in list(DEFAULT_PARAMS) + ['nav_section']:
+        if k in st.session_state:
+            st.session_state[k] = st.session_state[k]
 
     if not st.session_state.get('local_storage_loaded', False):
         from pyrolysis.gui.local_storage import local_storage_get
@@ -138,9 +160,7 @@ def init_session_state():
         # None = the browser has not answered yet; a dict means the check finished
         if isinstance(ls_config, dict):
             if "__empty__" not in ls_config:
-                for k in DEFAULT_PARAMS.keys():
-                    if k in ls_config:
-                        st.session_state[k] = ls_config[k]
+                load_saved_config(ls_config)
             st.session_state['local_storage_loaded'] = True
             st.session_state['_last_saved_config'] = {k: st.session_state[k] for k in DEFAULT_PARAMS.keys()}
             st.rerun()
@@ -198,11 +218,7 @@ def render_config_manager(current_config_data):
     uploaded_file = st.sidebar.file_uploader(t("upload_config_label"), type=["json"])
     if uploaded_file is not None:
         try:
-            config_data = json.load(uploaded_file)
-            # Update session state keys
-            for k in DEFAULT_PARAMS.keys():
-                if k in config_data:
-                    st.session_state[k] = config_data[k]
+            load_saved_config(json.load(uploaded_file))
             st.sidebar.success(t("config_loaded_success"))
             # Force rerun
             st.rerun()

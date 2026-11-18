@@ -9,6 +9,9 @@ from typing import Dict, Tuple, Optional
 import numpy as np
 from ..feedstock import Feedstock
 
+# 1 boiler horsepower (BHP) = 33,475 BTU/h of heat output (not 745.7 W, which is a mechanical hp)
+BHP_TO_W = 33475.0 * 0.29307107
+
 
 class BaseReactorSimulation:
     """
@@ -101,8 +104,9 @@ class BaseReactorSimulation:
 
     @property
     def burner_nominal_power_watts(self) -> float:
-        """Nominal burner thermal output power delivered (W)."""
-        return self.burner_hp * 745.7 * self.burner_efficiency
+        """Nominal burner thermal output power delivered (W). `burner_hp` is the nameplate rating in boiler
+        horsepower (BHP), which is already a useful-heat output; efficiency only sets the fuel it burns."""
+        return self.burner_hp * BHP_TO_W
 
     def get_fuel_properties(self) -> Tuple[float, float, float]:
         """

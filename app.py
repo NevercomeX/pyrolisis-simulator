@@ -14,6 +14,8 @@ from pyrolysis.gui import (
     render_properties_tab,
     render_balances_tab,
     render_economics_tab,
+    compute_economics,
+    render_summary_section,
     render_sustainability_tab,
     render_guide_tab,
     render_export_tab,
@@ -53,7 +55,7 @@ st.markdown("---")
 # Render Config Save/Upload at the bottom of the sidebar
 render_config_manager(config_dict)
 
-# Execute simulation based on operation mode (cached in session state for instant tab switching)
+# Execute simulation based on operation mode (cached in session state, so switching sections does not re-simulate)
 mode_option = config_dict['mode_option']
 feed_obj = solver_inputs['current_feed']
 
@@ -156,41 +158,40 @@ else:
     st.session_state['last_sim_key'] = sim_cache_key
     st.session_state['last_sim_results'] = results
 
-# Render physical reactor cylinder filling degree visualization directly on the page (outside the tabs)
-render_reactor_geometry_section(mode_option, summary, solver_inputs)
+# Economic results computed once from session_state; the Summary and Economy sections share them
+econ = compute_economics(mode_option, summary, solver_inputs)
 
-st.markdown("---")
+# ------------------------------------------------------------------------------------------------
+# Dashboard navigation. Its value lives in session_state under 'nav_section', so any rerun caused by
+# changing a parameter keeps the user in the section they were looking at.
+# ------------------------------------------------------------------------------------------------
+SECTIONS = {
+    'summary': ("📊 Resumen", "📊 Summary"),
+    'process': ("🌡️ Proceso", "🌡️ Process"),
+    'balances': ("⚖️ Balances", "⚖️ Balances"),
+    'economy': ("💸 Economía", "💸 Economy"),
+    'sustainability': ("🌿 Sostenibilidad", "🌿 Sustainability"),
+    'theory': ("📘 Teoría y ecuaciones", "📘 Theory & equations"),
+    'export': ("📥 Exportar", "📥 Export"),
+}
+if st.session_state.get('nav_section') not in SECTIONS:
+    st.session_state['nav_section'] = 'summary'
+section = st.segmented_control(
+    "Sección" if lang == 'es' else "Section", list(SECTIONS),
+    format_func=lambda k: SECTIONS[k][0 if lang == 'es' else 1],
+    key='nav_section', required=True, label_visibility='collapsed', width='stretch')
 
-# Render detailed profiles, total results, and balance tables using tabs (persisting active tab state)
-tab_metrics, tab_charts, tab_properties, tab_balances, tab_economics, tab_sustainability, tab_guide, tab_export = st.tabs([
-    t("tab_metrics"),
-    t("tab_charts"), 
-    t("tab_properties"), 
-    t("tab_balances"),
-    t("tab_economics"),
-    t("tab_sustainability"),
-    t("tab_guide"), 
-    t("tab_export")
-], key=f"main_active_tab_{lang}")
+if section == 'summary':
+    render_summary_section(mode_option, summary, econ)
 
-with tab_metrics:
-    # Render mass yields, volume yields, and diagnostics cards inside its own tab
-    render_metrics_panel(mode_option, summary, results)
-
-with tab_charts:
-    # Render dynamic charts inside its own tab
+elif section == 'process':
+    render_reactor_geometry_section(mode_option, summary, solver_inputs)
+    st.markdown("---")
     render_charts_panel(mode_option, results)
 
-with tab_properties:
-    render_properties_tab(
-        current_feed=solver_inputs['current_feed'],
-        mode_option=mode_option,
-        feed_rate_kgh=solver_inputs['feed_rate_kgh'],
-        batch_load_kg=solver_inputs['batch_load_kg'],
-        feed_option=config_dict['feed_option']
-    )
-
-with tab_balances:
+elif section == 'balances':
+    render_metrics_panel(mode_option, summary, results)
+    st.markdown("---")
     render_balances_tab(
         mode_option=mode_option,
         current_feed=solver_inputs['current_feed'],
@@ -200,23 +201,24 @@ with tab_balances:
         batch_load_kg=solver_inputs['batch_load_kg'],
         feed_option=config_dict['feed_option']
     )
-
-with tab_economics:
-    render_economics_tab(
+    st.markdown("---")
+    render_properties_tab(
+        current_feed=solver_inputs['current_feed'],
         mode_option=mode_option,
-        results=results,
-        summary=summary,
-        solver_inputs=solver_inputs
+        feed_rate_kgh=solver_inputs['feed_rate_kgh'],
+        batch_load_kg=solver_inputs['batch_load_kg'],
+        feed_option=config_dict['feed_option']
     )
 
-with tab_sustainability:
-    render_sustainability_tab(
-        summary=summary,
-        solver_inputs=solver_inputs
-    )
+elif section == 'economy':
+    render_economics_tab(mode_option=mode_option, results=results, summary=summary,
+                         solver_inputs=solver_inputs, econ=econ)
 
-with tab_guide:
+elif section == 'sustainability':
+    render_sustainability_tab(summary=summary, solver_inputs=solver_inputs)
+
+elif section == 'theory':
     render_guide_tab()
 
-with tab_export:
+elif section == 'export':
     render_export_tab(mode_option, results, summary, solver_inputs, config_dict, enable_reports=ENABLE_REPORTS)
