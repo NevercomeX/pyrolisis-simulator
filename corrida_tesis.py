@@ -35,6 +35,7 @@ VENTANA_MIN = 158.0                   # aceite visible de 3:43 a 6:21 p. m.
 T_INICIO_PIR = 370.0                  # °C, termómetro del lecho al aparecer aceite
 T_MAX_LECHO = 400.0                   # °C, máxima del mismo termómetro
 T_INI, RAMPA = 50.0, 1.5
+DT_SEC = 2.0                          # paso de integración, igual que la GUI y el CLI
 
 CARBONO_FIJO = OBJ_CHAR - CENIZA                      # 18.68 %
 VOLATILES = 100.0 - HUMEDAD - CENIZA - CARBONO_FIJO   # 77.71 %
@@ -55,7 +56,7 @@ def run(h_eff, T_pared, a2):
         feed(a2), CARGA_KG, length=6.0, diameter=2.75, rpm=1.0,
         T_start_C=T_INI, heating_rate_cmin=RAMPA, T_hold_C=T_pared,
         hold_time_min=900, h_eff=h_eff, burner_eff_pct=85.0)
-    return sim.simulate(max_steps=3000)
+    return sim.simulate(dt_sec=DT_SEC)
 
 
 def evaluar(r):

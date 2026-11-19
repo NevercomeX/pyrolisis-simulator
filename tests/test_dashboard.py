@@ -8,12 +8,13 @@ import unittest
 from streamlit.testing.v1 import AppTest
 
 logging.getLogger("streamlit").setLevel(logging.ERROR)
+APP = "../app.py"   # AppTest resolves the path from this file's folder
 
 
 def _thesis_app():
     from pyrolysis.gui.config_manager import DEFAULT_PARAMS
     from pyrolysis.profiles import THESIS_GUI_OVERRIDES, THESIS_PROFILE_VERSION
-    at = AppTest.from_file("app.py", default_timeout=180)
+    at = AppTest.from_file(APP, default_timeout=180)
     for k, v in {**DEFAULT_PARAMS, **THESIS_GUI_OVERRIDES,
                  'profile': 'tesis', 'profile_version': THESIS_PROFILE_VERSION}.items():
         at.session_state[k] = v
@@ -27,7 +28,7 @@ def _text(at):
 class TestDashboard(unittest.TestCase):
 
     def test_section_stays_after_changing_a_sidebar_parameter(self):
-        at = AppTest.from_file("app.py", default_timeout=180).run()
+        at = AppTest.from_file(APP, default_timeout=180).run()
         at.button_group(key='nav_section').set_value('economy').run()
         batch = next(n for n in at.sidebar.number_input if n.label.startswith(("Tamaño del Lote", "Batch Size")))
         batch.set_value(batch.value + 100.0).run()
@@ -52,7 +53,7 @@ class TestDashboard(unittest.TestCase):
         text = _text(at)
         for expected in ("RD$ 103,915,543", "107.06 %", "1.11 años", "6.18", "RD$ -28.86/gal",
                          "mientras el lodo cueste menos de RD$ 28.86/gal",
-                         "60.51 %", "Medido al apagar: 60.56 %"):   # oil at shutdown in the GUI run
+                         "60.56 %", "Medido al apagar: 60.56 %"):
             self.assertIn(expected, text)
 
     def test_section_stays_after_resetting_the_thesis_profile(self):

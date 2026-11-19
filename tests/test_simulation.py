@@ -413,11 +413,19 @@ class TestThesisProfile(unittest.TestCase):
         from pyrolysis.profiles import thesis_batch_kwargs
         from pyrolysis.reactor.batch import BatchReactorSimulation
         s = BatchReactorSimulation(**thesis_batch_kwargs()).simulate(dt_sec=2.0)['summary']
-        # aceite al apagar: 2,431 gal = 60.56 % de la carga (h_eff 266.0, A2 × 0.703, sostenimiento 96.5 min)
+        # aceite al apagar: 2,431 gal = 60.56 % de la carga (h_eff 262.2, A2 × 0.723, sostenimiento 96.7 min)
         self.assertAlmostEqual(s['oil_yield_pct'], 60.56, delta=0.1)
-        # rampa 50 → 550 °C a 1.5 °C/min (333.3 min) + 96.5 min de sostenimiento
-        self.assertAlmostEqual(s['cycle_time_min'], 429.8, delta=1.0)
+        # rampa 50 → 550 °C a 1.5 °C/min (333.3 min) + 96.7 min de sostenimiento
+        self.assertAlmostEqual(s['cycle_time_min'], 430.0, delta=1.0)
         self.assertAlmostEqual(s['water_yield_pct'], 2.0, delta=0.05)
+
+    def test_default_step_is_converged(self):
+        """Halving the 2 s step moves the oil yield by less than 0.1 points (a 1,000-step cap moved it ~1 point)."""
+        from pyrolysis.profiles import thesis_batch_kwargs
+        from pyrolysis.reactor.batch import BatchReactorSimulation
+        oil = [BatchReactorSimulation(**thesis_batch_kwargs()).simulate(dt_sec=dt)['summary']['oil_yield_pct']
+               for dt in (2.0, 1.0)]
+        self.assertLess(abs(oil[0] - oil[1]), 0.1)
 
     def test_thesis_burner_300_bhp_covers_the_ramp(self):
         """The plant burner is 300 BHP (boiler hp, 33,475 BTU/h each ≈ 2.94 MW), not 300 mechanical hp."""
@@ -490,18 +498,20 @@ class TestThesisEconomics(unittest.TestCase):
             p['discount_rate'], p['project_lifetime'], p['tax_rate'], p['inflation_rate'])
 
     def test_thesis_sludge_scenarios(self):
-        """Tres escenarios del lodo (X = 10 y Y = 20 RD$/gal, supuestos declarados en la tesina) frente al
-        cálculo independiente con los supuestos de la Tabla 9.
+        """Tres escenarios del lodo frente al cálculo independiente con los supuestos de la Tabla 9.
+        X = 8.04 RD$/gal de lodo seco (lodo húmedo con 40 % de humedad a RD$ 5/gal, 1.61 gal húmedo por gal seco);
+        Y = 20 RD$/gal (supuesto declarado en la tesina).
 
         Sin diferencias por combustible ni por aceite (el perfil usa los valores exactos de la tesina).
         Única diferencia: la conversión del lodo 3,700 gal → kg → gal da 799,199.84 gal/año en lugar de 799,200,
-        lo que cambia el monto del lodo en +RD$ 1.58 (compra, X = 10) o −RD$ 3.17 (tarifa, Y = 20) en el año 1,
-        y el VAN en +RD$ 7 o −RD$ 14.
+        lo que cambia el monto del lodo en +RD$ 1.27 (compra, X = 8.04) o −RD$ 3.17 (tarifa, Y = 20) en el año 1,
+        y el VAN en +RD$ 6 o −RD$ 14.
         """
         from pyrolysis.profiles import THESIS_GUI_OVERRIDES as p
         from pyrolysis.gui.economics_panel import scenario_tipping_fee
         reference = {
-            'purchase': (-7_992_000.00, 18_942_861.57, 67_908_790.00, 76.87, 1.35, 1.61, 4.39),
+            # monto del lodo y EBITDA del año 1 derivados: −8.04 × 799,200 gal y EBITDA sin costo − 6,425,568
+            'purchase': (-6_425_568.00, 20_509_293.57, 74_966_113.64, 82.8, 1.25, 1.48, 4.74),
             'free': (0.00, 26_934_861.57, 103_915_543.26, 107.06, 0.97, 1.11, 6.18),
             'tipping': (15_984_000.00, 42_918_861.57, 175_929_049.77, 166.97, 0.61, 0.70, 9.77),
         }

@@ -80,7 +80,7 @@ def format_irr(irr, decimals=2):
 
 SLUDGE_SCENARIOS = ('purchase', 'free', 'tipping')
 SLUDGE_SCENARIO_LABELS = {
-    'purchase': {'es': "Lodo con costo de compra", 'en': "Sludge purchased at a cost"},
+    'purchase': {'es': "Lodo húmedo comprado", 'en': "Wet sludge purchased"},
     'free': {'es': "Lodo sin costo", 'en': "Sludge at no cost"},
     'tipping': {'es': "Lodo con tarifa de disposición", 'en': "Sludge with disposal fee"},
 }

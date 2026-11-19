@@ -131,11 +131,13 @@ class BatchReactorSimulation(BaseReactorSimulation):
         a_outer = np.pi * d_outer * self.length
         return a_outer, c_steel
 
-    def simulate(self, dt_sec: float = 2.0, max_steps: Optional[int] = 1000) -> Dict[str, Any]:
+    def simulate(self, dt_sec: float = 2.0, max_steps: Optional[int] = None) -> Dict[str, Any]:
         """
         Executes dynamic transient numerical integration in time.
         Simulates solid bed mass loss, devolatilization, and thermal trajectories.
-        `max_steps` caps maximum iterations (default 1000) to ensure high speed & low RAM.
+        `dt_sec` sets the resolution. `max_steps` (off by default) caps the iterations by enlarging
+        the step, which loses convergence: with a 1,000-step cap the step is ~26 s and the oil
+        yield is off by ~1 point.
 
         In auto heating mode the ramp duration depends on burner power, shell losses and
         drying, so the time horizon is extended until the wall reaches T_hold and the full

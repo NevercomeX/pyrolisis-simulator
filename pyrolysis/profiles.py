@@ -12,13 +12,14 @@ Origen de cada valor del perfil "tesis":
             inicio de pirólisis 370 °C (termómetro a nivel del líquido), velocidad 1 RPM,
             geometría 6.0 m × 2.75 m.
   Calibrado con la misma corrida (no es validación):
-            carbono fijo 18.68 % (residuo carbonoso − cenizas), factor de A2 = 0.703 (aceite total 62.10 %),
-            h_eff = 266.0 W/m²·K (ventana de aceite de 158 min con pared a 550 °C),
-            sostenimiento 96.5 min (el lote termina cuando el aceite llega a 2,431 gal = 60.56 %).
+            carbono fijo 18.68 % (residuo carbonoso − cenizas), factor de A2 = 0.723 (aceite total 62.10 %),
+            h_eff = 262.2 W/m²·K (ventana de aceite de 158 min con pared a 550 °C),
+            sostenimiento 96.7 min (el lote termina cuando el aceite llega a 2,431 gal = 60.56 %).
   Supuesto: temperatura de pared 550 °C (no medida; con corrida_tesis.py la calibración da
-            h_eff = 397.4 W/m²·K y A2 × 0.706 a 500 °C, y h_eff = 204.5 W/m²·K y A2 × 0.705 a 600 °C),
+            h_eff = 390.1 W/m²·K, A2 × 0.723 y 110.8 min a 500 °C, y h_eff = 201.8 W/m²·K, A2 × 0.723
+            y 80.5 min a 600 °C; paso de integración 2 s),
             Ea y A base del simulador, eficiencia del quemador 85 %.
-Discrepancia conocida: al apagar, el lecho simulado está a ~429 °C; el termómetro midió 400 °C como máximo.
+Discrepancia conocida: al apagar, el lecho simulado está a ~428.5 °C; el termómetro midió 400 °C como máximo.
 El enfriamiento posterior al apagado (62 gal adicionales) no se simula.
 """
 from .feedstock import Feedstock
@@ -27,7 +28,7 @@ PROFILE_GENERAL = "general"
 PROFILE_THESIS = "tesis"
 # Súbalo cada vez que cambie THESIS_GUI_OVERRIDES: una configuración guardada con el perfil de tesis y otra
 # versión (o sin versión) vuelve a recibir los valores del perfil al cargarse.
-THESIS_PROFILE_VERSION = 2
+THESIS_PROFILE_VERSION = 4
 THESIS_OIL_AT_SHUTDOWN_PCT = 60.56   # aceite medido al apagar (2,431 gal), % de la carga
 
 PROFILE_LABELS = {
@@ -47,11 +48,11 @@ THESIS_NOTE = {
 
 # Cinética: valores base del simulador; A2 ajustado por calibración.
 _EA1, _A1 = 90.0, 7.5e5
-_EA2, _A2 = 95.0, 2.5e5 * 0.703
+_EA2, _A2 = 95.0, 2.5e5 * 0.723
 _EA3, _A3 = 80.0, 1.0e5
 T_ONSET_THESIS_C = 370.0
-H_EFF_THESIS = 266.0      # W/m²·K, pared 550 °C (corrida_tesis.py)
-HOLD_MIN_THESIS = 96.5    # min: el lote termina con 60.56 % de aceite
+H_EFF_THESIS = 262.2      # W/m²·K, pared 550 °C (corrida_tesis.py)
+HOLD_MIN_THESIS = 96.7    # min: el lote termina con 60.56 % de aceite
 
 # Claves de la interfaz (session_state) que cambia el perfil de tesis.
 THESIS_GUI_OVERRIDES = {
@@ -102,7 +103,7 @@ THESIS_GUI_OVERRIDES = {
     "price_oil": 121.0,               # RD$/gal
     "econ_sludge_scenario": "free",   # caso base de la tesina: lodo sin costo (tarifa 0)
     "opex_tipping": 20.0,             # Y, tarifa de disposición (RD$/gal) — supuesto declarado en la tesina
-    "econ_sludge_cost": 10.0,         # X, costo de compra del lodo (RD$/gal) — supuesto declarado en la tesina
+    "econ_sludge_cost": 8.04,         # X, RD$/gal de lodo seco: lodo húmedo (40 % de humedad, 0.96 kg/L) a RD$ 5/gal, 1.61 gal húmedo por gal seco
     "price_char": 0.0,
     "price_gas": 0.0,
     "price_carbon": 0.0,
