@@ -8,7 +8,10 @@ modeling continuous feed, drying, Sullivan residence time, and kinetics.
 from typing import Dict, Any, Optional
 import numpy as np
 from ..feedstock import Feedstock
-from .base import BaseReactorSimulation
+from .base import BaseReactorSimulation, GAS_RESIDENCE_S, SYNGAS_LHV_J_KG
+
+H_WALL_GAS = 15.0    # wall-to-gas heat transfer coefficient (W/m²·K)
+BED_FRACTION = 0.1   # fraction of the wall perimeter covered by the solid bed (-)
 
 
 class ContinuousReactorSimulation(BaseReactorSimulation):
@@ -116,6 +119,46 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
 
         return T_C + 273.15
 
+    def _heating_duty_kw(self, char_kgh, oil_kgh, gas_kgh, steam_kgh, T_in, T_out, T_gas_out) -> float:
+        """
+        Thermal duty (kW) to heat the products from the inlet to the outlet temperature (°C),
+        devolatilize the volatiles and evaporate (and superheat) the water.
+        """
+        F_char_s = char_kgh / 3600.0
+        F_oil_s = oil_kgh / 3600.0
+        F_gas_s = gas_kgh / 3600.0
+        F_steam_s = steam_kgh / 3600.0
+
+        Q_char = F_char_s * self.Cp_char * (T_out - T_in)
+        Q_pyro = (F_oil_s + F_gas_s) * (self.Cp_volatile * (T_out - T_in) + self.dH_pyro)
+
+        if T_in < 100.0:
+            Q_steam = F_steam_s * (
+                self.Cp_moist * (100.0 - T_in) +
+                self.dH_evap +
+                self.Cp_steam * (max(T_gas_out, 100.0) - 100.0)
+            )
+        else:
+            Q_steam = F_steam_s * (self.dH_evap + self.Cp_steam * (max(T_gas_out, T_in) - T_in))
+
+        return (Q_char + Q_pyro + Q_steam) / 1000.0
+
+    def _auxiliary_fuel_gal_h(self, total_heat_kw, gas_kgh, T_gas_out) -> float:
+        """
+        Auxiliary fuel (gal/h) the main burner burns to cover the duty the recirculated syngas does not.
+        """
+        _, _, lhv_oil_gal = self.get_fuel_properties()
+        Q_transferred = total_heat_kw * 1000.0
+        Q_main_capacity = self.burner_nominal_power_watts
+
+        r_gas_prod = gas_kgh / 3600.0
+        T_gas_out_K = T_gas_out + 273.15
+        Q_syngas_available = r_gas_prod * (SYNGAS_LHV_J_KG + self.Cp_pyro_gas * (T_gas_out_K - 298.15)) * self.burner_efficiency
+
+        Q_main_used = min(max(0.0, Q_transferred - Q_syngas_available), Q_main_capacity)
+        Q_combustion = Q_main_used / self.burner_efficiency if self.burner_efficiency > 0.0 else 0.0
+        return (Q_combustion * 3600.0) / lhv_oil_gal
+
     def simulate(self, steps: int = 500) -> Dict[str, Any]:
         """
         Executes steady-state 1D spatial numerical integration along reactor axis.
@@ -124,8 +167,7 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
         dz = self.length / steps
         v_s = self.get_solid_velocity_mps()
         dt_solid = dz / v_s
-        tau_gas = 2.0
-        dt_gas = (dz / self.length) * tau_gas
+        dt_gas = (dz / self.length) * GAS_RESIDENCE_S   # gas residence time in one slice (s)
 
         F_inlet = self.feed_rate_kgh / 3600.0
         fracs = self.feedstock.get_fractions()
@@ -150,8 +192,6 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
         humidity_arr = []
 
         initial_volatile = max(m_volatile, 1e-10)
-        h_wg = 15.0      # Wall-to-gas heat transfer coefficient (W/m²·K)
-        f_bed = 0.1     # Bed cross-sectional fraction
 
         for i in range(steps + 1):
             z = i * dz
@@ -172,15 +212,14 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
             conversion = 1.0 - (m_volatile / initial_volatile)
             conv_arr.append(conversion)
 
-            m_sol_tot = m_moist + m_volatile + m_char + m_ash
-            humidity_arr.append(self.calculate_humidity_pct(m_moist, m_sol_tot))
+            m_solid_total = m_moist + m_volatile + m_char + m_ash
+            humidity_arr.append(self.calculate_humidity_pct(m_moist, m_solid_total))
 
             if i == steps:
                 break
 
             # 1. Solid bed thermal properties
             T_w = self.get_wall_temp_K(z)
-            m_solid_total = m_moist + m_volatile + m_char + m_ash
             Cp_s = self.calculate_Cp_solid(m_moist, m_volatile, m_char, m_ash, m_solid_total)
             m_gas_total = m_steam + m_oil_vap + m_gas_vap
             Cp_g = self.calculate_Cp_gas(m_steam, m_oil_vap, m_gas_vap, m_gas_total)
@@ -189,7 +228,7 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
             beta = (self.h_eff * np.pi * self.diameter) / denom_temp if denom_temp > 1e-8 else 0.0
 
             # 2. Devolatilization and cracking kinetics
-            A_step_contact = np.pi * self.diameter * dz * 0.15
+            A_step_contact = np.pi * self.diameter * dz * 0.15   # bed-covered wall area of the slice (m²)
             r_slug, k1, k2, k3 = self.calculate_devolatilization_rate(
                 T_s=T_s,
                 T_w=T_w,
@@ -203,7 +242,7 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
                 k1=k1,
                 k2=k2,
                 k3=k3,
-                tau_gas=tau_gas,
+                tau_gas=GAS_RESIDENCE_S,
                 dt_gas=dt_gas,
                 m_oil_vap=m_oil_vap
             )
@@ -234,7 +273,7 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
             m_gas_vap += d_gas_prod
 
             # 6. Gas temperature profile integration
-            q_gas_wall = h_wg * np.pi * self.diameter * (1.0 - f_bed) * (T_w - T_g)
+            q_gas_wall = H_WALL_GAS * np.pi * self.diameter * (1.0 - BED_FRACTION) * (T_w - T_g)
             Cp_mix = (
                 d_moist * self.Cp_steam +
                 d_oil_prod * self.Cp_oil_vap +
@@ -264,45 +303,15 @@ class ContinuousReactorSimulation(BaseReactorSimulation):
 
         # Dynamic filling degree
         vol_feed_m3h = F_inlet * 3600.0 / self.bulk_density
-        v_s_miph = v_s * 3600.0
-        cross_area_bed = vol_feed_m3h / v_s_miph
+        v_s_mh = v_s * 3600.0
+        cross_area_bed = vol_feed_m3h / v_s_mh
         filling_degree_pct = (cross_area_bed / self.cross_sectional_area) * 100.0
 
-        # Heating duty integration (kW thermal)
-        F_char_s = final_char_kgh / 3600.0
-        F_oil_s = final_oil_kgh / 3600.0
-        F_gas_s = final_gas_kgh / 3600.0
-        F_steam_s = final_steam_kgh / 3600.0
-        T_in = temp_s_arr[0]
-        T_out = temp_s_arr[-1]
         T_gas_out = temp_g_arr[-1]
-
-        Q_char = F_char_s * self.Cp_char * (T_out - T_in)
-        Q_pyro = (F_oil_s + F_gas_s) * (self.Cp_volatile * (T_out - T_in) + self.dH_pyro)
-
-        if T_in < 100.0:
-            Q_steam = F_steam_s * (
-                self.Cp_moist * (100.0 - T_in) +
-                self.dH_evap +
-                self.Cp_steam * (max(T_gas_out, 100.0) - 100.0)
-            )
-        else:
-            Q_steam = F_steam_s * (self.dH_evap + self.Cp_steam * (max(T_gas_out, T_in) - T_in))
-
-        total_heat_kw = (Q_char + Q_pyro + Q_steam) / 1000.0
-
-        # Fuel and burner consumption
-        lhv_fuel_j_kg, fuel_mass_per_gal, lhv_oil_gal = self.get_fuel_properties()
-        Q_transferred = total_heat_kw * 1000.0
-        Q_main_capacity = self.burner_nominal_power_watts
-
-        r_gas_prod = final_gas_kgh / 3600.0
-        T_gas_out_K = (temp_g_arr[-1] if len(temp_g_arr) > 0 else 550.0) + 273.15
-        Q_syngas_available = r_gas_prod * (12e6 + self.Cp_pyro_gas * (T_gas_out_K - 298.15)) * self.burner_efficiency
-
-        Q_main_used = min(max(0.0, Q_transferred - Q_syngas_available), Q_main_capacity)
-        Q_combustion = Q_main_used / self.burner_efficiency if self.burner_efficiency > 0.0 else 0.0
-        fuel_consumption_gal_h = (Q_combustion * 3600.0) / lhv_oil_gal
+        total_heat_kw = self._heating_duty_kw(
+            final_char_kgh, final_oil_kgh, final_gas_kgh, final_steam_kgh, temp_s_arr[0], temp_s_arr[-1], T_gas_out
+        )
+        fuel_consumption_gal_h = self._auxiliary_fuel_gal_h(total_heat_kw, final_gas_kgh, T_gas_out)
 
         return {
             'z': z_arr,

@@ -11,6 +11,8 @@ from ..feedstock import Feedstock
 
 # 1 boiler horsepower (BHP) = 33,475 BTU/h of heat output (not 745.7 W, which is a mechanical hp)
 BHP_TO_W = 33475.0 * 0.29307107
+SYNGAS_LHV_J_KG = 12e6      # lower heating value assumed for the pyrolysis gas (J/kg)
+GAS_RESIDENCE_S = 2.0       # vapour residence time in the hot zone, for secondary cracking (s)
 
 
 class BaseReactorSimulation:
@@ -179,21 +181,6 @@ class BaseReactorSimulation:
     # -------------------------------------------------------------------------
     # Kinetics & Devolatilization
     # -------------------------------------------------------------------------
-    def calculate_pyrolysis_rate(self, T_s: float, m_volatile: float) -> Tuple[float, float]:
-        """
-        Calculates simple single-step Arrhenius rate constant and conversion rate.
-
-        Returns:
-            (k_pyro, r_pyro): reaction rate constant (1/s) and reaction rate (kg/s).
-        """
-        T_onset_K = getattr(self.feedstock, 'T_onset_K', 370.0 + 273.15)
-        if T_s < T_onset_K:
-            k_pyro = 0.0
-        else:
-            k_pyro = self.feedstock.A * np.exp(-self.feedstock.E_a / (self.R * T_s))
-        r_pyro = k_pyro * m_volatile
-        return k_pyro, r_pyro
-
     def calculate_first_order_kinetics(
         self,
         T_s: float,
@@ -275,7 +262,7 @@ class BaseReactorSimulation:
         k1: float,
         k2: float,
         k3: float,
-        tau_gas: float = 2.0,
+        tau_gas: float = GAS_RESIDENCE_S,
         dt_gas: Optional[float] = None,
         m_oil_vap: float = 0.0
     ) -> Tuple[float, float, float, float]:
@@ -324,18 +311,6 @@ class BaseReactorSimulation:
 
         return d_oil_prod, d_gas_prod, d_char_prod, H_rxn
 
-    def calculate_yields(self, d_volatile: float) -> Tuple[float, float, float]:
-        """
-        Splits reacted volatiles into Char, Pyrolysis oil, and Syngas based on feedstock yields.
-
-        Returns:
-            (d_char, d_oil, d_gas) yields.
-        """
-        d_char = d_volatile * self.feedstock.yield_char
-        d_oil = d_volatile * self.feedstock.yield_oil
-        d_gas = d_volatile * self.feedstock.yield_gas
-        return d_char, d_oil, d_gas
-
     # -------------------------------------------------------------------------
     # Drying and Phase Change Thermodynamics
     # -------------------------------------------------------------------------
@@ -354,27 +329,25 @@ class BaseReactorSimulation:
         Returns:
             (T_s_resolved, d_moist): resulting solid temperature and evaporated water mass.
         """
-        if m_moist <= 1e-8:
+        reaches_boiling = T_s >= self.T_boil or T_s_next > self.T_boil
+        if m_moist <= 1e-8 or not reaches_boiling:
             return T_s_next, 0.0
 
-        if T_s >= self.T_boil or T_s_next > self.T_boil:
-            H_preheat = thermal_mass * (self.T_boil - T_s) if T_s < self.T_boil else 0.0
-            H_input = thermal_mass * (T_target_heat - T_s)
-            H_avail_evap = H_input - H_preheat - H_rxn
+        # Heat left for evaporation after bringing the bed to 100 °C and feeding the reaction (J)
+        H_preheat = thermal_mass * (self.T_boil - T_s) if T_s < self.T_boil else 0.0
+        H_input = thermal_mass * (T_target_heat - T_s)
+        H_avail_evap = H_input - H_preheat - H_rxn
+        if H_avail_evap > 0.0:
+            d_moist = min(m_moist, H_avail_evap / self.dH_evap)
+            H_used_evap = d_moist * self.dH_evap
+            H_remain = H_avail_evap - H_used_evap
 
-            if H_avail_evap > 0.0:
-                d_moist = min(m_moist, H_avail_evap / self.dH_evap)
-                H_used_evap = d_moist * self.dH_evap
-                H_remain = H_avail_evap - H_used_evap
-
-                T_s_resolved = self.T_boil
-                if H_remain > 0.0 and thermal_mass > 1e-8:
-                    T_s_resolved += H_remain / thermal_mass
-                return T_s_resolved, d_moist
-            else:
-                return T_s_next, 0.0
-        else:
-            return T_s_next, 0.0
+            # The bed stays at 100 °C; only heat left after evaporating all the water raises it
+            T_s_resolved = self.T_boil
+            if H_remain > 0.0 and thermal_mass > 1e-8:
+                T_s_resolved += H_remain / thermal_mass
+            return T_s_resolved, d_moist
+        return T_s_next, 0.0
 
     # -------------------------------------------------------------------------
     # Standard ASTM Fuel Characterization
@@ -405,50 +378,3 @@ class BaseReactorSimulation:
             'api_gravity': nan,
             'bsw_moisture_pct': nan,
         }
-        # Código anterior conservado solo como referencia histórica:
-        hhv_sludge_mj_kg = 18.5
-        hhv_oil_mj_kg = min(
-            43.5,
-            max(36.0, 38.0 + 0.008 * (T_operating_C - 450.0) + 0.10 * (initial_volatile_pct - 50.0))
-        )
-        hhv_oil_btu_lb = hhv_oil_mj_kg * 429.923
-        energy_enhancement_factor = hhv_oil_mj_kg / hhv_sludge_mj_kg
-
-        viscosity_40c_cst = max(12.0, 45.0 - 0.08 * (T_operating_C - 400.0))
-        sg_15c = float(bio_oil_density) / 999.1
-        api_gravity = (141.5 / max(0.1, sg_15c)) - 131.5
-        bsw_moisture_pct = min(8.0, max(1.5, 3.5 * (moisture_feed_pct / 30.0)))
-
-        return {
-            'hhv_oil_mj_kg': hhv_oil_mj_kg,
-            'hhv_oil_btu_lb': hhv_oil_btu_lb,
-            'energy_enhancement_factor': energy_enhancement_factor,
-            'viscosity_40c_cst': viscosity_40c_cst,
-            'api_gravity': api_gravity,
-            'bsw_moisture_pct': bsw_moisture_pct
-        }
-
-    def calculate_syngas_balance(
-        self,
-        final_gas_kg: float,
-        total_energy_kwh: float,
-        lhv_syngas_mj_kg: float = 12.0
-    ) -> Tuple[float, float, float]:
-        """
-        Computes syngas recirculation percentage, flaring mass, and flaring volume.
-
-        Returns:
-            (syngas_recirc_pct, syngas_flare_kg, syngas_flare_m3)
-        """
-        total_syngas_energy_mj = final_gas_kg * lhv_syngas_mj_kg
-        total_thermal_demand_mj = (total_energy_kwh * 3.6) / max(0.1, self.burner_efficiency)
-
-        if total_thermal_demand_mj > 0.0:
-            syngas_recirc_pct = min(100.0, (total_syngas_energy_mj / max(1e-4, total_thermal_demand_mj)) * 100.0)
-        else:
-            syngas_recirc_pct = 100.0
-
-        syngas_flare_kg = final_gas_kg * (1.0 - (syngas_recirc_pct / 100.0))
-        syngas_flare_m3 = syngas_flare_kg / 1.15
-
-        return syngas_recirc_pct, syngas_flare_kg, syngas_flare_m3

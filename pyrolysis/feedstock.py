@@ -7,6 +7,9 @@ including multicomponent kinetic constants and feedstock blending utilities.
 
 from typing import Dict, Optional
 
+DEFAULT_T_ONSET_K = 643.15   # pyrolysis starts at 370 °C
+DEFAULT_T_END_K = 703.15     # pyrolysis ends at 430 °C
+
 
 class Feedstock:
     """
@@ -31,8 +34,8 @@ class Feedstock:
         A2: Optional[float] = None,
         Ea3: Optional[float] = None,
         A3: Optional[float] = None,
-        T_onset_K: Optional[float] = 643.15,   # pyrolysis starts at 370 °C
-        T_end_K: Optional[float] = 703.15,     # pyrolysis ends at 430 °C
+        T_onset_K: Optional[float] = DEFAULT_T_ONSET_K,
+        T_end_K: Optional[float] = DEFAULT_T_END_K,
         angle_of_repose: float = 35.0
     ) -> None:
         """
@@ -76,8 +79,8 @@ class Feedstock:
         self.A3 = float(A3) if A3 is not None else 5e5
 
         # Physical constants
-        self.T_onset_K = float(T_onset_K) if T_onset_K is not None else 643.15
-        self.T_end_K = float(T_end_K) if T_end_K is not None else 703.15
+        self.T_onset_K = float(T_onset_K) if T_onset_K is not None else DEFAULT_T_ONSET_K
+        self.T_end_K = float(T_end_K) if T_end_K is not None else DEFAULT_T_END_K
         self.angle_of_repose = float(angle_of_repose)
 
     @property
@@ -89,8 +92,7 @@ class Feedstock:
     def T_end_K(self, value: float) -> None:
         self._T_end_K = float(value)
 
-    @property
-    def fractions(self) -> Dict[str, float]:
+    def get_fractions(self) -> Dict[str, float]:
         """Returns the mass fractions of proximate components on a wet basis (0 to 1)."""
         return {
             'moisture': self.moisture / 100.0,
@@ -98,15 +100,6 @@ class Feedstock:
             'fixed_carbon': self.fixed_carbon / 100.0,
             'ash': self.ash / 100.0
         }
-
-    def get_fractions(self) -> Dict[str, float]:
-        """Returns the mass fractions of proximate components on a wet basis (0 to 1)."""
-        return self.fractions
-
-    @property
-    def dry_matter_fraction(self) -> float:
-        """Dimensionless fraction of dry solids (1 - moisture fraction)."""
-        return 1.0 - (self.moisture / 100.0)
 
     def __repr__(self) -> str:
         return (
@@ -166,48 +159,24 @@ def blend_feedstocks(feed1: Feedstock, feed2: Feedstock, ratio: float) -> Feedst
     r1 = float(ratio)
     r2 = 1.0 - r1
 
-    # Linear proximate composition blending
-    moisture = r1 * feed1.moisture + r2 * feed2.moisture
-    volatile = r1 * feed1.volatile + r2 * feed2.volatile
-    fixed_carbon = r1 * feed1.fixed_carbon + r2 * feed2.fixed_carbon
-    ash = r1 * feed1.ash + r2 * feed2.ash
-
-    # Linear kinetic parameters blending
-    E_a = r1 * feed1.E_a + r2 * feed2.E_a
-    A = r1 * feed1.A + r2 * feed2.A
-
-    Ea1 = r1 * feed1.Ea1 + r2 * feed2.Ea1
-    A1 = r1 * feed1.A1 + r2 * feed2.A1
-    Ea2 = r1 * feed1.Ea2 + r2 * feed2.Ea2
-    A2 = r1 * feed1.A2 + r2 * feed2.A2
-    Ea3 = r1 * feed1.Ea3 + r2 * feed2.Ea3
-    A3 = r1 * feed1.A3 + r2 * feed2.A3
-
-    # Product yields blending
-    yield_oil = r1 * feed1.yield_oil + r2 * feed2.yield_oil
-    yield_gas = r1 * feed1.yield_gas + r2 * feed2.yield_gas
-    yield_char = r1 * feed1.yield_char + r2 * feed2.yield_char
-
-    t_onset = r1 * feed1.T_onset_K + r2 * feed2.T_onset_K
-    t_end = r1 * feed1.T_end_K + r2 * feed2.T_end_K
-    repose = r1 * feed1.angle_of_repose + r2 * feed2.angle_of_repose
-    name = f"Blend ({int(r1 * 100)}% {feed1.name} / {int(r2 * 100)}% {feed2.name})"
+    def mix(attr: str) -> float:
+        return r1 * getattr(feed1, attr) + r2 * getattr(feed2, attr)
 
     return Feedstock(
-        name=name,
-        moisture=moisture,
-        volatile=volatile,
-        fixed_carbon=fixed_carbon,
-        ash=ash,
-        E_a=E_a,
-        A=A,
-        yield_oil=yield_oil,
-        yield_gas=yield_gas,
-        yield_char=yield_char,
-        Ea1=Ea1, A1=A1,
-        Ea2=Ea2, A2=A2,
-        Ea3=Ea3, A3=A3,
-        T_onset_K=t_onset,
-        T_end_K=t_end,
-        angle_of_repose=repose
+        name=f"Blend ({int(r1 * 100)}% {feed1.name} / {int(r2 * 100)}% {feed2.name})",
+        moisture=mix('moisture'),
+        volatile=mix('volatile'),
+        fixed_carbon=mix('fixed_carbon'),
+        ash=mix('ash'),
+        E_a=mix('E_a'),
+        A=mix('A'),
+        yield_oil=mix('yield_oil'),
+        yield_gas=mix('yield_gas'),
+        yield_char=mix('yield_char'),
+        Ea1=mix('Ea1'), A1=mix('A1'),
+        Ea2=mix('Ea2'), A2=mix('A2'),
+        Ea3=mix('Ea3'), A3=mix('A3'),
+        T_onset_K=mix('T_onset_K'),
+        T_end_K=mix('T_end_K'),
+        angle_of_repose=mix('angle_of_repose')
     )

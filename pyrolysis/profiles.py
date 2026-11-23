@@ -121,23 +121,23 @@ THESIS_GUI_OVERRIDES = {
 
 def thesis_feedstock() -> Feedstock:
     """Lodo de la corrida documentada, con el inicio de pirólisis observado (370 °C)."""
-    a = _A1 + _A2
-    f = Feedstock(
+    a_total = _A1 + _A2
+    feed = Feedstock(
         name="Lodo PROENERGÉTICOS (tesis)",
         moisture=2.0, volatile=77.71, fixed_carbon=18.68, ash=1.61,
-        E_a=_EA1 * 1000.0, A=a,
-        yield_oil=_A1 / a, yield_gas=_A2 / a, yield_char=0.0,
+        E_a=_EA1 * 1000.0, A=a_total,
+        yield_oil=_A1 / a_total, yield_gas=_A2 / a_total, yield_char=0.0,
         Ea1=_EA1 * 1000.0, A1=_A1,
         Ea2=_EA2 * 1000.0, A2=_A2,
         Ea3=_EA3 * 1000.0, A3=_A3,
     )
-    f.T_onset_K = T_ONSET_THESIS_C + 273.15
-    return f
+    feed.T_onset_K = T_ONSET_THESIS_C + 273.15
+    return feed
 
 
 def thesis_batch_kwargs() -> dict:
     """Argumentos de BatchReactorSimulation para reproducir la corrida de la tesis."""
-    load_kg = 3700.0 * 3.785411784 * 0.9447
+    load_kg = 3700.0 * 3.785411784 * 0.9447   # 3,700 gal × L/gal × kg/L (944.7 kg/m³)
     return dict(
         feedstock=thesis_feedstock(), batch_load_kg=load_kg,
         length=6.0, diameter=2.75, rpm=1.0,

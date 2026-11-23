@@ -8,7 +8,37 @@ kiln wall thermal inertia, manifold autogenous pressure dynamics, and drying.
 from typing import Dict, Any, Optional
 import numpy as np
 from ..feedstock import Feedstock
-from .base import BaseReactorSimulation, BHP_TO_W
+from .base import BaseReactorSimulation, BHP_TO_W, GAS_RESIDENCE_S, SYNGAS_LHV_J_KG
+
+J_PER_KWH = 3.6e6
+P_ATM_PA = 101325.0
+PA_PER_PSI = 6894.76
+SYNGAS_DENSITY_KG_M3 = 1.15     # to report the flared syngas volume
+
+# Exhaust manifold: one 8-inch main duct fed by four 4-inch branches
+MAIN_DUCT_D_M = 8.0 * 0.0254
+BRANCH_D_M = 4.0 * 0.0254
+MAIN_DUCT_AREA_M2 = np.pi * (MAIN_DUCT_D_M / 2.0)**2
+BRANCHES_AREA_M2 = 4.0 * np.pi * (BRANCH_D_M / 2.0)**2
+MAIN_DUCT_FRICTION = 0.025      # Darcy friction factor (-)
+MAIN_DUCT_LENGTH_M = 10.0
+MAIN_DUCT_MINOR_LOSS_K = 1.5    # fittings and exit loss coefficient (-)
+
+# Wall-to-bed temperature difference assumed only to estimate the simulated time horizon (K)
+DRYING_EST_DT_K = 150.0
+PYRO_EST_DT_K = 100.0
+
+# Per-step series that hold a rate or a flow (not a state): at the end of the horizon the last value
+# is repeated so every series has the same length as 'time'. Value used if the series is still empty.
+_STEP_SERIES_DEFAULTS = (
+    ('p_oil', 0.0),
+    ('p_syngas', 0.0),
+    ('pressure_kpa', 101.325),
+    ('pressure_psig', 0.0),
+    ('v_main_ms', 0.0),
+    ('v_branch_ms', 0.0),
+    ('air_disp_m3', 0.0),
+)
 
 
 class BatchReactorSimulation(BaseReactorSimulation):
@@ -95,6 +125,7 @@ class BatchReactorSimulation(BaseReactorSimulation):
         segment of the bed times the reactor length. It grows much more slowly than the
         load (~load^(1/3) arc at low fill), so larger batches take longer to heat and dry.
         """
+        # Solve theta - sin(theta)·cos(theta) = eta·pi for the bed half-angle theta (bisection)
         eta = min(max(self.get_filling_degree_pct() / 100.0, 1e-4), 0.999)
         target = eta * np.pi
         low, high = 0.0, np.pi
@@ -161,24 +192,16 @@ class BatchReactorSimulation(BaseReactorSimulation):
             results = self._simulate(dt_sec, max_steps, horizon_scale)
         return results
 
-    def _simulate(self, dt_sec: float, max_steps: Optional[int], horizon_scale: float) -> Dict[str, Any]:
-        """Single integration pass over a time horizon scaled by `horizon_scale`."""
-        # 1. Shell thermal inertia and fuel calibration
-        a_outer, c_steel = self._get_shell_properties()
-        lhv_fuel_j_kg, fuel_mass_per_gal, _ = self.get_fuel_properties()
-
-        # 2. Initial mass inventory
-        fracs = self.feedstock.get_fractions()
-        m_moist = self.batch_load_kg * fracs['moisture']
-        m_volatile = self.batch_load_kg * fracs['volatile']
-        m_char = self.batch_load_kg * fracs['fixed_carbon']
-        m_ash = self.batch_load_kg * fracs['ash']
-        m_solid_total = m_moist + m_volatile + m_char + m_ash
-
-        # Nominal duration estimation
+    def _estimate_cycle_time_sec(self, c_steel, m_moist, m_volatile, m_char, m_ash, A_heat) -> float:
+        """
+        Time horizon to simulate (s): the longer of ramp + hold and drying + pyrolysis + hold.
+        In auto heating mode the ramp is estimated from the nominal burner power heating steel
+        and bed together.
+        """
         dT = self.T_hold - self.T_start
         if self.auto_heating_rate:
             q_main_nominal = self.burner_nominal_power_watts
+            m_solid_total = m_moist + m_volatile + m_char + m_ash
             cp_s_init = self.calculate_Cp_solid(m_moist, m_volatile, m_char, m_ash, m_solid_total)
             c_total_init = c_steel + (m_solid_total * cp_s_init)
             nominal_rate_csec = q_main_nominal / c_total_init if c_total_init > 0 else 0.1
@@ -186,54 +209,167 @@ class BatchReactorSimulation(BaseReactorSimulation):
         else:
             t_ramp_sec = dT / self.heating_rate_csec if self.heating_rate_csec > 0 else 0.0
 
-        a_heat_est = self.get_bed_contact_area()
-        q_dry_est = self.h_eff * a_heat_est * 150.0
+        q_dry_est = self.h_eff * A_heat * DRYING_EST_DT_K
         t_dry_est_sec = (m_moist * self.dH_evap) / max(q_dry_est, 1.0) if m_moist > 0 else 0.0
 
-        q_pyro_est = self.h_eff * a_heat_est * 100.0
+        q_pyro_est = self.h_eff * A_heat * PYRO_EST_DT_K
         t_pyro_est_sec = (m_volatile * self.dH_pyro) / max(q_pyro_est, 1.0) if m_volatile > 0 else 0.0
 
-        t_total_sec = max(
+        return max(
             t_ramp_sec + self.hold_time_min * 60.0,
             t_dry_est_sec + t_pyro_est_sec + self.hold_time_min * 60.0
         )
+
+    def _devolatilization_step(self, T_s, T_w, m_volatile, m_oil_vap, initial_volatile, A_heat, q_in_step, dt_sec):
+        """
+        Volatile mass released this step (kg) and its split into oil, gas and char.
+        The kinetic rate is capped by the pyrolysis temperature window and by the heat the bed
+        received this step: the endothermic reaction cannot consume more than that (energy conservation).
+
+        Returns:
+            (d_volatile, d_oil_prod, d_gas_prod, d_char_prod, H_rxn)
+        """
+        r_slug, k1, k2, k3 = self.calculate_devolatilization_rate(
+            T_s=T_s,
+            T_w=T_w,
+            m_volatile=m_volatile,
+            m_oil_vap=m_oil_vap,
+            A_contact=A_heat
+        )
+        d_volatile = min(r_slug * dt_sec, m_volatile)
+        # Devolatilization follows the pyrolysis window (onset -> end, e.g. 370 -> 430 °C):
+        # the cumulative released fraction cannot exceed what the bed temperature allows.
+        T_on = self.feedstock.T_onset_K
+        T_off = self.feedstock.T_end_K
+        f_released_max = min(1.0, max(0.0, (T_s - T_on) / max(1.0, T_off - T_on)))
+        already_released = initial_volatile - m_volatile
+        d_volatile = min(d_volatile, max(0.0, f_released_max * initial_volatile - already_released))
+        if T_s >= T_off:
+            d_volatile = m_volatile   # pyrolysis window closed: release what remains (heat permitting)
+        if self.dH_pyro > 0.0:
+            d_volatile = min(d_volatile, q_in_step / self.dH_pyro)
+        d_oil_prod, d_gas_prod, d_char_prod, H_rxn = self.split_reaction_products(
+            d_volatile=d_volatile,
+            k1=k1,
+            k2=k2,
+            k3=k3,
+            tau_gas=GAS_RESIDENCE_S
+        )
+        return d_volatile, d_oil_prod, d_gas_prod, d_char_prod, H_rxn
+
+    def _thermostat_wall_step(self, T_w, q_syngas_avail, q_needed_wall, q_loss, c_steel, dt_sec):
+        """
+        Auto heating mode: full burner power while the wall ramps up, then modulated to hold T_hold.
+        The steel shell temperature follows its own heat balance.
+
+        Returns:
+            (T_w_next, q_main_used, q_syngas_used, q_shell) with heat flows in W.
+        """
+        q_main_nominal = self.burner_nominal_power_watts
+        if T_w < self.T_hold - 0.01:
+            q_main_used = q_main_nominal
+            q_syngas_used = q_syngas_avail
+        else:
+            q_demand = q_needed_wall + q_loss
+            q_syngas_used = min(q_syngas_avail, q_demand)
+            q_main_used = min(max(0.0, q_demand - q_syngas_used), q_main_nominal)
+        q_net_wall = (q_main_used + q_syngas_used) - q_needed_wall - q_loss
+        dT_w = (q_net_wall * dt_sec) / c_steel if c_steel > 0 else 0.0
+        T_w_next = min(T_w + dT_w, self.T_hold)
+        q_shell = c_steel * (T_w_next - T_w) / dt_sec if dt_sec > 0.0 else 0.0
+        return T_w_next, q_main_used, q_syngas_used, q_shell
+
+    def _programmed_wall_step(self, T_w, T_s, t_sec, m_moist, q_syngas_avail, q_needed_wall, q_loss,
+                              c_steel, dt_sec):
+        """
+        Manual ramp mode: the wall follows the programmed ramp and the burners must supply
+        bed heat + steel shell heating + shell losses.
+
+        Returns:
+            (T_w_next, q_main_used, q_syngas_used, q_shell, q_unmet) with heat flows in W;
+            q_unmet is the demand above what the burners can deliver.
+        """
+        T_w_nominal = self.get_wall_temp_K(t_sec + dt_sec)
+        # While the bed is still wet the wall stays at most 250 K above it
+        T_w_next = min(T_w_nominal, T_s + 250.0) if m_moist > 1.0 else T_w_nominal
+        # The wall can never heat faster than the programmed ramp (no jump once drying ends)
+        T_w_next = min(T_w_next, T_w + self.heating_rate_csec * dt_sec)
+        q_shell = c_steel * (T_w_next - T_w) / dt_sec if dt_sec > 0.0 else 0.0
+        q_demand = q_needed_wall + max(0.0, q_shell) + q_loss
+        q_syngas_used = min(q_syngas_avail, q_demand)
+        q_main_used = min(max(0.0, q_demand - q_syngas_used), self.burner_nominal_power_watts)
+        q_unmet = q_demand - q_syngas_used - q_main_used
+        return T_w_next, q_main_used, q_syngas_used, q_shell, q_unmet
+
+    def _vent_flow(self, d_moist, d_oil_prod, d_gas_prod, dt_sec, T_s, m_vapor_released, v_headspace_m3):
+        """
+        Vapour released this step leaving through the exhaust manifold.
+
+        Returns:
+            (v_main_ms, v_branch_ms, air_disp_m3, p_abs_kpa, p_gauge_psig): duct velocities (m/s),
+            headspace air displaced so far (m³) and the autogenous backpressure.
+        """
+        w_vap_gen = (d_moist + d_oil_prod + d_gas_prod) / dt_sec if dt_sec > 0 else 0.0   # kg/s
+        T_gas_k = max(T_s, 298.15)
+        w_total = max(1e-8, d_moist + d_oil_prod + d_gas_prod)
+        w_h2o_f = d_moist / w_total if w_vap_gen > 0 else 0.5
+        w_oil_f = d_oil_prod / w_total if w_vap_gen > 0 else 0.3
+        w_gas_f = max(0.0, 1.0 - w_h2o_f - w_oil_f)
+
+        # Mixture molar mass (g/mol): water 18, oil vapour 120, syngas 28; ideal-gas density at 1 atm
+        mw_mix = max(18.0, min(120.0, w_h2o_f * 18.0 + w_oil_f * 120.0 + w_gas_f * 28.0))
+        rho_gas_t = (P_ATM_PA * (mw_mix / 1000.0)) / (self.R * T_gas_k)
+        q_gas_gen_m3s = w_vap_gen / max(1e-4, rho_gas_t)
+
+        v_main_ms = q_gas_gen_m3s / MAIN_DUCT_AREA_M2
+        v_branch_ms = q_gas_gen_m3s / BRANCHES_AREA_M2
+        air_disp_m3 = min(v_headspace_m3, m_vapor_released / max(1e-4, rho_gas_t))
+
+        # Darcy friction along the main duct + minor losses
+        delta_p_pa = (MAIN_DUCT_FRICTION * (MAIN_DUCT_LENGTH_M / MAIN_DUCT_D_M) * (0.5 * rho_gas_t * v_main_ms**2)
+                      + (MAIN_DUCT_MINOR_LOSS_K * 0.5 * rho_gas_t * v_main_ms**2))
+        p_abs_kpa = (P_ATM_PA + delta_p_pa) / 1000.0
+        p_gauge_psig = delta_p_pa / PA_PER_PSI
+        return v_main_ms, v_branch_ms, air_disp_m3, p_abs_kpa, p_gauge_psig
+
+    def _simulate(self, dt_sec: float, max_steps: Optional[int], horizon_scale: float) -> Dict[str, Any]:
+        """Single integration pass over a time horizon scaled by `horizon_scale`."""
+        # Shell thermal inertia, fuel calibration and heated bed area
+        a_outer, c_steel = self._get_shell_properties()
+        lhv_fuel_j_kg, fuel_mass_per_gal, _ = self.get_fuel_properties()
+        A_heat = self.get_bed_contact_area()
+        q_main_nominal = self.burner_nominal_power_watts
+        q_syngas_nominal = self.syngas_hp * BHP_TO_W   # nameplate in boiler hp = useful heat output
+
+        # Initial mass inventory (kg)
+        fracs = self.feedstock.get_fractions()
+        m_moist = self.batch_load_kg * fracs['moisture']
+        m_volatile = self.batch_load_kg * fracs['volatile']
+        m_char = self.batch_load_kg * fracs['fixed_carbon']
+        m_ash = self.batch_load_kg * fracs['ash']
+        initial_volatile = max(m_volatile, 1e-10)
+
+        # Time horizon and step count
+        t_total_sec = self._estimate_cycle_time_sec(c_steel, m_moist, m_volatile, m_char, m_ash, A_heat)
         t_total_sec *= horizon_scale
         steps = int(t_total_sec / dt_sec)
         if max_steps is not None and steps > max_steps:
             dt_sec = t_total_sec / float(max_steps)
             steps = int(max_steps)
 
+        v_sludge_m3 = self.batch_load_kg / max(self.bulk_density, 100.0)
+        v_headspace_init_m3 = max(0.1, self.reactor_volume - v_sludge_m3)
+
         T_s = self.T_start
         T_w = self.T_start
 
-        # Cumulative gas release streams (kg)
+        # Cumulative releases (kg) and auxiliary fuel burned (gal)
         m_steam = 0.0
         m_oil_vap = 0.0
         m_gas_vap = 0.0
         m_waste_oil_gal = 0.0
 
-        # Output time series
-        time_arr, moist_arr, volatile_arr, char_arr, ash_arr = [], [], [], [], []
-        temp_s_arr, temp_w_arr = [], []
-        oil_arr, gas_arr, steam_arr, conv_arr = [], [], [], []
-        humidity_arr = []
-        waste_oil_arr = []
-        p_oil_arr, p_syngas_arr = [], []
-
-        # Manifold and autogenous pressure dynamics
-        pressure_kpa_arr, pressure_psig_arr = [], []
-        v_main_arr, v_branch_arr, air_disp_arr = [], [], []
-
-        v_sludge_m3 = self.batch_load_kg / max(self.bulk_density, 100.0)
-        v_headspace_init_m3 = max(0.1, self.reactor_volume - v_sludge_m3)
-
-        d_main_m = 8.0 * 0.0254       # 8-inch main exhaust duct (m)
-        d_branch_m = 4.0 * 0.0254     # 4-inch manifold branch (m)
-        a_main = np.pi * (d_main_m / 2.0)**2
-        a_branches = 4.0 * np.pi * (d_branch_m / 2.0)**2
-
-        initial_volatile = max(m_volatile, 1e-10)
-        A_heat = a_heat_est
+        # Energy tallies
         total_energy_kwh = 0.0
         energy_bed_kwh = 0.0
         energy_shell_kwh = 0.0
@@ -242,146 +378,100 @@ class BatchReactorSimulation(BaseReactorSimulation):
         burner_shortfall_peak_kw = 0.0   # manual ramp: heat demand above burner capacity
         burner_shortfall_min = 0.0
 
+        # Output time series, in the order they are returned
+        series = {key: [] for key in (
+            'time', 'moisture', 'volatile', 'char', 'ash', 'T_solid', 'T_wall', 'oil', 'gas', 'steam',
+            'waste_oil', 'p_oil', 'p_syngas', 'conversion', 'humidity', 'pressure_kpa', 'pressure_psig',
+            'v_main_ms', 'v_branch_ms', 'air_disp_m3',
+        )}
+
         for step in range(steps + 1):
             t_sec = step * dt_sec
-            t_min = t_sec / 60.0
+            m_solid_total = m_moist + m_volatile + m_char + m_ash
 
-            time_arr.append(t_min)
-            moist_arr.append(m_moist)
-            volatile_arr.append(m_volatile)
-            char_arr.append(m_char)
-            ash_arr.append(m_ash)
-            temp_s_arr.append(T_s - 273.15)
-            temp_w_arr.append(T_w - 273.15)
-            oil_arr.append(m_oil_vap)
-            gas_arr.append(m_gas_vap)
-            steam_arr.append(m_steam)
-            waste_oil_arr.append(m_waste_oil_gal)
-
-            conversion = 1.0 - (m_volatile / initial_volatile)
-            conv_arr.append(conversion)
-
-            m_sol_tot = m_moist + m_volatile + m_char + m_ash
-            humidity_arr.append(self.calculate_humidity_pct(m_moist, m_sol_tot))
+            # Record the state at the start of the step
+            series['time'].append(t_sec / 60.0)
+            series['moisture'].append(m_moist)
+            series['volatile'].append(m_volatile)
+            series['char'].append(m_char)
+            series['ash'].append(m_ash)
+            series['T_solid'].append(T_s - 273.15)
+            series['T_wall'].append(T_w - 273.15)
+            series['oil'].append(m_oil_vap)
+            series['gas'].append(m_gas_vap)
+            series['steam'].append(m_steam)
+            series['waste_oil'].append(m_waste_oil_gal)
+            series['conversion'].append(1.0 - (m_volatile / initial_volatile))
+            series['humidity'].append(self.calculate_humidity_pct(m_moist, m_solid_total))
 
             if t_sec >= t_total_sec:
-                p_oil_arr.append(p_oil_arr[-1] if p_oil_arr else 0.0)
-                p_syngas_arr.append(p_syngas_arr[-1] if p_syngas_arr else 0.0)
-                pressure_kpa_arr.append(pressure_kpa_arr[-1] if pressure_kpa_arr else 101.325)
-                pressure_psig_arr.append(pressure_psig_arr[-1] if pressure_psig_arr else 0.0)
-                v_main_arr.append(v_main_arr[-1] if v_main_arr else 0.0)
-                v_branch_arr.append(v_branch_arr[-1] if v_branch_arr else 0.0)
-                air_disp_arr.append(air_disp_arr[-1] if air_disp_arr else 0.0)
+                for key, empty_default in _STEP_SERIES_DEFAULTS:
+                    series[key].append(series[key][-1] if series[key] else empty_default)
                 break
 
-            # 1. Solid bed thermal mass
-            m_solid_total = m_moist + m_volatile + m_char + m_ash
+            # 1. Heat transfer wall -> bed: exact solution of dT_s/dt = beta·(T_w - T_s) over the step
             Cp_s = self.calculate_Cp_solid(m_moist, m_volatile, m_char, m_ash, m_solid_total)
-            denom_temp = m_solid_total * Cp_s
-            beta = (self.h_eff * A_heat) / denom_temp if denom_temp > 1e-8 else 0.0
-
-            # 2. Chemical reaction step (multicomponent devolatilization & cracking)
-            r_slug, k1, k2, k3 = self.calculate_devolatilization_rate(
-                T_s=T_s,
-                T_w=T_w,
-                m_volatile=m_volatile,
-                m_oil_vap=m_oil_vap,
-                A_contact=A_heat
-            )
-            # Heat actually delivered to the bed this step; the endothermic
-            # reaction cannot consume more than that (energy conservation).
+            thermal_mass = m_solid_total * Cp_s   # J/K
+            beta = (self.h_eff * A_heat) / thermal_mass if thermal_mass > 1e-8 else 0.0
             T_target_heat = T_w - (T_w - T_s) * np.exp(-beta * dt_sec) if beta > 0 else T_s
             dT_input = T_target_heat - T_s
-            q_in_step = max(0.0, dT_input) * denom_temp
+            q_in_step = max(0.0, dT_input) * thermal_mass   # heat delivered to the bed this step (J)
 
-            d_volatile = min(r_slug * dt_sec, m_volatile)
-            # Devolatilization follows the pyrolysis window (onset -> end, e.g. 370 -> 430 °C):
-            # the cumulative released fraction cannot exceed what the bed temperature allows.
-            T_on = self.feedstock.T_onset_K
-            T_off = self.feedstock.T_end_K
-            f_released_max = min(1.0, max(0.0, (T_s - T_on) / max(1.0, T_off - T_on)))
-            already_released = initial_volatile - m_volatile
-            d_volatile = min(d_volatile, max(0.0, f_released_max * initial_volatile - already_released))
-            if T_s >= T_off:
-                d_volatile = m_volatile   # pyrolysis window closed: release what remains (heat permitting)
-            if self.dH_pyro > 0.0:
-                d_volatile = min(d_volatile, q_in_step / self.dH_pyro)
-            d_oil_prod, d_gas_prod, d_char_prod, H_rxn = self.split_reaction_products(
-                d_volatile=d_volatile,
-                k1=k1,
-                k2=k2,
-                k3=k3,
-                tau_gas=2.0
+            # 2. Devolatilization (multicomponent kinetics) and secondary cracking
+            d_volatile, d_oil_prod, d_gas_prod, d_char_prod, H_rxn = self._devolatilization_step(
+                T_s, T_w, m_volatile, m_oil_vap, initial_volatile, A_heat, q_in_step, dt_sec
             )
 
-            # 3. Solid sensible heat integration
-            dT_endothermic = (H_rxn / denom_temp) if denom_temp > 1e-8 else 0.0
+            # 3. Bed sensible heat minus the endothermic reaction
+            dT_endothermic = (H_rxn / thermal_mass) if thermal_mass > 1e-8 else 0.0
             T_s_next = T_s + dT_input - dT_endothermic
 
-            # 4. Reactor shell & burner heat balance
-            q_main_nominal = self.burner_nominal_power_watts
+            # 4. Burners, steel shell and wall temperature
             r_syngas_prod = d_gas_prod / dt_sec if dt_sec > 0.0 else 0.0
-            q_syngas_nominal = self.syngas_hp * BHP_TO_W   # nameplate in boiler hp = useful heat output
-            q_syngas_thermal = min(r_syngas_prod * 12e6 * self.burner_efficiency, q_syngas_nominal)
-
-            q_needed_wall = max(0.0, (T_w - T_s) * self.h_eff * A_heat)
-            q_loss = max(0.0, self.h_loss * a_outer * (T_w - self.T_ambient))
+            q_syngas_avail = min(r_syngas_prod * SYNGAS_LHV_J_KG * self.burner_efficiency, q_syngas_nominal)
+            q_needed_wall = max(0.0, (T_w - T_s) * self.h_eff * A_heat)        # wall -> bed (W)
+            q_loss = max(0.0, self.h_loss * a_outer * (T_w - self.T_ambient))  # shell -> ambient (W)
 
             if self.auto_heating_rate:
-                # Thermostat: full burner power while ramping, modulated to hold T_hold afterwards
-                if T_w < self.T_hold - 0.01:
-                    q_main_used = q_main_nominal
-                    q_syngas_used = q_syngas_thermal
-                else:
-                    q_demand = q_needed_wall + q_loss
-                    q_syngas_used = min(q_syngas_thermal, q_demand)
-                    q_main_used = min(max(0.0, q_demand - q_syngas_used), q_main_nominal)
-                q_net_wall = (q_main_used + q_syngas_used) - q_needed_wall - q_loss
-                dT_w = (q_net_wall * dt_sec) / c_steel if c_steel > 0 else 0.0
-                T_w_next = min(T_w + dT_w, self.T_hold)
-                q_shell = c_steel * (T_w_next - T_w) / dt_sec if dt_sec > 0.0 else 0.0
+                T_w_next, q_main_used, q_syngas_used, q_shell = self._thermostat_wall_step(
+                    T_w, q_syngas_avail, q_needed_wall, q_loss, c_steel, dt_sec
+                )
             else:
-                T_w_nominal = self.get_wall_temp_K(t_sec + dt_sec)
-                T_w_next = min(T_w_nominal, T_s + 250.0) if m_moist > 1.0 else T_w_nominal
-                # The wall can never heat faster than the programmed ramp (no jump once drying ends)
-                T_w_next = min(T_w_next, T_w + self.heating_rate_csec * dt_sec)
-                # Burners must cover bed heat + steel shell heating + shell losses
-                q_shell = c_steel * (T_w_next - T_w) / dt_sec if dt_sec > 0.0 else 0.0
-                q_demand = q_needed_wall + max(0.0, q_shell) + q_loss
-                q_syngas_used = min(q_syngas_thermal, q_demand)
-                q_main_used = min(max(0.0, q_demand - q_syngas_used), q_main_nominal)
+                T_w_next, q_main_used, q_syngas_used, q_shell, q_unmet = self._programmed_wall_step(
+                    T_w, T_s, t_sec, m_moist, q_syngas_avail, q_needed_wall, q_loss, c_steel, dt_sec
+                )
                 # Programmed ramp that the burners cannot actually deliver
-                q_unmet = q_demand - q_syngas_used - q_main_used
                 if q_unmet > 0.01 * max(q_main_nominal, 1.0):
                     burner_shortfall_peak_kw = max(burner_shortfall_peak_kw, q_unmet / 1000.0)
                     burner_shortfall_min += dt_sec / 60.0
 
-            p_oil_arr.append(q_main_used / 1000.0)
-            p_syngas_arr.append(q_syngas_used / 1000.0)
+            series['p_oil'].append(q_main_used / 1000.0)
+            series['p_syngas'].append(q_syngas_used / 1000.0)
 
             q_shell_pos = max(0.0, q_shell)
-            energy_bed_kwh += (q_needed_wall * dt_sec) / 3.6e6
-            energy_shell_kwh += (q_shell_pos * dt_sec) / 3.6e6
-            energy_loss_kwh += (q_loss * dt_sec) / 3.6e6
+            energy_bed_kwh += (q_needed_wall * dt_sec) / J_PER_KWH
+            energy_shell_kwh += (q_shell_pos * dt_sec) / J_PER_KWH
+            energy_loss_kwh += (q_loss * dt_sec) / J_PER_KWH
             if self.burner_efficiency > 0.0:
-                m_gas_burned += (q_syngas_used * dt_sec) / (12e6 * self.burner_efficiency)
+                m_gas_burned += (q_syngas_used * dt_sec) / (SYNGAS_LHV_J_KG * self.burner_efficiency)
 
+            # Auxiliary fuel (waste oil) burned by the main burner
             q_combustion = q_main_used / self.burner_efficiency if self.burner_efficiency > 0 else 0.0
             dm_waste_oil_kg = (q_combustion * dt_sec) / lhv_fuel_j_kg
             m_waste_oil_gal += dm_waste_oil_kg / fuel_mass_per_gal
-            total_energy_kwh += ((q_needed_wall + q_shell_pos + q_loss) * dt_sec) / 3.6e6
+            total_energy_kwh += ((q_needed_wall + q_shell_pos + q_loss) * dt_sec) / J_PER_KWH
 
-            # 5. Drying and water evaporation resolution
+            # 5. Drying: the bed holds at 100 °C while water evaporates
             T_s, d_moist = self.resolve_drying_step(
                 T_s=T_s,
                 T_s_next=T_s_next,
                 T_target_heat=T_target_heat,
                 m_moist=m_moist,
-                thermal_mass=denom_temp,
+                thermal_mass=thermal_mass,
                 H_rxn=H_rxn
             )
 
-            # 6. Mass balance updates
+            # 6. Mass balance
             m_moist = max(m_moist - d_moist, 0.0)
             m_volatile = max(m_volatile - d_volatile, 0.0)
             m_char += d_char_prod
@@ -390,38 +480,23 @@ class BatchReactorSimulation(BaseReactorSimulation):
             m_oil_vap += d_oil_prod
             m_gas_vap += d_gas_prod
 
-            # 7. Autogenous venting and piping backpressure dynamics
-            w_vap_gen = (d_moist + d_oil_prod + d_gas_prod) / dt_sec if dt_sec > 0 else 0.0
-            T_gas_k = max(T_s, 298.15)
-            w_total = max(1e-8, d_moist + d_oil_prod + d_gas_prod)
-            w_h2o_f = d_moist / w_total if w_vap_gen > 0 else 0.5
-            w_oil_f = d_oil_prod / w_total if w_vap_gen > 0 else 0.3
-            w_gas_f = max(0.0, 1.0 - w_h2o_f - w_oil_f)
-
-            mw_mix = max(18.0, min(120.0, w_h2o_f * 18.0 + w_oil_f * 120.0 + w_gas_f * 28.0))
-            rho_gas_t = (101325.0 * (mw_mix / 1000.0)) / (self.R * T_gas_k)
-            q_gas_gen_m3s = w_vap_gen / max(1e-4, rho_gas_t)
-
-            v_main_ms = q_gas_gen_m3s / a_main if a_main > 0 else 0.0
-            v_branch_ms = q_gas_gen_m3s / a_branches if a_branches > 0 else 0.0
-            air_disp_m3 = min(v_headspace_init_m3, (m_steam + m_oil_vap + m_gas_vap) / max(1e-4, rho_gas_t))
-
-            delta_p_pa = 0.025 * (10.0 / d_main_m) * (0.5 * rho_gas_t * v_main_ms**2) + (1.5 * 0.5 * rho_gas_t * v_main_ms**2)
-            p_abs_kpa = (101325.0 + delta_p_pa) / 1000.0
-            p_gauge_psig = delta_p_pa / 6894.76
-
-            v_main_arr.append(v_main_ms)
-            v_branch_arr.append(v_branch_ms)
-            air_disp_arr.append(air_disp_m3)
-            pressure_kpa_arr.append(p_abs_kpa)
-            pressure_psig_arr.append(p_gauge_psig)
+            # 7. Vapour venting through the manifold and autogenous backpressure
+            v_main_ms, v_branch_ms, air_disp_m3, p_abs_kpa, p_gauge_psig = self._vent_flow(
+                d_moist, d_oil_prod, d_gas_prod, dt_sec, T_s,
+                m_steam + m_oil_vap + m_gas_vap, v_headspace_init_m3
+            )
+            series['v_main_ms'].append(v_main_ms)
+            series['v_branch_ms'].append(v_branch_ms)
+            series['air_disp_m3'].append(air_disp_m3)
+            series['pressure_kpa'].append(p_abs_kpa)
+            series['pressure_psig'].append(p_gauge_psig)
 
             T_w = T_w_next
 
         # -------------------------------------------------------------------------
         # Final Operation Yields and Quality Balances
         # -------------------------------------------------------------------------
-        final_char_kg = m_char + m_ash + m_volatile
+        final_char_kg = m_char + m_ash + m_volatile   # unreacted volatiles stay in the solid residue
         final_oil_kg = m_oil_vap
         final_gas_kg = m_gas_vap
         final_steam_kg = m_steam
@@ -429,12 +504,12 @@ class BatchReactorSimulation(BaseReactorSimulation):
         total_out_kg = final_char_kg + final_oil_kg + final_gas_kg + final_steam_kg + m_moist
         mass_error_pct = self.calculate_mass_balance_error(total_out_kg, self.batch_load_kg)
 
+        humidity = series['humidity']
         initial_vol_pct = (initial_volatile / self.batch_load_kg * 100.0) if self.batch_load_kg > 0 else 50.0
-        feed_moist_pct = humidity_arr[0] if humidity_arr else 30.0
         astm = self.calculate_astm_properties(
             T_operating_C=self.T_hold - 273.15,
             initial_volatile_pct=initial_vol_pct,
-            moisture_feed_pct=feed_moist_pct,
+            moisture_feed_pct=humidity[0],
             bio_oil_density=self.bio_oil_density
         )
 
@@ -442,47 +517,30 @@ class BatchReactorSimulation(BaseReactorSimulation):
         syngas_burned_kg = min(m_gas_burned, final_gas_kg)
         syngas_recirc_pct = (syngas_burned_kg / final_gas_kg * 100.0) if final_gas_kg > 0.0 else 0.0
         syngas_flare_kg = final_gas_kg - syngas_burned_kg
-        syngas_flare_m3 = syngas_flare_kg / 1.15
+        syngas_flare_m3 = syngas_flare_kg / SYNGAS_DENSITY_KG_M3
 
         # Time when 90% of the initial headspace air has been displaced (NaN if never reached)
-        air_disp_complete_min = float('nan')
-        for idx_t, v_d in enumerate(air_disp_arr):
-            if v_d >= v_headspace_init_m3 * 0.90:
-                air_disp_complete_min = time_arr[idx_t]
-                break
+        air_disp_complete_min = next(
+            (t for t, v_d in zip(series['time'], series['air_disp_m3']) if v_d >= v_headspace_init_m3 * 0.90),
+            float('nan')
+        )
+
+        def pct_of_load(kg):
+            return (kg / self.batch_load_kg) * 100.0 if self.batch_load_kg > 0 else 0
 
         return {
-            'time': time_arr,
-            'moisture': moist_arr,
-            'volatile': volatile_arr,
-            'char': char_arr,
-            'ash': ash_arr,
-            'T_solid': temp_s_arr,
-            'T_wall': temp_w_arr,
-            'oil': oil_arr,
-            'gas': gas_arr,
-            'steam': steam_arr,
-            'waste_oil': waste_oil_arr,
-            'p_oil': p_oil_arr,
-            'p_syngas': p_syngas_arr,
-            'conversion': conv_arr,
-            'humidity': humidity_arr,
-            'pressure_kpa': pressure_kpa_arr,
-            'pressure_psig': pressure_psig_arr,
-            'v_main_ms': v_main_arr,
-            'v_branch_ms': v_branch_arr,
-            'air_disp_m3': air_disp_arr,
+            **series,
             'summary': {
                 'batch_load_kg': self.batch_load_kg,
                 'oil_yield_kg': final_oil_kg,
                 'gas_yield_kg': final_gas_kg,
                 'char_yield_kg': final_char_kg,
                 'water_yield_kg': final_steam_kg,
-                'oil_yield_pct': (final_oil_kg / self.batch_load_kg) * 100.0 if self.batch_load_kg > 0 else 0,
-                'gas_yield_pct': (final_gas_kg / self.batch_load_kg) * 100.0 if self.batch_load_kg > 0 else 0,
-                'char_yield_pct': (final_char_kg / self.batch_load_kg) * 100.0 if self.batch_load_kg > 0 else 0,
-                'water_yield_pct': (final_steam_kg / self.batch_load_kg) * 100.0 if self.batch_load_kg > 0 else 0,
-                'conversion_pct': conv_arr[-1] * 100.0,
+                'oil_yield_pct': pct_of_load(final_oil_kg),
+                'gas_yield_pct': pct_of_load(final_gas_kg),
+                'char_yield_pct': pct_of_load(final_char_kg),
+                'water_yield_pct': pct_of_load(final_steam_kg),
+                'conversion_pct': series['conversion'][-1] * 100.0,
                 'filling_degree_pct': self.get_filling_degree_pct(),
                 'total_energy_kwh': total_energy_kwh,
                 'energy_bed_kwh': energy_bed_kwh,
@@ -491,17 +549,17 @@ class BatchReactorSimulation(BaseReactorSimulation):
                 'syngas_burned_kg': syngas_burned_kg,
                 'burner_shortfall_peak_kw': burner_shortfall_peak_kw,
                 'burner_shortfall_min': burner_shortfall_min,
-                'cycle_time_min': time_arr[-1] if time_arr else 0.0,
+                'cycle_time_min': series['time'][-1],
                 'ash_kg': m_ash,
                 'char_organic_kg': final_char_kg - m_ash,
                 'waste_oil_consumed_gal': m_waste_oil_gal,
                 'mass_error_pct': mass_error_pct,
-                'initial_humidity_pct': humidity_arr[0],
-                'final_humidity_pct': humidity_arr[-1],
-                'peak_pressure_kpa': max(pressure_kpa_arr) if pressure_kpa_arr else 101.325,
-                'peak_pressure_psig': max(pressure_psig_arr) if pressure_psig_arr else 0.0,
-                'max_v_main_ms': max(v_main_arr) if v_main_arr else 0.0,
-                'max_v_branch_ms': max(v_branch_arr) if v_branch_arr else 0.0,
+                'initial_humidity_pct': humidity[0],
+                'final_humidity_pct': humidity[-1],
+                'peak_pressure_kpa': max(series['pressure_kpa']),
+                'peak_pressure_psig': max(series['pressure_psig']),
+                'max_v_main_ms': max(series['v_main_ms']),
+                'max_v_branch_ms': max(series['v_branch_ms']),
                 'air_disp_complete_min': air_disp_complete_min,
                 'headspace_volume_m3': v_headspace_init_m3,
                 'hhv_oil_mj_kg': astm['hhv_oil_mj_kg'],
