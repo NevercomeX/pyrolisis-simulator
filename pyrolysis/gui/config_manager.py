@@ -1,5 +1,6 @@
 import streamlit as st
 import json
+from .utils import t
 
 DEFAULT_PARAMS = {
     'profile': "general",
@@ -139,7 +140,6 @@ def load_saved_config(config):
         return True
     return False
 
-from .utils import get_lang, t
 
 def init_session_state():
     """Initializes session state with defaults, then loads this browser's saved configuration from localStorage.
@@ -179,7 +179,7 @@ def render_config_manager(current_config_data):
             full_config_data[k] = st.session_state[k]
         else:
             full_config_data[k] = DEFAULT_PARAMS[k]
-        try:
+        try:  # Streamlit refuses to set a widget key whose widget was already drawn this run
             st.session_state[k] = full_config_data[k]
         except Exception:
             pass
@@ -220,7 +220,6 @@ def render_config_manager(current_config_data):
         try:
             load_saved_config(json.load(uploaded_file))
             st.sidebar.success(t("config_loaded_success"))
-            # Force rerun
             st.rerun()
         except Exception:
             st.sidebar.error(t("error_loading_config"))

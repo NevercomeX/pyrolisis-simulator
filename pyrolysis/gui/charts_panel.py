@@ -2,7 +2,31 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from pyrolysis import get_fuel_translation
-from .utils import get_lang, t
+from .utils import get_lang, t, SYNGAS_DENSITY_KG_M3
+
+_CHART_MARGIN = dict(l=20, r=20, t=40, b=20)
+_BED_FILL = 'rgba(139, 90, 43, 0.85)'   # sludge brown
+_BED_LINE = 'rgb(95, 50, 15)'
+_SHELL_COLOR = '#8d99ae'                # metallic grey
+
+
+def _add_flow_arrow(fig, tail_xy, tip_xy, color):
+    """Feed/discharge arrow drawn as an annotation in data coordinates."""
+    fig.add_annotation(
+        x=tip_xy[0],
+        y=tip_xy[1],
+        ax=tail_xy[0],
+        ay=tail_xy[1],
+        xref="x", yref="y",
+        axref="x", ayref="y",
+        text="",
+        showarrow=True,
+        arrowhead=3,
+        arrowsize=1.2,
+        arrowwidth=3,
+        arrowcolor=color
+    )
+
 
 def draw_front_view(filling_degree_pct, rpm):
     """Draws the circular cross-section front view showing the bed filling degree and dynamic tilt."""
@@ -46,8 +70,8 @@ def draw_front_view(filling_degree_pct, rpm):
         x=x_bed_rot,
         y=y_bed_rot,
         fill='toself',
-        fillcolor='rgba(139, 90, 43, 0.85)', # Sludge brown
-        line=dict(color='rgb(95, 50, 15)', width=2),
+        fillcolor=_BED_FILL,
+        line=dict(color=_BED_LINE, width=2),
         name="Bed / Cama",
         hoverinfo='skip'
     ))
@@ -57,24 +81,25 @@ def draw_front_view(filling_degree_pct, rpm):
     fig.add_trace(go.Scatter(
         x=np.cos(t_circle),
         y=np.sin(t_circle),
-        line=dict(color='#8d99ae', width=5), # Metallic grey
+        line=dict(color=_SHELL_COLOR, width=5),
         name="Reactor Wall / Pared",
         hoverinfo='skip'
     ))
     
     # Draw rotation direction arrow
     if rpm > 0:
+        arrow_r = 1.15   # just outside the unit-circle wall
         t_arrow = np.linspace(np.radians(25), np.radians(65), 50)
         fig.add_trace(go.Scatter(
-            x=1.15 * np.cos(t_arrow),
-            y=1.15 * np.sin(t_arrow),
+            x=arrow_r * np.cos(t_arrow),
+            y=arrow_r * np.sin(t_arrow),
             line=dict(color='crimson', width=3),
             showlegend=False,
             hoverinfo='skip'
         ))
         fig.add_trace(go.Scatter(
-            x=[1.15 * np.cos(np.radians(65))],
-            y=[1.15 * np.sin(np.radians(65))],
+            x=[arrow_r * np.cos(np.radians(65))],
+            y=[arrow_r * np.sin(np.radians(65))],
             marker=dict(symbol='triangle-up', size=10, color='crimson', angle=25),
             showlegend=False,
             hoverinfo='skip'
@@ -149,8 +174,8 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
         x=bed_x_rot,
         y=bed_y_rot,
         fill='toself',
-        fillcolor='rgba(139, 90, 43, 0.85)', # Sludge brown
-        line=dict(color='rgb(95, 50, 15)', width=1.5),
+        fillcolor=_BED_FILL,
+        line=dict(color=_BED_LINE, width=1.5),
         name="Bed / Cama",
         hoverinfo='skip'
     ))
@@ -161,7 +186,7 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
         y=shell_y_rot,
         fill='toself',
         fillcolor='rgba(215, 220, 225, 0.2)', # Shiny metal see-through
-        line=dict(color='#8d99ae', width=4), # Outer shell border
+        line=dict(color=_SHELL_COLOR, width=4),
         name="Reactor Shell / Cuerpo",
         hoverinfo='skip'
     ))
@@ -172,40 +197,12 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
 
     # Draw feed inlet indicator (green arrow) entering from the left cap center
     inlet_x, inlet_y = rotate(-r_cap - L * 0.05, 0)
-    inlet_x_tip, inlet_y_tip = rotate(-r_cap, 0)
-    fig.add_annotation(
-        x=inlet_x_tip,
-        y=inlet_y_tip,
-        ax=inlet_x,
-        ay=inlet_y,
-        xref="x", yref="y",
-        axref="x", ayref="y",
-        text="",
-        showarrow=True,
-        arrowhead=3,
-        arrowsize=1.2,
-        arrowwidth=3,
-        arrowcolor="seagreen"
-    )
+    _add_flow_arrow(fig, (inlet_x, inlet_y), rotate(-r_cap, 0), "seagreen")
     
     # Draw discharge outlet indicator (red arrow) exiting from the right cap bed height
     x_edge = L + r_cap * np.sqrt(np.clip(1.0 - (y_bed / (D/2))**2, 0.0, 1.0))
-    outlet_x, outlet_y = rotate(x_edge, y_bed)
     outlet_x_tip, outlet_y_tip = rotate(x_edge + L * 0.05, y_bed)
-    fig.add_annotation(
-        x=outlet_x_tip,
-        y=outlet_y_tip,
-        ax=outlet_x,
-        ay=outlet_y,
-        xref="x", yref="y",
-        axref="x", ayref="y",
-        text="",
-        showarrow=True,
-        arrowhead=3,
-        arrowsize=1.2,
-        arrowwidth=3,
-        arrowcolor="crimson"
-    )
+    _add_flow_arrow(fig, rotate(x_edge, y_bed), (outlet_x_tip, outlet_y_tip), "crimson")
     
     # Set tighter, zoomed ranges with dynamic padding
     x_plot_min = inlet_x - L * 0.01
@@ -250,240 +247,210 @@ def render_reactor_geometry_section(mode_option, summary, solver_inputs):
         fig_front = draw_front_view(filling_degree_pct, rpm)
         st.plotly_chart(fig_front, width='stretch')
 
+def _solids_chart(x_data, results, title, x_label, y_label):
+    """Solid bed components (kg or kg/h) plus bed humidity (%) on a second axis."""
+    fig_solids = go.Figure()
+    fig_solids.add_trace(go.Scatter(x=x_data, y=results['moisture'], name=t("trace_moisture"), line=dict(color='#3a86c8', width=2)))
+    fig_solids.add_trace(go.Scatter(x=x_data, y=results['volatile'], name=t("trace_volatiles"), line=dict(color='#a233c6', width=2.5)))
+    fig_solids.add_trace(go.Scatter(x=x_data, y=results['char'], name=t("trace_char"), line=dict(color='#2b2d42', width=2)))
+    fig_solids.add_trace(go.Scatter(x=x_data, y=results['ash'], name=t("trace_ash"), line=dict(color='#8d99ae', width=1.5)))
+    fig_solids.add_trace(go.Scatter(x=x_data, y=results['humidity'], name=t("trace_humidity"), line=dict(color='#ff5a5f', width=2, dash='dot'), yaxis="y2"))
+
+    fig_solids.update_layout(
+        title=title,
+        xaxis_title=x_label,
+        yaxis_title=y_label,
+        yaxis2=dict(
+            title=t("trace_humidity"),
+            overlaying="y",
+            side="right",
+            range=[0, 100],
+            showgrid=False
+        ),
+        hovermode="x unified",
+        margin=_CHART_MARGIN
+    )
+    return fig_solids
+
+
 def render_charts_panel(mode_option, results):
     """Renders Plotly charts for temperature, solids mass, and vapor accumulation profiles."""
-    lang = get_lang()
-    fuel_type = st.session_state.get('fuel_type', "Waste Oil / Aceite Residual")
-    
-    fuel_label = get_fuel_translation(lang, 'waste_oil_consumed_metric', fuel_type)
-    fuel_chart_title = get_fuel_translation(lang, 'chart_oil_vs_syngas_title', fuel_type)
-    fuel_yaxis_title = get_fuel_translation(lang, 'chart_y_oil_consumed', fuel_type)
-    fuel_power_label = get_fuel_translation(lang, 'trace_p_oil', fuel_type)
-
     col_chart_l, col_chart_r = st.columns(2)
-    
+
     if mode_option == "Continuous Operation":
         x_data = results['z']
         x_label = t("chart_x_len")
-        title_temp = t("chart_temp_title")
-        title_mass = t("chart_solids_title")
-        title_vap = t("chart_vapors_title")
-        mass_y_label = t("chart_y_mass")
-        
+
         with col_chart_l:
             fig_temp = go.Figure()
             fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_wall'], name=t("trace_wall_temp"), line=dict(color='crimson', width=2, dash='dash')))
             fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_solid'], name=t("trace_solid_temp"), line=dict(color='royalblue', width=3)))
             fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_gas'], name=t("trace_gas_temp"), line=dict(color='seagreen', width=2, dash='dot')))
             fig_temp.add_trace(go.Scatter(x=x_data, y=[100]*len(x_data), name=t("trace_boiling_pt"), line=dict(color='grey', width=1, dash='dot')))
-            fig_temp.update_layout(title=title_temp, xaxis_title=x_label, yaxis_title=t("chart_y_temp"), hovermode="x unified", margin=dict(l=20, r=20, t=40, b=20))
+            fig_temp.update_layout(title=t("chart_temp_title"), xaxis_title=x_label, yaxis_title=t("chart_y_temp"), hovermode="x unified", margin=_CHART_MARGIN)
             st.plotly_chart(fig_temp, width='stretch')
 
         with col_chart_r:
-            fig_solids = go.Figure()
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['moisture'], name=t("trace_moisture"), line=dict(color='#3a86c8', width=2)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['volatile'], name=t("trace_volatiles"), line=dict(color='#a233c6', width=2.5)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['char'], name=t("trace_char"), line=dict(color='#2b2d42', width=2)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['ash'], name=t("trace_ash"), line=dict(color='#8d99ae', width=1.5)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['humidity'], name=t("trace_humidity"), line=dict(color='#ff5a5f', width=2, dash='dot'), yaxis="y2"))
-            
-            fig_solids.update_layout(
-                title=title_mass,
-                xaxis_title=x_label,
-                yaxis_title=mass_y_label,
-                yaxis2=dict(
-                    title=t("trace_humidity"),
-                    overlaying="y",
-                    side="right",
-                    range=[0, 100],
-                    showgrid=False
-                ),
-                hovermode="x unified",
-                margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_solids, width='stretch')
-            
+            st.plotly_chart(_solids_chart(x_data, results, t("chart_solids_title"), x_label, t("chart_y_mass")), width='stretch')
+
         fig_vapors = go.Figure()
         fig_vapors.add_trace(go.Scatter(x=x_data, y=results['oil'], name=t("trace_bio_oil"), line=dict(color='#ff9f1c', width=3.0)))
         fig_vapors.add_trace(go.Scatter(x=x_data, y=results['gas'], name=t("trace_syngas"), line=dict(color='#2ec4b6', width=2.0, dash='dash')))
         fig_vapors.add_trace(go.Scatter(x=x_data, y=results['steam'], name=t("trace_steam"), line=dict(color='#e71d36', width=1.5, dash='dot')))
-        fig_vapors.update_layout(title=title_vap, xaxis_title=x_label, yaxis_title=t("chart_y_vapors"), hovermode="x unified", margin=dict(l=20, r=20, t=40, b=20))
+        fig_vapors.update_layout(title=t("chart_vapors_title"), xaxis_title=x_label, yaxis_title=t("chart_y_vapors"), hovermode="x unified", margin=_CHART_MARGIN)
         st.plotly_chart(fig_vapors, width='stretch')
-        
-    else:  # Batch Mode
-        x_data = results['time']
-        x_label = t("chart_x_time")
-        title_temp = t("chart_temp_batch_title")
-        title_mass = t("chart_solids_batch_title")
-        title_vap = t("chart_vapors_batch_title")
-        mass_y_label = t("chart_y_mass_batch")
-        
-        with col_chart_l:
-            fig_temp = go.Figure()
-            fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_wall'], name=t("trace_wall_temp_prog"), line=dict(color='crimson', width=2, dash='dash')))
-            fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_solid'], name=t("trace_solid_temp"), line=dict(color='royalblue', width=3)))
-            fig_temp.add_trace(go.Scatter(x=x_data, y=[100]*len(x_data), name=t("trace_boiling_pt"), line=dict(color='grey', width=1, dash='dot')))
-            fig_temp.update_layout(title=title_temp, xaxis_title=x_label, yaxis_title=t("chart_y_temp"), hovermode="x unified", margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_temp, width='stretch')
+        return
 
-        with col_chart_r:
-            fig_solids = go.Figure()
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['moisture'], name=t("trace_moisture"), line=dict(color='#3a86c8', width=2)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['volatile'], name=t("trace_volatiles"), line=dict(color='#a233c6', width=2.5)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['char'], name=t("trace_char"), line=dict(color='#2b2d42', width=2)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['ash'], name=t("trace_ash"), line=dict(color='#8d99ae', width=1.5)))
-            fig_solids.add_trace(go.Scatter(x=x_data, y=results['humidity'], name=t("trace_humidity"), line=dict(color='#ff5a5f', width=2, dash='dot'), yaxis="y2"))
-            
-            fig_solids.update_layout(
-                title=title_mass,
-                xaxis_title=x_label,
-                yaxis_title=mass_y_label,
-                yaxis2=dict(
-                    title=t("trace_humidity"),
-                    overlaying="y",
-                    side="right",
-                    range=[0, 100],
-                    showgrid=False
-                ),
-                hovermode="x unified",
-                margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_solids, width='stretch')
-            
-        fig_vapors = go.Figure()
-        fig_vapors.add_trace(go.Scatter(x=x_data, y=results['oil'], name=t("trace_bio_oil_batch"), line=dict(color='#ff9f1c', width=3.0)))
-        fig_vapors.add_trace(go.Scatter(x=x_data, y=results['gas'], name=t("trace_syngas_batch"), line=dict(color='#2ec4b6', width=2.0, dash='dash')))
-        fig_vapors.add_trace(go.Scatter(x=x_data, y=results['steam'], name=t("trace_steam_batch"), line=dict(color='#e71d36', width=1.5, dash='dot')))
-        fig_vapors.update_layout(title=title_vap, xaxis_title=x_label, yaxis_title=t("chart_y_vapors_batch"), hovermode="x unified", margin=dict(l=20, r=20, t=40, b=20))
-        st.plotly_chart(fig_vapors, width='stretch')
+    # Batch mode
+    x_data = results['time']
+    x_label = t("chart_x_time")
 
-        # Gráfica de Consumo de Aceite Residual vs Syngas Producido
-        fig_fuel_vs_gas = go.Figure()
-        gas_m3_arr = np.array(results['gas']) / 1.15
-        
-        fig_fuel_vs_gas.add_trace(go.Scatter(
-            x=x_data,
-            y=gas_m3_arr,
-            name=t("trace_syngas_batch") + " (m³)",
-            line=dict(color='#2ec4b6', width=3.0)
-        ))
-        fig_fuel_vs_gas.add_trace(go.Scatter(
-            x=x_data,
-            y=results.get('waste_oil', np.zeros_like(x_data)),
-            name=fuel_label + " (gal)",
-            line=dict(color='#e71d36', width=2.5, dash='dash'),
-            yaxis="y2"
-        ))
-        
-        fig_fuel_vs_gas.update_layout(
-            title=fuel_chart_title,
-            xaxis_title=x_label,
-            yaxis_title=t("syngas_vol_metric") + " (m³)",
-            yaxis2=dict(
-                title=fuel_yaxis_title,
-                overlaying="y",
-                side="right",
-                showgrid=False
-            ),
-            hovermode="x unified",
-            margin=dict(l=20, r=20, t=40, b=20)
-        )
-        st.plotly_chart(fig_fuel_vs_gas, width='stretch')
+    with col_chart_l:
+        fig_temp = go.Figure()
+        fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_wall'], name=t("trace_wall_temp_prog"), line=dict(color='crimson', width=2, dash='dash')))
+        fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_solid'], name=t("trace_solid_temp"), line=dict(color='royalblue', width=3)))
+        fig_temp.add_trace(go.Scatter(x=x_data, y=[100]*len(x_data), name=t("trace_boiling_pt"), line=dict(color='grey', width=1, dash='dot')))
+        fig_temp.update_layout(title=t("chart_temp_batch_title"), xaxis_title=x_label, yaxis_title=t("chart_y_temp"), hovermode="x unified", margin=_CHART_MARGIN)
+        st.plotly_chart(fig_temp, width='stretch')
 
-        # Gráfica de Potencia de Quemadores vs Temperatura de Cama Sólida
-        fig_burner_power = go.Figure()
-        
-        fig_burner_power.add_trace(go.Scatter(
-            x=x_data,
-            y=results.get('p_oil', np.zeros_like(x_data)),
-            name=fuel_power_label,
-            line=dict(color='#e71d36', width=2.5),
-            fill='tozeroy',
-            fillcolor='rgba(231, 29, 54, 0.15)'
-        ))
-        fig_burner_power.add_trace(go.Scatter(
-            x=x_data,
-            y=results.get('p_syngas', np.zeros_like(x_data)),
-            name=t("trace_p_syngas"),
-            line=dict(color='#2ec4b6', width=2.5),
-            fill='tozeroy',
-            fillcolor='rgba(46, 196, 182, 0.15)'
-        ))
-        fig_burner_power.add_trace(go.Scatter(
-            x=x_data,
-            y=results['T_solid'],
-            name=t("trace_solid_temp") + " (°C)",
-            line=dict(color='royalblue', width=2.5, dash='dot'),
-            yaxis="y2"
-        ))
-        
-        fig_burner_power.update_layout(
-            title=t("chart_burner_power_title"),
-            xaxis_title=x_label,
-            yaxis_title=t("chart_y_burner_power"),
-            yaxis2=dict(
-                title=t("chart_y_temp") + " (°C)",
-                overlaying="y",
-                side="right",
-                showgrid=False
-            ),
-            hovermode="x unified",
-            margin=dict(l=20, r=20, t=40, b=20)
-        )
-        st.plotly_chart(fig_burner_power, width='stretch')
+    with col_chart_r:
+        st.plotly_chart(_solids_chart(x_data, results, t("chart_solids_batch_title"), x_label, t("chart_y_mass_batch")), width='stretch')
 
-        # PROENERGETICOS Chart: Autogenous Pressure & Air Displacement
-        if 'pressure_psig' in results and 'air_disp_m3' in results:
-            fig_pres = go.Figure()
-            fig_pres.add_trace(go.Scatter(
-                x=x_data,
-                y=results['pressure_psig'],
-                name=t("auto_pressure_metric") + " (psig)",
-                line=dict(color='#ff9f1c', width=3)
-            ))
-            fig_pres.add_trace(go.Scatter(
-                x=x_data,
-                y=results['air_disp_m3'],
-                name="Desplazamiento Aire / Air Displaced (m³)",
-                line=dict(color='#3a86ff', width=2.5, dash='dash'),
-                yaxis="y2"
-            ))
-            fig_pres.update_layout(
-                title="Evolución de Presión Autógena y Desplazamiento de Aire (Sin N₂)",
-                xaxis_title=x_label,
-                yaxis_title="Presión / Pressure (psig)",
-                yaxis2=dict(
-                    title="Volumen Aire Desplazado / Displaced Air (m³)",
-                    overlaying="y",
-                    side="right",
-                    showgrid=False
-                ),
-                hovermode="x unified",
-                margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_pres, width='stretch')
+    fig_vapors = go.Figure()
+    fig_vapors.add_trace(go.Scatter(x=x_data, y=results['oil'], name=t("trace_bio_oil_batch"), line=dict(color='#ff9f1c', width=3.0)))
+    fig_vapors.add_trace(go.Scatter(x=x_data, y=results['gas'], name=t("trace_syngas_batch"), line=dict(color='#2ec4b6', width=2.0, dash='dash')))
+    fig_vapors.add_trace(go.Scatter(x=x_data, y=results['steam'], name=t("trace_steam_batch"), line=dict(color='#e71d36', width=1.5, dash='dot')))
+    fig_vapors.update_layout(title=t("chart_vapors_batch_title"), xaxis_title=x_label, yaxis_title=t("chart_y_vapors_batch"), hovermode="x unified", margin=_CHART_MARGIN)
+    st.plotly_chart(fig_vapors, width='stretch')
 
-            # PROENERGETICOS Chart: Manifold Velocities (8" main vs 4x 4" lines)
-            fig_vel = go.Figure()
-            fig_vel.add_trace(go.Scatter(
-                x=x_data,
-                y=results['v_main_ms'],
-                name="Manifold Principal 8'' (m/s)",
-                line=dict(color='#e63946', width=2.5)
-            ))
-            fig_vel.add_trace(go.Scatter(
-                x=x_data,
-                y=results['v_branch_ms'],
-                name="Líneas Secundarias 4x 4'' (m/s)",
-                line=dict(color='#457b9d', width=2.5, dash='dot')
-            ))
-            fig_vel.update_layout(
-                title="Velocidad del Vapor en Manifold de 8'' y 4 Líneas Secundarias de 4''",
-                xaxis_title=x_label,
-                yaxis_title="Velocidad de Vapor / Gas Velocity (m/s)",
-                hovermode="x unified",
-                margin=dict(l=20, r=20, t=40, b=20)
-            )
-            st.plotly_chart(fig_vel, width='stretch')
+    _render_burner_charts(x_data, x_label, results)
+    if 'pressure_psig' in results and 'air_disp_m3' in results:
+        _render_plant_charts(x_data, x_label, results)
 
 
+def _render_burner_charts(x_data, x_label, results):
+    """Batch charts: burner fuel used vs. syngas produced, and burner power vs. bed temperature."""
+    lang = get_lang()
+    fuel_type = st.session_state.get('fuel_type', "Waste Oil / Aceite Residual")
+
+    fig_fuel_vs_gas = go.Figure()
+    fig_fuel_vs_gas.add_trace(go.Scatter(
+        x=x_data,
+        y=np.array(results['gas']) / SYNGAS_DENSITY_KG_M3,
+        name=t("trace_syngas_batch") + " (m³)",
+        line=dict(color='#2ec4b6', width=3.0)
+    ))
+    fig_fuel_vs_gas.add_trace(go.Scatter(
+        x=x_data,
+        y=results.get('waste_oil', np.zeros_like(x_data)),
+        name=get_fuel_translation(lang, 'waste_oil_consumed_metric', fuel_type) + " (gal)",
+        line=dict(color='#e71d36', width=2.5, dash='dash'),
+        yaxis="y2"
+    ))
+    fig_fuel_vs_gas.update_layout(
+        title=get_fuel_translation(lang, 'chart_oil_vs_syngas_title', fuel_type),
+        xaxis_title=x_label,
+        yaxis_title=t("syngas_vol_metric") + " (m³)",
+        yaxis2=dict(
+            title=get_fuel_translation(lang, 'chart_y_oil_consumed', fuel_type),
+            overlaying="y",
+            side="right",
+            showgrid=False
+        ),
+        hovermode="x unified",
+        margin=_CHART_MARGIN
+    )
+    st.plotly_chart(fig_fuel_vs_gas, width='stretch')
+
+    fig_burner_power = go.Figure()
+    fig_burner_power.add_trace(go.Scatter(
+        x=x_data,
+        y=results.get('p_oil', np.zeros_like(x_data)),
+        name=get_fuel_translation(lang, 'trace_p_oil', fuel_type),
+        line=dict(color='#e71d36', width=2.5),
+        fill='tozeroy',
+        fillcolor='rgba(231, 29, 54, 0.15)'
+    ))
+    fig_burner_power.add_trace(go.Scatter(
+        x=x_data,
+        y=results.get('p_syngas', np.zeros_like(x_data)),
+        name=t("trace_p_syngas"),
+        line=dict(color='#2ec4b6', width=2.5),
+        fill='tozeroy',
+        fillcolor='rgba(46, 196, 182, 0.15)'
+    ))
+    fig_burner_power.add_trace(go.Scatter(
+        x=x_data,
+        y=results['T_solid'],
+        name=t("trace_solid_temp") + " (°C)",
+        line=dict(color='royalblue', width=2.5, dash='dot'),
+        yaxis="y2"
+    ))
+    fig_burner_power.update_layout(
+        title=t("chart_burner_power_title"),
+        xaxis_title=x_label,
+        yaxis_title=t("chart_y_burner_power"),
+        yaxis2=dict(
+            title=t("chart_y_temp") + " (°C)",
+            overlaying="y",
+            side="right",
+            showgrid=False
+        ),
+        hovermode="x unified",
+        margin=_CHART_MARGIN
+    )
+    st.plotly_chart(fig_burner_power, width='stretch')
+
+
+def _render_plant_charts(x_data, x_label, results):
+    """PROENERGETICOS plant charts: autogenous pressure / air displacement, and manifold vapour velocities."""
+    fig_pres = go.Figure()
+    fig_pres.add_trace(go.Scatter(
+        x=x_data,
+        y=results['pressure_psig'],
+        name=t("auto_pressure_metric") + " (psig)",
+        line=dict(color='#ff9f1c', width=3)
+    ))
+    fig_pres.add_trace(go.Scatter(
+        x=x_data,
+        y=results['air_disp_m3'],
+        name="Desplazamiento Aire / Air Displaced (m³)",
+        line=dict(color='#3a86ff', width=2.5, dash='dash'),
+        yaxis="y2"
+    ))
+    fig_pres.update_layout(
+        title="Evolución de Presión Autógena y Desplazamiento de Aire (Sin N₂)",
+        xaxis_title=x_label,
+        yaxis_title="Presión / Pressure (psig)",
+        yaxis2=dict(
+            title="Volumen Aire Desplazado / Displaced Air (m³)",
+            overlaying="y",
+            side="right",
+            showgrid=False
+        ),
+        hovermode="x unified",
+        margin=_CHART_MARGIN
+    )
+    st.plotly_chart(fig_pres, width='stretch')
+
+    fig_vel = go.Figure()
+    fig_vel.add_trace(go.Scatter(
+        x=x_data,
+        y=results['v_main_ms'],
+        name="Manifold Principal 8'' (m/s)",
+        line=dict(color='#e63946', width=2.5)
+    ))
+    fig_vel.add_trace(go.Scatter(
+        x=x_data,
+        y=results['v_branch_ms'],
+        name="Líneas Secundarias 4x 4'' (m/s)",
+        line=dict(color='#457b9d', width=2.5, dash='dot')
+    ))
+    fig_vel.update_layout(
+        title="Velocidad del Vapor en Manifold de 8'' y 4 Líneas Secundarias de 4''",
+        xaxis_title=x_label,
+        yaxis_title="Velocidad de Vapor / Gas Velocity (m/s)",
+        hovermode="x unified",
+        margin=_CHART_MARGIN
+    )
+    st.plotly_chart(fig_vel, width='stretch')

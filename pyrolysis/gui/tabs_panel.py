@@ -1,9 +1,9 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from pyrolysis.docx_generator import generate_word_report, PYTHON_DOCX_AVAILABLE
-from pyrolysis.pdf_generator import generate_thesis_pdf, REPORTLAB_AVAILABLE
-from .utils import get_lang, t
+from pyrolysis.docx_generator import PYTHON_DOCX_AVAILABLE
+from pyrolysis.pdf_generator import REPORTLAB_AVAILABLE
+from .utils import get_lang, t, product_volumes, sludge_gal
 
 # ==============================================================================
 # CONTROL DE GENERACIÓN DE REPORTES (FEATURE FLAG)
@@ -12,6 +12,20 @@ from .utils import get_lang, t
 # Por defecto está en False: la opción de generar reportes queda eliminada de la interfaz.
 # ==============================================================================
 ENABLE_REPORTS = False
+
+# Properties of the analytic energy balance (balances tab)
+CP_CHAR_J_KGK = 1000.0
+CP_GAS_J_KGK = 1500.0
+CP_WATER_J_KGK = 4184.0
+CP_STEAM_J_KGK = 2000.0
+DH_PYRO_J_KG = 700000.0       # pyrolysis cracking enthalpy
+DH_EVAP_J_KG = 2256000.0      # latent heat of water at 100 °C
+J_PER_KWH = 3.6e6
+
+
+def _pct(part, total):
+    """Share of total in %, guarded against a zero total."""
+    return part / max(0.001, total) * 100.0
 
 def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_kg, feed_option):
     """Renders the feedstock properties tab content."""
@@ -23,24 +37,13 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
         load_val = feed_rate_kgh if mode_option == "Continuous Operation" else batch_load_kg
         load_unit = "kg/h" if mode_option == "Continuous Operation" else "kg"
         load_unit_gal = "gal/h" if mode_option == "Continuous Operation" else "gal"
-        sludge_density = float(st.session_state.get('sludge_density', 944.7))
-        load_val_gal = (load_val / sludge_density) * 264.172
-        
+        load_val_gal = sludge_gal(load_val)
+        wt_pcts = [current_feed.moisture, current_feed.volatile, current_feed.fixed_carbon, current_feed.ash]
         comp_df = pd.DataFrame({
             t("analysis_component"): [t("analysis_moisture_name"), t("analysis_volatiles_name"), t("analysis_char_name"), t("analysis_ash_name")],
-            t("analysis_wt_pct"): [current_feed.moisture, current_feed.volatile, current_feed.fixed_carbon, current_feed.ash],
-            t("analysis_input_load").format(load_unit): [
-                load_val * current_feed.moisture / 100.0,
-                load_val * current_feed.volatile / 100.0,
-                load_val * current_feed.fixed_carbon / 100.0,
-                load_val * current_feed.ash / 100.0
-            ],
-            t("analysis_input_load").format(load_unit_gal): [
-                load_val_gal * current_feed.moisture / 100.0,
-                load_val_gal * current_feed.volatile / 100.0,
-                load_val_gal * current_feed.fixed_carbon / 100.0,
-                load_val_gal * current_feed.ash / 100.0
-            ]
+            t("analysis_wt_pct"): wt_pcts,
+            t("analysis_input_load").format(load_unit): [load_val * pct / 100.0 for pct in wt_pcts],
+            t("analysis_input_load").format(load_unit_gal): [load_val_gal * pct / 100.0 for pct in wt_pcts]
         })
         st.table(comp_df)
         
@@ -69,392 +72,384 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
 
 def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_kgh, batch_load_kg, feed_option):
     """Renders the mass and energy balances tab content."""
-    lang = get_lang()
-    
+    feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
     if mode_option == "Continuous Operation":
-        st.markdown("### ⚖️ Mass Balance / Balance de Materia")
-        load_val = feed_rate_kgh
-        sludge_density = float(st.session_state.get('sludge_density', 944.7))
-        oil_density = float(st.session_state.get('bio_oil_density', 750.0))
-        char_density = float(st.session_state.get('bio_char_density', 500.0))
-        
-        load_val_gal = (load_val / sludge_density) * 264.172
-        oil_gal_h = (summary['oil_yield_kgh'] / oil_density) * 264.172
-        gas_m3_h = summary['gas_yield_kgh'] / 1.15
-        char_gal_h = (summary['char_yield_kgh'] / char_density) * 264.172
-        water_gal_h = (summary['water_yield_kgh'] / 1000.0) * 264.172
-        
-        feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
-        mass_in_df = pd.DataFrame({
-            t("analysis_component", "Component"): [feed_name_display],
-            t("analysis_wt_pct", "wt%"): [100.0],
-            "Flow Rate / Flujo (kg/h)": [load_val],
-            "Flow Rate / Flujo (gal/h)": [load_val_gal]
-        })
-        
-        mass_out_df = pd.DataFrame({
-            t("analysis_component", "Component"): [
-                t("analysis_bio_oil_name", "Pyrolysis oil"), 
-                t("analysis_syngas_name", "Syngas"), 
-                t("analysis_char_res_name", "Char"), 
-                t("water_vapor_metric", "Water Vapor (Steam)")
-            ],
-            t("analysis_wt_pct", "wt%"): [
-                summary['oil_yield_pct'],
-                summary['gas_yield_pct'],
-                summary['char_yield_pct'],
-                summary['water_yield_pct']
-            ],
-            "Flow Rate / Flujo (kg/h)": [
-                summary['oil_yield_kgh'],
-                summary['gas_yield_kgh'],
-                summary['char_yield_kgh'],
-                summary['water_yield_kgh']
-            ],
-            "Volumen / Volume": [
-                f"{oil_gal_h:.1f} gal/h",
-                f"{gas_m3_h:.1f} m³/h",
-                f"{char_gal_h:.1f} gal/h",
-                f"{water_gal_h:.1f} gal/h"
-            ]
-        })
-        
-        m_col_l, m_col_r = st.columns(2)
-        with m_col_l:
-            st.markdown("**Inputs / Entradas:**")
-            st.table(mass_in_df)
-        with m_col_r:
-            st.markdown("**Outputs / Salidas:**")
-            st.table(mass_out_df)
-            
-        st.info(f"**Mass Balance Closure Error / Error de Cierre:** `{summary['mass_error_pct']:.2e} %`")
-        
-        if lang == 'es':
-            st.markdown(r"""
-            #### 📝 Ecuaciones del Balance de Materia (Continuo)
-            El balance de materia se basa en la conservación de la masa de sólidos y gases en el reactor:
-            $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam} + F_{moist, final}$$
-            * **Aceite pirolítico (Pyrolysis oil)**: Integrado localmente a partir de la formación primaria y craqueo secundario a gas:
-              $$F_{oil} = \int_{0}^{L} \left( k_1 \cdot C_{\text{slug}} - k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-            * **Gas de Síntesis (Syngas)**: Integrado localmente a partir del craqueo primario y secundario de pyrolysis oil:
-              $$F_{gas} = \int_{0}^{L} \left( k_2 \cdot C_{\text{slug}} + k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-            * **Carbón Residual (Char - Seco)**: Suma del carbón fijo inicial, cenizas iniciales y materia volátil sin reaccionar:
-              $$F_{char} = F_{fixed\_carbon, initial} + F_{ash, initial} + F_{volatile, unreacted}$$
-            * **Vapor de Agua (Steam)**: Humedad evaporada del lecho sólido:
-              $$F_{steam} = F_{moisture, initial} - F_{moisture, final}$$
-            * **Ecuación Evaluada y Error de Cierre**:
-              $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam}$$
-              $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
-              $$\text{{Error (\%)}}\ = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
-            """)
-        else:
-            st.markdown(rf"""
-            #### 📝 Mass Balance Equations (Continuous)
-            The mass balance is based on the conservation of mass entering and leaving the reactor:
-            $$F_{{inlet}} = F_{{char}} + F_{{oil}} + F_{{gas}} + F_{{steam}}$$
-            $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
-            $$\text{{Error (\%)}} = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
-            """)
-        
-        st.markdown("---")
-        st.markdown("### ⚡ Energy Balance / Balance de Energía")
-        
-        F_oil_s = summary['oil_yield_kgh'] / 3600.0
-        F_gas_s = summary['gas_yield_kgh'] / 3600.0
-        F_char_s = summary['char_yield_kgh'] / 3600.0
-        F_steam_s = summary['water_yield_kgh'] / 3600.0
-        T_in = results['T_solid'][0]
-        T_out = results['T_solid'][-1]
-        T_gas_out = results['T_gas'][-1]
-        dT = T_out - T_in
-
-        cp_char = 1000.0
-        cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
-        cp_gas = 1500.0
-        dh_pyro = 700000.0
-        dh_evap = 2256000.0
-        
-        Q_char_kw = (F_char_s * cp_char * dT) / 1000.0
-        Q_oil_sens_kw = (F_oil_s * cp_oil * dT) / 1000.0
-        Q_gas_sens_kw = (F_gas_s * cp_gas * dT) / 1000.0
-        Q_rxn_kw = ((F_oil_s + F_gas_s) * dh_pyro) / 1000.0
-        if T_in < 100.0:
-            Q_steam_kw = (F_steam_s * (4184.0 * (100.0 - T_in) + dh_evap + 2000.0 * (max(T_gas_out, 100.0) - 100.0))) / 1000.0
-        else:
-            Q_steam_kw = (F_steam_s * (dh_evap + 2000.0 * (max(T_gas_out, T_in) - T_in))) / 1000.0
-            
-        Q_total_kw = Q_char_kw + Q_oil_sens_kw + Q_gas_sens_kw + Q_rxn_kw + Q_steam_kw
-        
-        energy_df = pd.DataFrame({
-            "Process Stage / Etapa del Proceso": [
-                "Sensible Heat of Bed Solids / Calor Sensible Char",
-                "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
-                "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
-                "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
-                "Evaporation & Dehydration / Evaporación del Agua",
-                "Total Thermal Heating Duty / Potencia Térmica Total"
-            ],
-            "Heat Rate / Flujo de Calor (kW)": [
-                Q_char_kw,
-                Q_oil_sens_kw,
-                Q_gas_sens_kw,
-                Q_rxn_kw,
-                Q_steam_kw,
-                Q_total_kw
-            ],
-            "Fraction of Total / Porcentaje del Total (%)": [
-                (Q_char_kw / max(0.001, Q_total_kw) * 100.0),
-                (Q_oil_sens_kw / max(0.001, Q_total_kw) * 100.0),
-                (Q_gas_sens_kw / max(0.001, Q_total_kw) * 100.0),
-                (Q_rxn_kw / max(0.001, Q_total_kw) * 100.0),
-                (Q_steam_kw / max(0.001, Q_total_kw) * 100.0),
-                100.0
-            ]
-        })
-        st.table(energy_df)
-        
-        if lang == 'es':
-            st.markdown(rf"""
-            #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
-            La demanda térmica total ($Q_{{total}}$) del reactor continuo se divide en cinco contribuciones caloríficas rigurosas:
-            $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
-            * **Calor Sensible del Char ($Q_{{char}}$)**:
-              $$Q_{{char}} = F_{{char}} \cdot Cp_{{char}} \cdot (T_{{out}} - T_{{in}}) = {F_char_s*3600:.2f}\text{{ kg/h}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
-            * **Calor Sensible del Aceite pirolítico Líquido ($Q_{{oil\_sens}}$)**:
-              $$Q_{{oil}} = F_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{out}} - T_{{in}}) = {F_oil_s*3600:.2f}\text{{ kg/h}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
-            * **Calor Sensible del Syngas ($Q_{{gas\_sens}}$)**:
-              $$Q_{{gas}} = F_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{out}} - T_{{in}}) = {F_gas_s*3600:.2f}\text{{ kg/h}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
-            * **Reacción Química Endotérmica de Pirólisis ($Q_{{rxn}}$)**:
-              $$Q_{{rxn}} = (F_{{oil}} + F_{{gas}}) \cdot \Delta H_{{pyro}} = {(F_oil_s+F_gas_s)*3600:.2f}\text{{ kg/h}} \cdot 700,000\text{{ J/kg}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
-            * **Secado y Evaporación del Agua ($Q_{{steam}}$)**:
-              $$Q_{{steam}} = F_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right] = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}\%)$$
-            """)
-        else:
-            st.markdown(rf"""
-            #### 📝 Energy Balance Equations with Evaluated Results
-            The total thermal demand ($Q_{{total}}$) is rigorously separated into five thermal duties:
-            $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
-            * **Char Sensible Heat**: $Q_{{char}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({(Q_char_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
-            * **Pyrolysis oil Sensible Heat**: $Q_{{oil}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_oil_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
-            * **Syngas Sensible Heat**: $Q_{{gas}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({(Q_gas_sens_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
-            * **Pyrolysis Chemical Endotherm**: $Q_{{rxn}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({(Q_rxn_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
-            * **Moisture Dehydration & Evaporation**: $Q_{{steam}} = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({(Q_steam_kw/max(0.001,Q_total_kw)*100):.1f}\%)$
-            """)
-        
+        _render_continuous_balances(results, summary, feed_rate_kgh, feed_name_display)
     else:
-        st.markdown("### ⚖️ Mass Balance / Balance de Materia")
-        load_val = batch_load_kg
-        sludge_density = float(st.session_state.get('sludge_density', 944.7))
-        oil_density = float(st.session_state.get('bio_oil_density', 750.0))
-        char_density = float(st.session_state.get('bio_char_density', 500.0))
+        _render_batch_balances(results, summary, batch_load_kg, feed_name_display)
+    _render_kinetics_section(current_feed)
+
+
+def _render_continuous_balances(results, summary, feed_rate_kgh, feed_name_display):
+    """Mass and energy balance (flows, kW) of the continuous reactor."""
+    lang = get_lang()
+    st.markdown("### ⚖️ Mass Balance / Balance de Materia")
+    load_val = feed_rate_kgh
+    load_val_gal = sludge_gal(load_val)
+    oil_gal_h, gas_m3_h, char_gal_h, water_gal_h = product_volumes(
+        summary['oil_yield_kgh'], summary['gas_yield_kgh'], summary['char_yield_kgh'], summary['water_yield_kgh'])
+
+    mass_in_df = pd.DataFrame({
+        t("analysis_component", "Component"): [feed_name_display],
+        t("analysis_wt_pct", "wt%"): [100.0],
+        "Flow Rate / Flujo (kg/h)": [load_val],
+        "Flow Rate / Flujo (gal/h)": [load_val_gal]
+    })
         
-        load_val_gal = (load_val / sludge_density) * 264.172
-        oil_gal = (summary['oil_yield_kg'] / oil_density) * 264.172
-        gas_m3 = summary['gas_yield_kg'] / 1.15
-        char_gal = (summary['char_yield_kg'] / char_density) * 264.172
-        water_gal = (summary['water_yield_kg'] / 1000.0) * 264.172
+    mass_out_df = pd.DataFrame({
+        t("analysis_component", "Component"): [
+            t("analysis_bio_oil_name", "Pyrolysis oil"), 
+            t("analysis_syngas_name", "Syngas"), 
+            t("analysis_char_res_name", "Char"), 
+            t("water_vapor_metric", "Water Vapor (Steam)")
+        ],
+        t("analysis_wt_pct", "wt%"): [
+            summary['oil_yield_pct'],
+            summary['gas_yield_pct'],
+            summary['char_yield_pct'],
+            summary['water_yield_pct']
+        ],
+        "Flow Rate / Flujo (kg/h)": [
+            summary['oil_yield_kgh'],
+            summary['gas_yield_kgh'],
+            summary['char_yield_kgh'],
+            summary['water_yield_kgh']
+        ],
+        "Volumen / Volume": [
+            f"{oil_gal_h:.1f} gal/h",
+            f"{gas_m3_h:.1f} m³/h",
+            f"{char_gal_h:.1f} gal/h",
+            f"{water_gal_h:.1f} gal/h"
+        ]
+    })
         
-        feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
-        mass_in_df = pd.DataFrame({
-            t("analysis_component", "Component"): [feed_name_display],
-            t("analysis_wt_pct", "wt%"): [100.0],
-            "Load / Carga (kg)": [load_val],
-            "Load / Carga (gal)": [load_val_gal]
-        })
-        
-        mass_out_df = pd.DataFrame({
-            t("analysis_component", "Component"): [
-                t("analysis_bio_oil_name", "Pyrolysis oil"), 
-                t("analysis_syngas_name", "Syngas"), 
-                t("analysis_char_res_name", "Char"), 
-                t("water_vapor_metric", "Water Vapor (Steam)")
-            ],
-            t("analysis_wt_pct", "wt%"): [
-                summary['oil_yield_pct'],
-                summary['gas_yield_pct'],
-                summary['char_yield_pct'],
-                summary['water_yield_pct']
-            ],
-            "Mass / Masa (kg)": [
-                summary['oil_yield_kg'],
-                summary['gas_yield_kg'],
-                summary['char_yield_kg'],
-                summary['water_yield_kg']
-            ],
-            "Volumen / Volume": [
-                f"{oil_gal:.1f} gal",
-                f"{gas_m3:.1f} m³",
-                f"{char_gal:.1f} gal",
-                f"{water_gal:.1f} gal"
-            ]
-        })
-        
-        m_col_l, m_col_r = st.columns(2)
-        with m_col_l:
-            st.markdown("**Inputs / Entradas:**")
-            st.table(mass_in_df)
-        with m_col_r:
-            st.markdown("**Outputs / Salidas:**")
-            st.table(mass_out_df)
+    m_col_l, m_col_r = st.columns(2)
+    with m_col_l:
+        st.markdown("**Inputs / Entradas:**")
+        st.table(mass_in_df)
+    with m_col_r:
+        st.markdown("**Outputs / Salidas:**")
+        st.table(mass_out_df)
             
-        st.info(f"**Mass Balance Closure Error / Error de Cierre:** `{summary['mass_error_pct']:.2e} %`")
+    st.info(f"**Mass Balance Closure Error / Error de Cierre:** `{summary['mass_error_pct']:.2e} %`")
         
-        if lang == 'es':
-            st.markdown(r"""
-            #### 📝 Ecuaciones del Balance de Materia (Lote)
-            El balance de materia total en modo lote representa el inventario final acumulado frente a la carga inicial:
-            $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam} + M_{moist, final}$$
-            * **Aceite pirolítico (Pyrolysis oil)**: Acumulado a partir del rendimiento neto de lodo y craqueo secundario del vapor:
-              $$M_{oil} = \int \left( dM_{\text{oil, primary}} - dM_{\text{oil, cracked}} \right)$$
-            * **Gas de Síntesis (Syngas)**: Acumulado de la producción primaria y del craqueo secundario del vapor:
-              $$M_{gas} = \int \left( dM_{\text{gas, primary}} + dM_{\text{oil, cracked}} \right)$$
-            * **Carbón Residual (Char - Seco)**: Masa sólida remanente (carbón fijo, cenizas y volátiles residuales):
-              $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
-            * **Agua Evaporada (Steam)**: Humedad total vaporizada:
-              $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
-            * **Error de Cierre de Balance**:
-              $$\text{Error (\%)} = \frac{|M_{load} - M_{output\_total}|}{M_{load}} \times 100$$
-            """)
-        else:
-            st.markdown(r"""
-            #### 📝 Mass Balance Equations (Batch)
-            The total batch mass balance represents the final accumulated inventory relative to the initial load:
-            $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam} + M_{moist, final}$$
-            * **Pyrolysis oil**: Accumulated from primary sludge conversion and secondary vapor cracking:
-              $$M_{oil} = \int \left( dM_{\text{oil, primary}} - dM_{\text{oil, cracked}} \right)$$
-            * **Syngas**: Accumulated from primary gasification and secondary vapor cracking:
-              $$M_{gas} = \int \left( dM_{\text{gas, primary}} + dM_{\text{oil, cracked}} \right)$$
-            * **Residual Char (Char - Dry)**: Remaining solid mass (fixed carbon, ash, and residual volatiles):
-              $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
-            * **Evaporated Water (Steam)**: Total vaporized moisture:
-              $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
-            * **Ecuación Evaluada y Error de Cierre**:
-              $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam}$$
-              $${load_val:.2f}\text{{ kg}} = {summary['char_yield_kg']:.2f} + {summary['oil_yield_kg']:.2f} + {summary['gas_yield_kg']:.2f} + {summary['water_yield_kg']:.2f}\text{{ kg}}$$
-              $$\text{{Error (\%)}}\ = \frac{{|M_{{load}} - M_{{output\_total}}|}}{{M_{{load}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
-            """)
+    if lang == 'es':
+        st.markdown(r"""
+        #### 📝 Ecuaciones del Balance de Materia (Continuo)
+        El balance de materia se basa en la conservación de la masa de sólidos y gases en el reactor:
+        $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam} + F_{moist, final}$$
+        * **Aceite pirolítico (Pyrolysis oil)**: Integrado localmente a partir de la formación primaria y craqueo secundario a gas:
+          $$F_{oil} = \int_{0}^{L} \left( k_1 \cdot C_{\text{slug}} - k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
+        * **Gas de Síntesis (Syngas)**: Integrado localmente a partir del craqueo primario y secundario de pyrolysis oil:
+          $$F_{gas} = \int_{0}^{L} \left( k_2 \cdot C_{\text{slug}} + k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
+        * **Carbón Residual (Char - Seco)**: Suma del carbón fijo inicial, cenizas iniciales y materia volátil sin reaccionar:
+          $$F_{char} = F_{fixed\_carbon, initial} + F_{ash, initial} + F_{volatile, unreacted}$$
+        * **Vapor de Agua (Steam)**: Humedad evaporada del lecho sólido:
+          $$F_{steam} = F_{moisture, initial} - F_{moisture, final}$$
+        * **Ecuación Evaluada y Error de Cierre**:
+          $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam}$$
+          $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
+          $$\text{{Error (\%)}}\ = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
+        """)
+    else:
+        st.markdown(rf"""
+        #### 📝 Mass Balance Equations (Continuous)
+        The mass balance is based on the conservation of mass entering and leaving the reactor:
+        $$F_{{inlet}} = F_{{char}} + F_{{oil}} + F_{{gas}} + F_{{steam}}$$
+        $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
+        $$\text{{Error (\%)}} = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
+        """)
         
-        st.markdown("---")
-        st.markdown("### ⚡ Energy Balance / Balance de Energía")
+    st.markdown("---")
+    st.markdown("### ⚡ Energy Balance / Balance de Energía")
         
-        M_oil = summary['oil_yield_kg']
-        M_gas = summary['gas_yield_kg']
-        M_char = summary['char_yield_kg']
-        M_steam = summary['water_yield_kg']
-        T_start = results['T_solid'][0]
-        T_hold = results['T_solid'][-1]
-        dT = T_hold - T_start
+    F_oil_s = summary['oil_yield_kgh'] / 3600.0
+    F_gas_s = summary['gas_yield_kgh'] / 3600.0
+    F_char_s = summary['char_yield_kgh'] / 3600.0
+    F_steam_s = summary['water_yield_kgh'] / 3600.0
+    T_in = results['T_solid'][0]
+    T_out = results['T_solid'][-1]
+    T_gas_out = results['T_gas'][-1]
+    dT = T_out - T_in
 
-        cp_char = 1000.0
-        cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
-        cp_gas = 1500.0
-        dh_pyro = 700000.0
-        dh_evap = 2256000.0
-
-        E_char_kwh = (M_char * cp_char * dT) / 3.6e6
-        E_oil_sens_kwh = (M_oil * cp_oil * dT) / 3.6e6
-        E_gas_sens_kwh = (M_gas * cp_gas * dT) / 3.6e6
-        E_rxn_kwh = ((M_oil + M_gas) * dh_pyro) / 3.6e6
-        if T_hold >= 100.0:
-            E_steam_kwh = (M_steam * (4184.0 * (100.0 - T_start) + dh_evap + 2000.0 * (T_hold - 100.0))) / 3.6e6
-        else:
-            E_steam_kwh = (M_steam * (4184.0 * (T_hold - T_start))) / 3.6e6
+    cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
+        
+    Q_char_kw = (F_char_s * CP_CHAR_J_KGK * dT) / 1000.0
+    Q_oil_sens_kw = (F_oil_s * cp_oil * dT) / 1000.0
+    Q_gas_sens_kw = (F_gas_s * CP_GAS_J_KGK * dT) / 1000.0
+    Q_rxn_kw = ((F_oil_s + F_gas_s) * DH_PYRO_J_KG) / 1000.0
+    if T_in < 100.0:
+        Q_steam_kw = (F_steam_s * (CP_WATER_J_KGK * (100.0 - T_in) + DH_EVAP_J_KG + CP_STEAM_J_KGK * (max(T_gas_out, 100.0) - 100.0))) / 1000.0
+    else:
+        Q_steam_kw = (F_steam_s * (DH_EVAP_J_KG + CP_STEAM_J_KGK * (max(T_gas_out, T_in) - T_in))) / 1000.0
             
-        E_total_kwh = E_char_kwh + E_oil_sens_kwh + E_gas_sens_kwh + E_rxn_kwh + E_steam_kwh
+    Q_total_kw = Q_char_kw + Q_oil_sens_kw + Q_gas_sens_kw + Q_rxn_kw + Q_steam_kw
         
-        energy_df = pd.DataFrame({
-            "Process Stage / Etapa del Proceso": [
-                "Sensible Heat of Bed Solids / Calor Sensible Char",
-                "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
-                "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
-                "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
-                "Evaporation & Dehydration / Evaporación del Agua",
-                "Total Thermal Energy Supplied / Energía Térmica Total"
-            ],
-            "Energy / Energía (kWh)": [
-                E_char_kwh,
-                E_oil_sens_kwh,
-                E_gas_sens_kwh,
-                E_rxn_kwh,
-                E_steam_kwh,
-                E_total_kwh
-            ],
-            "Fraction of Total / Porcentaje del Total (%)": [
-                (E_char_kwh / max(0.001, E_total_kwh) * 100.0),
-                (E_oil_sens_kwh / max(0.001, E_total_kwh) * 100.0),
-                (E_gas_sens_kwh / max(0.001, E_total_kwh) * 100.0),
-                (E_rxn_kwh / max(0.001, E_total_kwh) * 100.0),
-                (E_steam_kwh / max(0.001, E_total_kwh) * 100.0),
-                100.0
-            ]
-        })
-        st.table(energy_df)
+    energy_df = pd.DataFrame({
+        "Process Stage / Etapa del Proceso": [
+            "Sensible Heat of Bed Solids / Calor Sensible Char",
+            "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
+            "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
+            "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
+            "Evaporation & Dehydration / Evaporación del Agua",
+            "Total Thermal Heating Duty / Potencia Térmica Total"
+        ],
+        "Heat Rate / Flujo de Calor (kW)": [
+            Q_char_kw,
+            Q_oil_sens_kw,
+            Q_gas_sens_kw,
+            Q_rxn_kw,
+            Q_steam_kw,
+            Q_total_kw
+        ],
+        "Fraction of Total / Porcentaje del Total (%)": [
+            _pct(Q_char_kw, Q_total_kw),
+            _pct(Q_oil_sens_kw, Q_total_kw),
+            _pct(Q_gas_sens_kw, Q_total_kw),
+            _pct(Q_rxn_kw, Q_total_kw),
+            _pct(Q_steam_kw, Q_total_kw),
+            100.0
+        ]
+    })
+    st.table(energy_df)
+        
+    if lang == 'es':
+        st.markdown(rf"""
+        #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
+        La demanda térmica total ($Q_{{total}}$) del reactor continuo se divide en cinco contribuciones caloríficas rigurosas:
+        $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
+        * **Calor Sensible del Char ($Q_{{char}}$)**:
+          $$Q_{{char}} = F_{{char}} \cdot Cp_{{char}} \cdot (T_{{out}} - T_{{in}}) = {F_char_s*3600:.2f}\text{{ kg/h}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_char_kw, Q_total_kw):.1f}\%)$$
+        * **Calor Sensible del Aceite pirolítico Líquido ($Q_{{oil\_sens}}$)**:
+          $$Q_{{oil}} = F_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{out}} - T_{{in}}) = {F_oil_s*3600:.2f}\text{{ kg/h}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_oil_sens_kw, Q_total_kw):.1f}\%)$$
+        * **Calor Sensible del Syngas ($Q_{{gas\_sens}}$)**:
+          $$Q_{{gas}} = F_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{out}} - T_{{in}}) = {F_gas_s*3600:.2f}\text{{ kg/h}} \cdot {CP_GAS_J_KGK:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_gas_sens_kw, Q_total_kw):.1f}\%)$$
+        * **Reacción Química Endotérmica de Pirólisis ($Q_{{rxn}}$)**:
+          $$Q_{{rxn}} = (F_{{oil}} + F_{{gas}}) \cdot \Delta H_{{pyro}} = {(F_oil_s+F_gas_s)*3600:.2f}\text{{ kg/h}} \cdot 700,000\text{{ J/kg}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_rxn_kw, Q_total_kw):.1f}\%)$$
+        * **Secado y Evaporación del Agua ($Q_{{steam}}$)**:
+          $$Q_{{steam}} = F_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right] = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_steam_kw, Q_total_kw):.1f}\%)$$
+        """)
+    else:
+        st.markdown(rf"""
+        #### 📝 Energy Balance Equations with Evaluated Results
+        The total thermal demand ($Q_{{total}}$) is rigorously separated into five thermal duties:
+        $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
+        * **Char Sensible Heat**: $Q_{{char}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_char_kw, Q_total_kw):.1f}\%)$
+        * **Pyrolysis oil Sensible Heat**: $Q_{{oil}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_oil_sens_kw, Q_total_kw):.1f}\%)$
+        * **Syngas Sensible Heat**: $Q_{{gas}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_gas_sens_kw, Q_total_kw):.1f}\%)$
+        * **Pyrolysis Chemical Endotherm**: $Q_{{rxn}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_rxn_kw, Q_total_kw):.1f}\%)$
+        * **Moisture Dehydration & Evaporation**: $Q_{{steam}} = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_steam_kw, Q_total_kw):.1f}\%)$
+        """)
 
-        # Closure against the simulation: heat that the burners must deliver (bed + shell + losses)
-        e_bed = summary.get('energy_bed_kwh', 0.0)
-        e_shell = summary.get('energy_shell_kwh', 0.0)
-        e_loss = summary.get('energy_loss_kwh', 0.0)
-        e_sim_total = summary.get('total_energy_kwh', e_bed + e_shell + e_loss)
-        bed_gap_pct = ((e_bed - E_total_kwh) / max(0.001, E_total_kwh)) * 100.0
-        st.markdown("**" + ("Cierre con la simulación: calor entregado por los quemadores" if lang == 'es' else "Closure vs. simulation: heat delivered by the burners") + "**")
-        closure_df = pd.DataFrame({
-            "Concept / Concepto": [
-                "Bed heat (simulation) / Calor al lecho (simulación)",
-                "Steel shell heating / Calentamiento del casco de acero",
-                "Shell heat losses / Pérdidas de calor del casco",
-                "Total heat delivered / Calor total entregado",
-                "Analytic duty above / Calor analítico de la tabla anterior"
-            ],
-            "Energy / Energía (kWh)": [e_bed, e_shell, e_loss, e_sim_total, E_total_kwh],
-            "%": [
-                e_bed / max(0.001, e_sim_total) * 100.0,
-                e_shell / max(0.001, e_sim_total) * 100.0,
-                e_loss / max(0.001, e_sim_total) * 100.0,
-                100.0,
-                E_total_kwh / max(0.001, e_sim_total) * 100.0
-            ]
-        })
-        st.table(closure_df)
-        st.caption(
-            f"Calor al lecho (simulación) vs. suma analítica: desviación {bed_gap_pct:+.1f} %. La tabla analítica supone que todo el vapor "
-            f"sale a T de retención (sobrestima el sobrecalentamiento del vapor); la simulación lo deja salir a la temperatura del lecho. "
-            f"Combustible quemadores: {summary.get('waste_oil_consumed_gal', 0.0):.1f} gal; "
-            f"syngas quemado: {summary.get('syngas_burned_kg', 0.0):.1f} kg ({summary.get('syngas_recirc_pct', 0.0):.0f} % del gas producido)."
-            if lang == 'es' else
-            f"Bed heat (simulation) vs. analytic sum: deviation {bed_gap_pct:+.1f} %. The analytic table assumes all vapor leaves at hold "
-            f"temperature (overestimating steam superheat); the simulation lets it leave at bed temperature. "
-            f"Burner fuel: {summary.get('waste_oil_consumed_gal', 0.0):.1f} gal; "
-            f"syngas burned: {summary.get('syngas_burned_kg', 0.0):.1f} kg ({summary.get('syngas_recirc_pct', 0.0):.0f} % of produced gas)."
-        )
+
+def _render_batch_balances(results, summary, batch_load_kg, feed_name_display):
+    """Mass and energy balance (kg, kWh) of one batch, with the closure against the simulated burner heat."""
+    lang = get_lang()
+    st.markdown("### ⚖️ Mass Balance / Balance de Materia")
+    load_val = batch_load_kg
+    load_val_gal = sludge_gal(load_val)
+    oil_gal, gas_m3, char_gal, water_gal = product_volumes(
+        summary['oil_yield_kg'], summary['gas_yield_kg'], summary['char_yield_kg'], summary['water_yield_kg'])
+
+    mass_in_df = pd.DataFrame({
+        t("analysis_component", "Component"): [feed_name_display],
+        t("analysis_wt_pct", "wt%"): [100.0],
+        "Load / Carga (kg)": [load_val],
+        "Load / Carga (gal)": [load_val_gal]
+    })
         
-        if lang == 'es':
-            st.markdown(rf"""
-            #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
-            La energía térmica total ($E_{{total}}$) suministrada en el lote se desglosa en cinco componentes caloríficos con sus valores reales evaluados:
-            $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
-            * **Calor Sensible del Char ($E_{{char}}$)**:
-              $$E_{{char}} = \frac{{M_{{char}} \cdot Cp_{{char}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_char:.2f}\text{{ kg}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
-            * **Calor Sensible del Aceite pirolítico Líquido ($E_{{oil\_sens}}$)**:
-              $$E_{{oil}} = \frac{{M_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_oil:.2f}\text{{ kg}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
-            * **Calor Sensible del Syngas ($E_{{gas\_sens}}$)**:
-              $$E_{{gas}} = \frac{{M_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_gas:.2f}\text{{ kg}} \cdot {cp_gas:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
-            * **Reacción Química Endotérmica de Pirólisis ($E_{{rxn}}$)**:
-              $$E_{{rxn}} = \frac{{(M_{{oil}} + M_{{gas}}) \cdot \Delta H_{{pyro}}}}{{3.6 \times 10^6}} = \frac{{{M_oil + M_gas:.2f}\text{{ kg}} \cdot 700,000\text{{ J/kg}}}}{{3.6 \times 10^6}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
-            * **Secado y Evaporación del Agua ($E_{{steam}}$)**:
-              $$E_{{steam}} = \frac{{M_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right]}}{{3.6 \times 10^6}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$$
-            """)
-        else:
-            st.markdown(rf"""
-            #### 📝 Energy Balance Equations with Evaluated Results
-            The total thermal energy ($E_{{total}}$) is rigorously separated into five thermal duties:
-            $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
-            * **Char Sensible Heat**: $E_{{char}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({(E_char_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
-            * **Pyrolysis oil Sensible Heat**: $E_{{oil}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_oil_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
-            * **Syngas Sensible Heat**: $E_{{gas}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({(E_gas_sens_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
-            * **Pyrolysis Chemical Endotherm**: $E_{{rxn}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({(E_rxn_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
-            * **Moisture Dehydration & Evaporation**: $E_{{steam}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({(E_steam_kwh/max(0.001,E_total_kwh)*100):.1f}\%)$
-            """)
+    mass_out_df = pd.DataFrame({
+        t("analysis_component", "Component"): [
+            t("analysis_bio_oil_name", "Pyrolysis oil"), 
+            t("analysis_syngas_name", "Syngas"), 
+            t("analysis_char_res_name", "Char"), 
+            t("water_vapor_metric", "Water Vapor (Steam)")
+        ],
+        t("analysis_wt_pct", "wt%"): [
+            summary['oil_yield_pct'],
+            summary['gas_yield_pct'],
+            summary['char_yield_pct'],
+            summary['water_yield_pct']
+        ],
+        "Mass / Masa (kg)": [
+            summary['oil_yield_kg'],
+            summary['gas_yield_kg'],
+            summary['char_yield_kg'],
+            summary['water_yield_kg']
+        ],
+        "Volumen / Volume": [
+            f"{oil_gal:.1f} gal",
+            f"{gas_m3:.1f} m³",
+            f"{char_gal:.1f} gal",
+            f"{water_gal:.1f} gal"
+        ]
+    })
         
+    m_col_l, m_col_r = st.columns(2)
+    with m_col_l:
+        st.markdown("**Inputs / Entradas:**")
+        st.table(mass_in_df)
+    with m_col_r:
+        st.markdown("**Outputs / Salidas:**")
+        st.table(mass_out_df)
+            
+    st.info(f"**Mass Balance Closure Error / Error de Cierre:** `{summary['mass_error_pct']:.2e} %`")
+        
+    if lang == 'es':
+        st.markdown(r"""
+        #### 📝 Ecuaciones del Balance de Materia (Lote)
+        El balance de materia total en modo lote representa el inventario final acumulado frente a la carga inicial:
+        $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam} + M_{moist, final}$$
+        * **Aceite pirolítico (Pyrolysis oil)**: Acumulado a partir del rendimiento neto de lodo y craqueo secundario del vapor:
+          $$M_{oil} = \int \left( dM_{\text{oil, primary}} - dM_{\text{oil, cracked}} \right)$$
+        * **Gas de Síntesis (Syngas)**: Acumulado de la producción primaria y del craqueo secundario del vapor:
+          $$M_{gas} = \int \left( dM_{\text{gas, primary}} + dM_{\text{oil, cracked}} \right)$$
+        * **Carbón Residual (Char - Seco)**: Masa sólida remanente (carbón fijo, cenizas y volátiles residuales):
+          $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
+        * **Agua Evaporada (Steam)**: Humedad total vaporizada:
+          $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
+        * **Error de Cierre de Balance**:
+          $$\text{Error (\%)} = \frac{|M_{load} - M_{output\_total}|}{M_{load}} \times 100$$
+        """)
+    else:
+        st.markdown(r"""
+        #### 📝 Mass Balance Equations (Batch)
+        The total batch mass balance represents the final accumulated inventory relative to the initial load:
+        $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam} + M_{moist, final}$$
+        * **Pyrolysis oil**: Accumulated from primary sludge conversion and secondary vapor cracking:
+          $$M_{oil} = \int \left( dM_{\text{oil, primary}} - dM_{\text{oil, cracked}} \right)$$
+        * **Syngas**: Accumulated from primary gasification and secondary vapor cracking:
+          $$M_{gas} = \int \left( dM_{\text{gas, primary}} + dM_{\text{oil, cracked}} \right)$$
+        * **Residual Char (Char - Dry)**: Remaining solid mass (fixed carbon, ash, and residual volatiles):
+          $$M_{char} = M_{fixed\_carbon, initial} + M_{ash, initial} + M_{volatile, unreacted}$$
+        * **Evaporated Water (Steam)**: Total vaporized moisture:
+          $$M_{steam} = M_{moisture, initial} - M_{moisture, final}$$
+        * **Ecuación Evaluada y Error de Cierre**:
+          $$M_{load} = M_{char} + M_{oil} + M_{gas} + M_{steam}$$
+          $${load_val:.2f}\text{{ kg}} = {summary['char_yield_kg']:.2f} + {summary['oil_yield_kg']:.2f} + {summary['gas_yield_kg']:.2f} + {summary['water_yield_kg']:.2f}\text{{ kg}}$$
+          $$\text{{Error (\%)}}\ = \frac{{|M_{{load}} - M_{{output\_total}}|}}{{M_{{load}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
+        """)
+        
+    st.markdown("---")
+    st.markdown("### ⚡ Energy Balance / Balance de Energía")
+        
+    M_oil = summary['oil_yield_kg']
+    M_gas = summary['gas_yield_kg']
+    M_char = summary['char_yield_kg']
+    M_steam = summary['water_yield_kg']
+    T_start = results['T_solid'][0]
+    T_hold = results['T_solid'][-1]
+    dT = T_hold - T_start
+
+    cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
+
+    E_char_kwh = (M_char * CP_CHAR_J_KGK * dT) / J_PER_KWH
+    E_oil_sens_kwh = (M_oil * cp_oil * dT) / J_PER_KWH
+    E_gas_sens_kwh = (M_gas * CP_GAS_J_KGK * dT) / J_PER_KWH
+    E_rxn_kwh = ((M_oil + M_gas) * DH_PYRO_J_KG) / J_PER_KWH
+    if T_hold >= 100.0:
+        E_steam_kwh = (M_steam * (CP_WATER_J_KGK * (100.0 - T_start) + DH_EVAP_J_KG + CP_STEAM_J_KGK * (T_hold - 100.0))) / J_PER_KWH
+    else:
+        E_steam_kwh = (M_steam * (CP_WATER_J_KGK * (T_hold - T_start))) / J_PER_KWH
+            
+    E_total_kwh = E_char_kwh + E_oil_sens_kwh + E_gas_sens_kwh + E_rxn_kwh + E_steam_kwh
+        
+    energy_df = pd.DataFrame({
+        "Process Stage / Etapa del Proceso": [
+            "Sensible Heat of Bed Solids / Calor Sensible Char",
+            "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
+            "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
+            "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
+            "Evaporation & Dehydration / Evaporación del Agua",
+            "Total Thermal Energy Supplied / Energía Térmica Total"
+        ],
+        "Energy / Energía (kWh)": [
+            E_char_kwh,
+            E_oil_sens_kwh,
+            E_gas_sens_kwh,
+            E_rxn_kwh,
+            E_steam_kwh,
+            E_total_kwh
+        ],
+        "Fraction of Total / Porcentaje del Total (%)": [
+            _pct(E_char_kwh, E_total_kwh),
+            _pct(E_oil_sens_kwh, E_total_kwh),
+            _pct(E_gas_sens_kwh, E_total_kwh),
+            _pct(E_rxn_kwh, E_total_kwh),
+            _pct(E_steam_kwh, E_total_kwh),
+            100.0
+        ]
+    })
+    st.table(energy_df)
+
+    # Closure against the simulation: heat that the burners must deliver (bed + shell + losses)
+    e_bed = summary.get('energy_bed_kwh', 0.0)
+    e_shell = summary.get('energy_shell_kwh', 0.0)
+    e_loss = summary.get('energy_loss_kwh', 0.0)
+    e_sim_total = summary.get('total_energy_kwh', e_bed + e_shell + e_loss)
+    bed_gap_pct = _pct(e_bed - E_total_kwh, E_total_kwh)
+    st.markdown("**" + ("Cierre con la simulación: calor entregado por los quemadores" if lang == 'es' else "Closure vs. simulation: heat delivered by the burners") + "**")
+    closure_df = pd.DataFrame({
+        "Concept / Concepto": [
+            "Bed heat (simulation) / Calor al lecho (simulación)",
+            "Steel shell heating / Calentamiento del casco de acero",
+            "Shell heat losses / Pérdidas de calor del casco",
+            "Total heat delivered / Calor total entregado",
+            "Analytic duty above / Calor analítico de la tabla anterior"
+        ],
+        "Energy / Energía (kWh)": [e_bed, e_shell, e_loss, e_sim_total, E_total_kwh],
+        "%": [
+            _pct(e_bed, e_sim_total),
+            _pct(e_shell, e_sim_total),
+            _pct(e_loss, e_sim_total),
+            100.0,
+            _pct(E_total_kwh, e_sim_total)
+        ]
+    })
+    st.table(closure_df)
+    st.caption(
+        f"Calor al lecho (simulación) vs. suma analítica: desviación {bed_gap_pct:+.1f} %. La tabla analítica supone que todo el vapor "
+        f"sale a T de retención (sobrestima el sobrecalentamiento del vapor); la simulación lo deja salir a la temperatura del lecho. "
+        f"Combustible quemadores: {summary.get('waste_oil_consumed_gal', 0.0):.1f} gal; "
+        f"syngas quemado: {summary.get('syngas_burned_kg', 0.0):.1f} kg ({summary.get('syngas_recirc_pct', 0.0):.0f} % del gas producido)."
+        if lang == 'es' else
+        f"Bed heat (simulation) vs. analytic sum: deviation {bed_gap_pct:+.1f} %. The analytic table assumes all vapor leaves at hold "
+        f"temperature (overestimating steam superheat); the simulation lets it leave at bed temperature. "
+        f"Burner fuel: {summary.get('waste_oil_consumed_gal', 0.0):.1f} gal; "
+        f"syngas burned: {summary.get('syngas_burned_kg', 0.0):.1f} kg ({summary.get('syngas_recirc_pct', 0.0):.0f} % of produced gas)."
+    )
+        
+    if lang == 'es':
+        st.markdown(rf"""
+        #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
+        La energía térmica total ($E_{{total}}$) suministrada en el lote se desglosa en cinco componentes caloríficos con sus valores reales evaluados:
+        $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
+        * **Calor Sensible del Char ($E_{{char}}$)**:
+          $$E_{{char}} = \frac{{M_{{char}} \cdot Cp_{{char}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_char:.2f}\text{{ kg}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_char_kwh, E_total_kwh):.1f}\%)$$
+        * **Calor Sensible del Aceite pirolítico Líquido ($E_{{oil\_sens}}$)**:
+          $$E_{{oil}} = \frac{{M_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_oil:.2f}\text{{ kg}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_oil_sens_kwh, E_total_kwh):.1f}\%)$$
+        * **Calor Sensible del Syngas ($E_{{gas\_sens}}$)**:
+          $$E_{{gas}} = \frac{{M_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{hold}} - T_{{start}})}}{{3.6 \times 10^6}} = \frac{{{M_gas:.2f}\text{{ kg}} \cdot {CP_GAS_J_KGK:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}}}}{{3.6 \times 10^6}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_gas_sens_kwh, E_total_kwh):.1f}\%)$$
+        * **Reacción Química Endotérmica de Pirólisis ($E_{{rxn}}$)**:
+          $$E_{{rxn}} = \frac{{(M_{{oil}} + M_{{gas}}) \cdot \Delta H_{{pyro}}}}{{3.6 \times 10^6}} = \frac{{{M_oil + M_gas:.2f}\text{{ kg}} \cdot 700,000\text{{ J/kg}}}}{{3.6 \times 10^6}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_rxn_kwh, E_total_kwh):.1f}\%)$$
+        * **Secado y Evaporación del Agua ($E_{{steam}}$)**:
+          $$E_{{steam}} = \frac{{M_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right]}}{{3.6 \times 10^6}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_steam_kwh, E_total_kwh):.1f}\%)$$
+        """)
+    else:
+        st.markdown(rf"""
+        #### 📝 Energy Balance Equations with Evaluated Results
+        The total thermal energy ($E_{{total}}$) is rigorously separated into five thermal duties:
+        $$E_{{total}} = E_{{char}} + E_{{oil\_sens}} + E_{{gas\_sens}} + E_{{rxn}} + E_{{steam}} = \mathbf{{{E_total_kwh:.2f}\text{{ kWh}}}}$$
+        * **Char Sensible Heat**: $E_{{char}} = \mathbf{{{E_char_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_char_kwh, E_total_kwh):.1f}\%)$
+        * **Pyrolysis oil Sensible Heat**: $E_{{oil}} = \mathbf{{{E_oil_sens_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_oil_sens_kwh, E_total_kwh):.1f}\%)$
+        * **Syngas Sensible Heat**: $E_{{gas}} = \mathbf{{{E_gas_sens_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_gas_sens_kwh, E_total_kwh):.1f}\%)$
+        * **Pyrolysis Chemical Endotherm**: $E_{{rxn}} = \mathbf{{{E_rxn_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_rxn_kwh, E_total_kwh):.1f}\%)$
+        * **Moisture Dehydration & Evaporation**: $E_{{steam}} = \mathbf{{{E_steam_kwh:.2f}\text{{ kWh}}}} \quad ({_pct(E_steam_kwh, E_total_kwh):.1f}\%)$
+        """)
+
+
+def _render_kinetics_section(current_feed):
+    """Kinetic scheme and the Arrhenius parameters of the current feedstock."""
     st.markdown("---")
     st.markdown("### 🔬 Chemical Kinetics / Cinética Química")
     st.markdown(r"""
@@ -584,6 +579,8 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
     st.markdown(t("export_desc"))
     
     if enable_reports:
+        if config_dict is None:
+            config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
         col_pdf, col_word, col_csv = st.columns(3)
         
         with col_pdf:
@@ -593,10 +590,8 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
             if not REPORTLAB_AVAILABLE:
                 st.warning("⚠️ **La librería `reportlab` no está instalada en el entorno de Python de su servidor.**\n\nPara habilitar la generación y descarga del reporte de tesis en PDF, ejecute en su servidor / consola:\n```bash\npip install reportlab\n```")
             elif solver_inputs is not None:
-                if config_dict is None:
-                    config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
-                
                 try:
+                    # reload so edits to the generator show up without restarting Streamlit
                     import importlib
                     import pyrolysis.pdf_generator as pdf_mod
                     importlib.reload(pdf_mod)
@@ -621,9 +616,6 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
             if not PYTHON_DOCX_AVAILABLE:
                 st.warning("⚠️ **La librería `python-docx` no está instalada en el entorno.**\n\nEjecute:\n```bash\npip install python-docx\n```")
             elif solver_inputs is not None:
-                if config_dict is None:
-                    config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
-                
                 try:
                     import importlib
                     import pyrolysis.docx_generator as docx_mod

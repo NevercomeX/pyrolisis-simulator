@@ -8,7 +8,167 @@ from pyrolysis import (
 )
 from pyrolysis.reactor.base import BHP_TO_W
 from .config_manager import DEFAULT_PARAMS
-from .utils import get_lang, t
+from .utils import t
+
+LITERS_PER_GALLON = 3.785411784
+
+# Stored feed_option (English, config JSON) -> position in the feedstock selectbox; anything else is Custom (3)
+_FEED_OPTION_INDEX = {
+    "Blend (Petroleum + Hydrocarbon)": 0,
+    "Petroleum Sludge Only": 1,
+    "Hydrocarbon Sludge Only": 2,
+}
+
+# Stored shell_material (English or older Spanish JSON) -> position in the material selectbox; else Carbon Steel (0)
+_SHELL_MATERIAL_INDEX = {
+    "Stainless Steel 304": 1, "Acero Inoxidable 304": 1,
+    "Stainless Steel 316": 2, "Acero Inoxidable 316": 2,
+    "Refractory Alloy Steel": 3, "Acero Aleado / Refractario": 3,
+}
+SHELL_MATERIAL_NAMES = ["Carbon Steel", "Stainless Steel 304", "Stainless Steel 316", "Refractory Alloy Steel"]
+
+# Burner fuels: LHV (MJ/kg), density (kg/L), moisture and ash (wt%). Waste oil is the only editable one.
+WASTE_OIL = "Waste Oil / Aceite Residual"
+FUEL_PRESETS = {
+    WASTE_OIL: {'lhv': 41.0, 'density': 0.90, 'moisture': 1.0, 'ash': 0.5},
+    "Diesel": {'lhv': 42.6, 'density': 0.84, 'moisture': 0.05, 'ash': 0.01},
+    "Fuel Oil": {'lhv': 40.0, 'density': 0.95, 'moisture': 0.5, 'ash': 0.1}
+}
+WATER_LATENT_HEAT_MJ_KG = 2.256
+WATER_CP_J_KGK = 4184.0
+
+# Parameters edited elsewhere (economics panel) that the sidebar passes through from session_state, with their type
+_PASSTHROUGH_PARAMS = [
+    ('capex_equip', float), ('capex_install', float), ('capex_civil', float), ('capex_piping_elec', float),
+    ('capex_eng', float), ('capex_permits', float), ('capex_cont', float),
+    ('opex_handling', float), ('opex_tipping', float), ('opex_fuel', float), ('opex_electricity', float),
+    ('opex_aux_utilities', float), ('price_generator_fuel', float), ('gen_diesel_rate', float),
+    ('gen_diesel_batch', float), ('opex_labor', float), ('opex_maint', float), ('opex_insurance_tax', float),
+    ('price_oil', float), ('price_char', float), ('price_gas', float), ('price_carbon', float),
+    ('rate_carbon_offset', float), ('discount_rate', float),
+    ('project_lifetime', int), ('annual_days', int), ('shutdown_days', int), ('holidays_days', int),
+    ('motor_power', float), ('batch_turnaround_h', float), ('batch_cooldown_h', float), ('batch_loading_h', float),
+    ('batches_before_cleaning', int), ('maint_cooldown_h', float), ('cleaning_time_h', float),
+    ('tax_rate', float), ('inflation_rate', float),
+]
+
+
+def _arrhenius_params(feed):
+    """(Ea1, A1, Ea2, A2, Ea3, A3) of a feedstock, Ea in J/mol."""
+    return feed.Ea1, feed.A1, feed.Ea2, feed.A2, feed.Ea3, feed.A3
+
+
+def _nominal_heating_rate_cmin(feed, batch_load_kg, length, diameter, shell_thickness_mm, material,
+                               burner_hp, cp_oil, cp_char, cp_ash):
+    """Heating rate (°C/min) the burner nameplate gives when it heats the steel shell and the cold load."""
+    t_steel = shell_thickness_mm / 1000.0
+    M_steel = np.pi * diameter * length * t_steel * material['density']
+    C_steel = M_steel * material['Cp']
+
+    fracs = feed.get_fractions()
+    m_moist = batch_load_kg * fracs['moisture']
+    m_volatile = batch_load_kg * fracs['volatile']
+    m_char = batch_load_kg * fracs['fixed_carbon']
+    m_ash = batch_load_kg * fracs['ash']
+    m_solid_total = m_moist + m_volatile + m_char + m_ash
+
+    Cp_s_init = (m_moist * WATER_CP_J_KGK + m_volatile * cp_oil + m_char * cp_char + m_ash * cp_ash) / m_solid_total if m_solid_total > 0 else 1000.0
+    C_solids_init = m_solid_total * Cp_s_init
+
+    Q_main_nominal = burner_hp * BHP_TO_W   # nameplate in boiler hp = useful heat output
+    C_total_init = C_steel + C_solids_init
+    nominal_rate_csec = Q_main_nominal / C_total_init if C_total_init > 0 else 0.1
+    return nominal_rate_csec * 60.0
+
+
+def _set_fuel_properties(preset):
+    st.session_state.fuel_lhv = preset['lhv']
+    st.session_state.fuel_density = preset['density']
+    st.session_state.fuel_moisture = preset['moisture']
+    st.session_state.fuel_ash = preset['ash']
+
+
+def _render_fuel_config(lang):
+    """Burner fuel expander. Presets fill the fuel properties (read-only); waste oil can be edited.
+    The values are kept in session_state (fuel_type, fuel_lhv, fuel_density, fuel_moisture, fuel_ash)."""
+    with st.sidebar.expander(t("fuel_config_title"), expanded=False):
+        preset_names = list(FUEL_PRESETS.keys())
+        default_idx = preset_names.index(st.session_state.fuel_type) if st.session_state.fuel_type in preset_names else 0
+
+        selected_type = st.selectbox(
+            t("fuel_type_label"),
+            preset_names,
+            index=default_idx,
+            key='fuel_type_select_sidebar'
+        )
+
+        editable = (selected_type == WASTE_OIL)
+        if not editable:
+            _set_fuel_properties(FUEL_PRESETS[selected_type])
+        elif st.session_state.get('fuel_type', WASTE_OIL) != WASTE_OIL:
+            # Coming back from a preset: start from the waste-oil values
+            _set_fuel_properties(FUEL_PRESETS[WASTE_OIL])
+        st.session_state.fuel_type = selected_type
+
+        fuel_lhv = st.number_input(
+            t("fuel_lhv_label"),
+            min_value=1.0,
+            max_value=100.0,
+            value=float(st.session_state.get('fuel_lhv', 41.0)),
+            step=0.5,
+            disabled=not editable,
+            key='fuel_lhv_val_sidebar'
+        )
+        if editable:
+            st.session_state.fuel_lhv = fuel_lhv
+
+        fuel_density = st.number_input(
+            t("fuel_density_label"),
+            min_value=0.1,
+            max_value=3.0,
+            value=float(st.session_state.get('fuel_density', 0.90)),
+            step=0.01,
+            disabled=not editable,
+            key='fuel_density_val_sidebar'
+        )
+        if editable:
+            st.session_state.fuel_density = fuel_density
+
+        fuel_moisture = st.number_input(
+            t("fuel_moisture_label"),
+            min_value=0.0,
+            max_value=90.0,
+            value=float(st.session_state.get('fuel_moisture', 1.0)),
+            step=0.1,
+            disabled=not editable,
+            key='fuel_moisture_val_sidebar'
+        )
+        if editable:
+            st.session_state.fuel_moisture = fuel_moisture
+
+        fuel_ash = st.number_input(
+            t("fuel_ash_label"),
+            min_value=0.0,
+            max_value=50.0,
+            value=float(st.session_state.get('fuel_ash', 0.5)),
+            step=0.1,
+            disabled=not editable,
+            key='fuel_ash_val_sidebar'
+        )
+        if editable:
+            st.session_state.fuel_ash = fuel_ash
+
+        combustible_pct = 100.0 - st.session_state.fuel_moisture - st.session_state.fuel_ash
+        lhv_wet_mj_kg = st.session_state.fuel_lhv * (combustible_pct/100.0) - WATER_LATENT_HEAT_MJ_KG * (st.session_state.fuel_moisture/100.0)
+
+        info_label = "Fracción Combustible Útil" if lang == 'es' else "Useful Combustible Fraction"
+        info_lhv = "Poder Calorífico Efectivo (base húmeda)" if lang == 'es' else "Effective LHV (wet basis)"
+
+        st.info(
+            f"**{info_label}:** `{combustible_pct:.2f} %`  \n"
+            f"**{info_lhv}:** `{lhv_wet_mj_kg:.2f} MJ/kg`"
+        )
+
 
 def render_sidebar():
     """
@@ -70,22 +230,11 @@ def render_sidebar():
     feed_custom_str = t("feed_custom")
 
     feed_options_list = [feed_blend_str, feed_petroleum_str, feed_hydrocarbon_str, feed_custom_str]
-    
-    # Map stored feed_option string to index
     stored_feed = st.session_state.get('feed_option', "Blend (Petroleum + Hydrocarbon)")
-    if stored_feed == "Petroleum Sludge Only":
-        default_feed_idx = 1
-    elif stored_feed == "Hydrocarbon Sludge Only":
-        default_feed_idx = 2
-    elif stored_feed == "Blend (Petroleum + Hydrocarbon)":
-        default_feed_idx = 0
-    else:  # Custom Feedstock
-        default_feed_idx = 3
-
     feed_option_translated = _box.selectbox(
         t("select_feed_type"),
         feed_options_list,
-        index=default_feed_idx
+        index=_FEED_OPTION_INDEX.get(stored_feed, 3)
     )
 
     # Initialize default feedstock values in case they aren't rendered
@@ -112,21 +261,11 @@ def render_sidebar():
     if feed_option_translated == feed_petroleum_str:
         current_feed = PETROLEUM_SLUDGE
         feed_option = "Petroleum Sludge Only"
-        c_ea1 = current_feed.Ea1
-        c_a1 = current_feed.A1
-        c_ea2 = current_feed.Ea2
-        c_a2 = current_feed.A2
-        c_ea3 = current_feed.Ea3
-        c_a3 = current_feed.A3
+        c_ea1, c_a1, c_ea2, c_a2, c_ea3, c_a3 = _arrhenius_params(current_feed)
     elif feed_option_translated == feed_hydrocarbon_str:
         current_feed = HYDROCARBON_SLUDGE
         feed_option = "Hydrocarbon Sludge Only"
-        c_ea1 = current_feed.Ea1
-        c_a1 = current_feed.A1
-        c_ea2 = current_feed.Ea2
-        c_a2 = current_feed.A2
-        c_ea3 = current_feed.Ea3
-        c_a3 = current_feed.A3
+        c_ea1, c_a1, c_ea2, c_a2, c_ea3, c_a3 = _arrhenius_params(current_feed)
     elif feed_option_translated == feed_blend_str:
         feed_option = "Blend (Petroleum + Hydrocarbon)"
         blend_ratio = _box.number_input(
@@ -138,12 +277,7 @@ def render_sidebar():
             format="%.1f"
         ) / 100.0
         current_feed = blend_feedstocks(PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, blend_ratio)
-        c_ea1 = current_feed.Ea1
-        c_a1 = current_feed.A1
-        c_ea2 = current_feed.Ea2
-        c_a2 = current_feed.A2
-        c_ea3 = current_feed.Ea3
-        c_a3 = current_feed.A3
+        c_ea1, c_a1, c_ea2, c_a2, c_ea3, c_a3 = _arrhenius_params(current_feed)
     else:  # Custom
         feed_option = "Custom Feedstock"
         _box.markdown(t("custom_props"))
@@ -255,15 +389,15 @@ def render_sidebar():
     feed_rate_kgh = float(st.session_state.get('feed_rate', 100.0))
     temp_inlet_c = float(st.session_state.get('feed_inlet_temp', 25.0))
     
-    # Dynamic conversion using configured sludge density
-    sludge_dens_val = float(st.session_state.get('sludge_density', 944.7))
-    KG_PER_GALLON = (sludge_dens_val / 1000.0) * 3.785411784
+    # Batch size is entered in gallons; the density is the one from the burner/shell expander (previous run)
+    sludge_density_prev = float(st.session_state.get('sludge_density', 944.7))
+    kg_per_gal = (sludge_density_prev / 1000.0) * LITERS_PER_GALLON
     batch_load_gal = float(st.session_state.get('batch_size', 440.0))
 
     if mode_option == "Continuous Operation":
         feed_rate_kgh = _box.number_input(t("feed_rate"), min_value=1.0, max_value=50000.0, value=float(st.session_state.get('feed_rate', 100.0)), step=10.0, format="%.1f")
         temp_inlet_c = _box.number_input(t("feed_inlet_temp"), min_value=-20.0, max_value=300.0, value=float(st.session_state.get('feed_inlet_temp', 25.0)), step=1.0, format="%.1f")
-        batch_load_kg = batch_load_gal * KG_PER_GALLON
+        batch_load_kg = batch_load_gal * kg_per_gal
     else:
         batch_load_gal = _box.number_input(
             t("batch_size"), 
@@ -273,7 +407,7 @@ def render_sidebar():
             step=50.0,
             format="%.1f"
         )
-        batch_load_kg = batch_load_gal * KG_PER_GALLON
+        batch_load_kg = batch_load_gal * kg_per_gal
 
     bio_oil_density = _box.number_input(
         t("bio_oil_density"),
@@ -307,16 +441,14 @@ def render_sidebar():
         slope_pct = _box.number_input(t("reactor_slope"), min_value=0.1, max_value=20.0, value=float(st.session_state.get('reactor_slope', 2.0)), step=0.1, format="%.2f")
         slope = slope_pct / 100.0
 
-    # Heating configuration
-
     # Burner and Shell Calibration expander
     with st.sidebar.expander(t("burner_calib_header"), expanded=False):
         auto_heating_rate = st.checkbox(
             t("auto_heating_rate"),
             value=bool(st.session_state.get('auto_heating_rate', False))
         )
-        
-        # Steel material properties database
+
+        # Shell steels: density (kg/m³), Cp (J/kg·K), k (W/m·K); same order as SHELL_MATERIAL_NAMES
         materials = {
             t("steel_carbon"): {'density': 7850.0, 'Cp': 480.0, 'k': 50.0},
             t("steel_ss304"): {'density': 8000.0, 'Cp': 500.0, 'k': 16.2},
@@ -324,27 +456,15 @@ def render_sidebar():
             t("steel_alloy"): {'density': 7800.0, 'Cp': 460.0, 'k': 26.0}
         }
         material_keys = list(materials.keys())
-        
-        # Load stored material or default to carbon steel
         stored_material = st.session_state.get('shell_material', 'Carbon Steel')
-        default_mat_idx = 0
-        if stored_material in ["Stainless Steel 304", "Acero Inoxidable 304"]:
-            default_mat_idx = 1
-        elif stored_material in ["Stainless Steel 316", "Acero Inoxidable 316"]:
-            default_mat_idx = 2
-        elif stored_material in ["Refractory Alloy Steel", "Acero Aleado / Refractario"]:
-            default_mat_idx = 3
-            
         selected_material_label = st.selectbox(
             t("shell_material"),
             material_keys,
-            index=default_mat_idx
+            index=_SHELL_MATERIAL_INDEX.get(stored_material, 0)
         )
         selected_material_dict = materials[selected_material_label]
-        
-        # Map back to English string for JSON config compatibility
-        english_mat_names = ["Carbon Steel", "Stainless Steel 304", "Stainless Steel 316", "Refractory Alloy Steel"]
-        shell_material_saved = english_mat_names[material_keys.index(selected_material_label)]
+        # Saved in English so the config JSON does not depend on the UI language
+        shell_material_saved = SHELL_MATERIAL_NAMES[material_keys.index(selected_material_label)]
         
         shell_thickness_mm = st.number_input(
             t("shell_thickness"),
@@ -363,9 +483,6 @@ def render_sidebar():
             step=10.0,
             format="%.1f"
         )
-        
-        if 'burner_eff_pct' not in st.session_state:
-            st.session_state['burner_eff_pct'] = 70.0
 
         burner_eff_pct = st.number_input(
             t("burner_eff"),
@@ -430,104 +547,7 @@ def render_sidebar():
             format="%.1f"
         )
 
-    # New: Burner Fuel Configuration expander in the sidebar
-    with st.sidebar.expander(t("fuel_config_title"), expanded=False):
-        fuel_presets = {
-            "Waste Oil / Aceite Residual": {'lhv': 41.0, 'density': 0.90, 'moisture': 1.0, 'ash': 0.5},
-            "Diesel": {'lhv': 42.6, 'density': 0.84, 'moisture': 0.05, 'ash': 0.01},
-            "Fuel Oil": {'lhv': 40.0, 'density': 0.95, 'moisture': 0.5, 'ash': 0.1}
-        }
-        preset_names = list(fuel_presets.keys())
-        
-        if 'fuel_type' not in st.session_state:
-            st.session_state.fuel_type = "Waste Oil / Aceite Residual"
-            
-        default_idx = preset_names.index(st.session_state.fuel_type) if st.session_state.fuel_type in preset_names else 0
-        
-        selected_type = st.selectbox(
-            t("fuel_type_label"),
-            preset_names,
-            index=default_idx,
-            key='fuel_type_select_sidebar'
-        )
-        
-        is_custom = (selected_type == "Waste Oil / Aceite Residual")
-        
-        if not is_custom:
-            st.session_state.fuel_type = selected_type
-            preset = fuel_presets[selected_type]
-            st.session_state.fuel_lhv = preset['lhv']
-            st.session_state.fuel_density = preset['density']
-            st.session_state.fuel_moisture = preset['moisture']
-            st.session_state.fuel_ash = preset['ash']
-        else:
-            previous_type = st.session_state.get('fuel_type', "Waste Oil / Aceite Residual")
-            if previous_type != "Waste Oil / Aceite Residual":
-                preset = fuel_presets["Waste Oil / Aceite Residual"]
-                st.session_state.fuel_lhv = preset['lhv']
-                st.session_state.fuel_density = preset['density']
-                st.session_state.fuel_moisture = preset['moisture']
-                st.session_state.fuel_ash = preset['ash']
-            st.session_state.fuel_type = "Waste Oil / Aceite Residual"
-            
-        fuel_lhv = st.number_input(
-            t("fuel_lhv_label"),
-            min_value=1.0,
-            max_value=100.0,
-            value=float(st.session_state.get('fuel_lhv', 41.0)),
-            step=0.5,
-            disabled=not is_custom,
-            key='fuel_lhv_val_sidebar'
-        )
-        if is_custom:
-            st.session_state.fuel_lhv = fuel_lhv
-            
-        fuel_density = st.number_input(
-            t("fuel_density_label"),
-            min_value=0.1,
-            max_value=3.0,
-            value=float(st.session_state.get('fuel_density', 0.90)),
-            step=0.01,
-            disabled=not is_custom,
-            key='fuel_density_val_sidebar'
-        )
-        if is_custom:
-            st.session_state.fuel_density = fuel_density
-            
-        fuel_moisture = st.number_input(
-            t("fuel_moisture_label"),
-            min_value=0.0,
-            max_value=90.0,
-            value=float(st.session_state.get('fuel_moisture', 1.0)),
-            step=0.1,
-            disabled=not is_custom,
-            key='fuel_moisture_val_sidebar'
-        )
-        if is_custom:
-            st.session_state.fuel_moisture = fuel_moisture
-            
-        fuel_ash = st.number_input(
-            t("fuel_ash_label"),
-            min_value=0.0,
-            max_value=50.0,
-            value=float(st.session_state.get('fuel_ash', 0.5)),
-            step=0.1,
-            disabled=not is_custom,
-            key='fuel_ash_val_sidebar'
-        )
-        if is_custom:
-            st.session_state.fuel_ash = fuel_ash
-            
-        x_comb = 100.0 - st.session_state.fuel_moisture - st.session_state.fuel_ash
-        LHV_eff = st.session_state.fuel_lhv * (x_comb/100.0) - 2.256 * (st.session_state.fuel_moisture/100.0)
-        
-        info_label = "Fracción Combustible Útil" if get_lang() == 'es' else "Useful Combustible Fraction"
-        info_lhv = "Poder Calorífico Efectivo (base húmeda)" if get_lang() == 'es' else "Effective LHV (wet basis)"
-        
-        st.info(
-            f"**{info_label}:** `{x_comb:.2f} %`  \n"
-            f"**{info_lhv}:** `{LHV_eff:.2f} MJ/kg`"
-        )
+    _render_fuel_config(lang)
 
     # PROENERGETICOS Industrial Plant Specs expander in the sidebar
     with st.sidebar.expander(t("proenergeticos_title"), expanded=False):
@@ -608,27 +628,9 @@ def render_sidebar():
         temp_start_c = _box.number_input(t("starting_temp"), min_value=0.0, max_value=500.0, value=float(st.session_state.get('starting_temp', 25.0)), step=5.0, format="%.1f")
         
         if auto_heating_rate:
-            # Dynamically compute nominal heating rate based on physical mass
-            t_steel = shell_thickness_mm / 1000.0
-            rho_steel = selected_material_dict['density']
-            M_steel = np.pi * diameter * length * t_steel * rho_steel
-            C_steel = M_steel * selected_material_dict['Cp']
-            
-            fracs = current_feed.get_fractions()
-            m_moist = batch_load_kg * fracs['moisture']
-            m_volatile = batch_load_kg * fracs['volatile']
-            m_char = batch_load_kg * fracs['fixed_carbon']
-            m_ash = batch_load_kg * fracs['ash']
-            m_solid_total = m_moist + m_volatile + m_char + m_ash
-            
-            Cp_s_init = (m_moist * 4184.0 + m_volatile * custom_cp_oil + m_char * custom_cp_char + m_ash * custom_cp_ash) / m_solid_total if m_solid_total > 0 else 1000.0
-            C_solids_init = m_solid_total * Cp_s_init
-            
-            Q_main_nominal = burner_hp * BHP_TO_W   # nameplate in boiler hp = useful heat output
-            C_total_init = C_steel + C_solids_init
-            nominal_rate_csec = Q_main_nominal / C_total_init if C_total_init > 0 else 0.1
-            heating_rate_cmin = nominal_rate_csec * 60.0
-            
+            heating_rate_cmin = _nominal_heating_rate_cmin(
+                current_feed, batch_load_kg, length, diameter, shell_thickness_mm, selected_material_dict,
+                burner_hp, custom_cp_oil, custom_cp_char, custom_cp_ash)
             _box.info(t("nominal_heating_rate_info").format(heating_rate_cmin))
         else:
             heating_rate_cmin = _box.number_input(t("heating_rate"), min_value=0.1, max_value=100.0, value=float(st.session_state.get('heating_rate', 10.0)), step=0.5, format="%.2f")
@@ -699,45 +701,9 @@ def render_sidebar():
         'manifold_branch_dia_in': float(manifold_branch_dia_in),
         'manifold_num_branches': int(manifold_num_branches),
         'cooling_tank_gal': float(cooling_tank_gal),
-        'autogenous_purge': bool(autogenous_purge),
-        'capex_equip': float(st.session_state.get('capex_equip', DEFAULT_PARAMS['capex_equip'])),
-        'capex_install': float(st.session_state.get('capex_install', DEFAULT_PARAMS['capex_install'])),
-        'capex_civil': float(st.session_state.get('capex_civil', DEFAULT_PARAMS['capex_civil'])),
-        'capex_piping_elec': float(st.session_state.get('capex_piping_elec', DEFAULT_PARAMS['capex_piping_elec'])),
-        'capex_eng': float(st.session_state.get('capex_eng', DEFAULT_PARAMS['capex_eng'])),
-        'capex_permits': float(st.session_state.get('capex_permits', DEFAULT_PARAMS['capex_permits'])),
-        'capex_cont': float(st.session_state.get('capex_cont', DEFAULT_PARAMS['capex_cont'])),
-        'opex_handling': float(st.session_state.get('opex_handling', DEFAULT_PARAMS['opex_handling'])),
-        'opex_tipping': float(st.session_state.get('opex_tipping', DEFAULT_PARAMS['opex_tipping'])),
-        'opex_fuel': float(st.session_state.get('opex_fuel', DEFAULT_PARAMS['opex_fuel'])),
-        'opex_electricity': float(st.session_state.get('opex_electricity', DEFAULT_PARAMS['opex_electricity'])),
-        'opex_aux_utilities': float(st.session_state.get('opex_aux_utilities', DEFAULT_PARAMS['opex_aux_utilities'])),
-        'price_generator_fuel': float(st.session_state.get('price_generator_fuel', DEFAULT_PARAMS['price_generator_fuel'])),
-        'gen_diesel_rate': float(st.session_state.get('gen_diesel_rate', DEFAULT_PARAMS['gen_diesel_rate'])),
-        'gen_diesel_batch': float(st.session_state.get('gen_diesel_batch', DEFAULT_PARAMS['gen_diesel_batch'])),
-        'opex_labor': float(st.session_state.get('opex_labor', DEFAULT_PARAMS['opex_labor'])),
-        'opex_maint': float(st.session_state.get('opex_maint', DEFAULT_PARAMS['opex_maint'])),
-        'opex_insurance_tax': float(st.session_state.get('opex_insurance_tax', DEFAULT_PARAMS['opex_insurance_tax'])),
-        'price_oil': float(st.session_state.get('price_oil', DEFAULT_PARAMS['price_oil'])),
-        'price_char': float(st.session_state.get('price_char', DEFAULT_PARAMS['price_char'])),
-        'price_gas': float(st.session_state.get('price_gas', DEFAULT_PARAMS['price_gas'])),
-        'price_carbon': float(st.session_state.get('price_carbon', DEFAULT_PARAMS['price_carbon'])),
-        'rate_carbon_offset': float(st.session_state.get('rate_carbon_offset', DEFAULT_PARAMS['rate_carbon_offset'])),
-        'discount_rate': float(st.session_state.get('discount_rate', DEFAULT_PARAMS['discount_rate'])),
-        'project_lifetime': int(st.session_state.get('project_lifetime', DEFAULT_PARAMS['project_lifetime'])),
-        'annual_days': int(st.session_state.get('annual_days', DEFAULT_PARAMS['annual_days'])),
-        'shutdown_days': int(st.session_state.get('shutdown_days', DEFAULT_PARAMS.get('shutdown_days', 15))),
-        'holidays_days': int(st.session_state.get('holidays_days', DEFAULT_PARAMS.get('holidays_days', 15))),
-        'motor_power': float(st.session_state.get('motor_power', DEFAULT_PARAMS['motor_power'])),
-        'batch_turnaround_h': float(st.session_state.get('batch_turnaround_h', DEFAULT_PARAMS['batch_turnaround_h'])),
-        'batch_cooldown_h': float(st.session_state.get('batch_cooldown_h', DEFAULT_PARAMS.get('batch_cooldown_h', 0.5))),
-        'batch_loading_h': float(st.session_state.get('batch_loading_h', DEFAULT_PARAMS.get('batch_loading_h', 0.5))),
-        'batches_before_cleaning': int(st.session_state.get('batches_before_cleaning', DEFAULT_PARAMS.get('batches_before_cleaning', 20))),
-        'maint_cooldown_h': float(st.session_state.get('maint_cooldown_h', DEFAULT_PARAMS.get('maint_cooldown_h', 6.0))),
-        'cleaning_time_h': float(st.session_state.get('cleaning_time_h', DEFAULT_PARAMS.get('cleaning_time_h', 4.0))),
-        'tax_rate': float(st.session_state.get('tax_rate', DEFAULT_PARAMS['tax_rate'])),
-        'inflation_rate': float(st.session_state.get('inflation_rate', DEFAULT_PARAMS['inflation_rate']))
+        'autogenous_purge': bool(autogenous_purge)
     }
+    config_dict.update({k: cast(st.session_state.get(k, DEFAULT_PARAMS[k])) for k, cast in _PASSTHROUGH_PARAMS})
 
     # Populate any missing default parameters
     for k, v in DEFAULT_PARAMS.items():
