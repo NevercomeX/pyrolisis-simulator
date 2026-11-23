@@ -42,8 +42,10 @@ def render_summary_section(mode_option, summary, econ):
                    else "Profile: case study, PROENERGÉTICOS run (thesis).")
 
     # ---------------------------------------------------------------- technical
-    st.markdown("#### " + ("Proceso (lote simulado)" if es else "Process (simulated batch)") if is_batch
-                else "#### " + ("Proceso (operación continua)" if es else "Process (continuous operation)"))
+    if is_batch:
+        st.markdown("#### " + ("Proceso (lote simulado)" if es else "Process (simulated batch)"))
+    else:
+        st.markdown("#### " + ("Proceso (operación continua)" if es else "Process (continuous operation)"))
     c1, c2, c3, c4, c5 = st.columns(5)
     unit = "kg" if is_batch else "kg/h"
     sfx = "" if is_batch else "h"
@@ -77,9 +79,11 @@ def render_summary_section(mode_option, summary, econ):
             fuel_sim = summary.get('waste_oil_consumed_gal', 0.0)
             shortfall = summary.get('burner_shortfall_min', 0.0)
             fuel_econ = float(ss.get('econ_fuel_gal_per_batch', 0.0))
-            detail = (f"Economía usa {fuel_econ:,.0f} gal/lote (planta)" if es
-                      else f"Economics uses {fuel_econ:,.0f} gal/batch (plant)") if fuel_econ > 0 else \
-                     ("Simulado por lote" if es else "Simulated per batch")
+            if fuel_econ > 0:
+                detail = (f"Economía usa {fuel_econ:,.0f} gal/lote (planta)" if es
+                          else f"Economics uses {fuel_econ:,.0f} gal/batch (plant)")
+            else:
+                detail = "Simulado por lote" if es else "Simulated per batch"
             _card("Combustible auxiliar" if es else "Auxiliary fuel", f"{fuel_sim:,.1f} gal", detail,
                   shortfall <= 0.0,
                   ("El quemador cubre la rampa" if es else "Burner covers the ramp") if shortfall <= 0.0 else
@@ -112,7 +116,7 @@ def render_summary_section(mode_option, summary, econ):
         pbd = m['disc_payback']
         _card("Recuperación descontada" if es else "Discounted payback",
               f"{pbd:.2f} {years}" if pbd != float('inf') else ("No se recupera" if es else "Not recovered"),
-              f"{'Simple' if es else 'Simple'}: {m['payback']:.2f} {years}" if m['payback'] != float('inf') else "",
+              f"Simple: {m['payback']:.2f} {years}" if m['payback'] != float('inf') else "",
               pbd <= econ['project_lifetime'],
               f"≤ {econ['project_lifetime']} {years}")
     with e4:

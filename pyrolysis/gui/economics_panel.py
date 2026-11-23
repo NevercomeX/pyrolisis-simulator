@@ -1,131 +1,67 @@
-import streamlit as st
+"""Economy and Sustainability sections of the dashboard (all amounts in DOP, RD$).
+
+Layout of this file:
+  1. Economic inputs form          render_economics_inputs (values live in session_state)
+  2. Economic results             compute_economics (no widgets; shared with the Summary section)
+  3. Economy section              render_economics_tab and one _render_* helper per block on screen
+  4. Sustainability section       render_sustainability_tab
+
+The financial maths (cash flows, NPV, IRR, paybacks, break-even fee, sludge scenarios) is in
+economics_model.py and the pre-dryer evaluator in pre_drying_panel.py; the public names of both are
+re-exported here, so `from pyrolysis.gui.economics_panel import run_financial_model` keeps working.
+"""
+import io
+from itertools import accumulate
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import io
+import streamlit as st
+
+from .economics_model import (  # noqa: F401  (re-exported for app, reports and tests)
+    GAL_PER_M3,
+    IRR_SEARCH_MAX,
+    SLUDGE_SCENARIOS,
+    SLUDGE_SCENARIO_LABELS,
+    batch_thermal_cycle_min,
+    breakeven_note,
+    format_irr,
+    run_financial_model,
+    scenario_tipping_fee,
+    solve_irr,
+)
+from .pre_drying_panel import render_pre_drying_evaluator
 from .utils import get_lang, t
+
+CURR_SYM = "RD$"
 
 # Assumed CO2 emission factors for the process-emissions balance (sustainability tab)
 EF_CO2_FUEL_OIL_KG_PER_KG = 3.15   # waste / fuel oil combustion
 EF_CO2_DIESEL_KG_PER_GAL = 10.21   # diesel generator
 EF_CO2_SYNGAS_KG_PER_KG = 0.84     # pyrolysis gas at ~12 MJ/kg and ~0.07 kg CO2/MJ
 
-IRR_SEARCH_MAX = 1000.0   # upper search bound for the IRR as a fraction (= 100,000 %)
+# Equivalences shown on the sustainability cards
+CO2_T_PER_TREE_YEAR = 0.022        # CO2 absorbed by one tree in a year (t)
+CO2_T_PER_CAR_YEAR = 4.6           # CO2 emitted by one passenger car in a year (t)
+LITRES_PER_GAL = 3.785
+
+_CHART_LAYOUT = dict(margin=dict(l=40, r=20, t=50, b=40))   # colours come from the Streamlit theme
 
 
-def solve_irr(cash_flows):
-    """
-    Calculates the Internal Rate of Return (IRR) for a given series of cash flows.
-    Returns the percentage, float('inf') when a conventional project (investment first, then non-negative
-    flows) still has NPV > 0 at IRR_SEARCH_MAX, or None if it cannot be solved.
-    """
-    if not cash_flows or all(x >= 0 for x in cash_flows) or all(x <= 0 for x in cash_flows):
-        return None
-
-    def npv_func(r):
-        return sum(cf / ((1.0 + r)**t) for t, cf in enumerate(cash_flows))
-
-    low = -0.99
-    high = 10.0
-
-    val_low = npv_func(low)
-    val_high = npv_func(high)
-    # Very profitable projects: widen the bracket instead of giving up at 1,000 %
-    while val_low * val_high > 0 and high < IRR_SEARCH_MAX:
-        high = min(high * 10.0, IRR_SEARCH_MAX)
-        val_high = npv_func(high)
-    if val_low * val_high > 0 and val_high > 0 and cash_flows[0] < 0 and all(x >= 0 for x in cash_flows[1:]):
-        return float('inf')
-
-    if val_low * val_high > 0:
-        found = False
-        steps = 100
-        for i in range(steps):
-            r1 = low + (high - low) * i / steps
-            r2 = low + (high - low) * (i + 1) / steps
-            if npv_func(r1) * npv_func(r2) < 0:
-                low = r1
-                high = r2
-                found = True
-                break
-        if not found:
-            return None
-            
-    for _ in range(100):
-        mid = (low + high) / 2.0
-        val = npv_func(mid)
-        if abs(val) < 1e-3:
-            return mid * 100.0
-        if val_low > 0:
-            if val > 0:
-                low = mid
-            else:
-                high = mid
-        else:
-            if val < 0:
-                low = mid
-            else:
-                high = mid
-                
-    return ((low + high) / 2.0) * 100.0
-
-def format_irr(irr, decimals=2):
-    """IRR text: 'N/A' when undefined, '> 100,000 %' above the search bound, otherwise the value."""
-    if irr is None:
-        return "N/A"
-    if irr == float('inf'):
-        return f"> {IRR_SEARCH_MAX * 100.0:,.0f} %"
-    return f"{irr:,.{decimals}f} %"
+def _fmt_money(x):
+    """'RD$1,234.56' or '-RD$1,234.56'."""
+    return f"{CURR_SYM}{x:,.2f}" if x >= 0 else f"-{CURR_SYM}{abs(x):,.2f}"
 
 
-SLUDGE_SCENARIOS = ('purchase', 'free', 'tipping')
-SLUDGE_SCENARIO_LABELS = {
-    'purchase': {'es': "Lodo húmedo comprado", 'en': "Wet sludge purchased"},
-    'free': {'es': "Lodo sin costo", 'en': "Sludge at no cost"},
-    'tipping': {'es': "Lodo con tarifa de disposición", 'en': "Sludge with disposal fee"},
-}
+def _bottom_legend(y, font_size):
+    """Horizontal legend centred under the plot."""
+    return dict(orientation="h", yanchor="bottom", y=y, xanchor="center", x=0.5, font=dict(size=font_size))
 
-
-def scenario_tipping_fee(scenario, sludge_cost, tipping_fee):
-    """Effective tipping fee (RD$/gal) of a sludge scenario: purchase = −X, free = 0, disposal fee = +Y."""
-    return {'purchase': 0.0 - float(sludge_cost), 'free': 0.0, 'tipping': float(tipping_fee)}[scenario]  # 0.0 - x avoids "-0.00"
-
-
-def breakeven_note(breakeven_tipping, lang='es'):
-    """Sentence explaining the break-even tipping fee (NPV = 0), shown with two decimals."""
-    v = round(breakeven_tipping, 2)
-    if v < 0:
-        return (f"El proyecto mantiene VAN ≥ 0 mientras el lodo cueste menos de RD$ {-v:,.2f}/gal." if lang == 'es'
-                else f"The project keeps NPV ≥ 0 as long as sludge costs less than RD$ {-v:,.2f}/gal.")
-    if v > 0:
-        return (f"El proyecto necesita cobrar una tarifa de disposición de al menos RD$ {v:,.2f}/gal para tener VAN ≥ 0."
-                if lang == 'es' else
-                f"The project needs a disposal fee of at least RD$ {v:,.2f}/gal to reach NPV ≥ 0.")
-    return ("El proyecto queda en equilibrio exacto sin costo ni tarifa por el lodo." if lang == 'es'
-            else "The project breaks even exactly with no sludge cost or fee.")
-
-
-def batch_thermal_cycle_min(summary, solver_inputs):
-    """
-    Returns (t_cycle_min, t_heat_min, t_hold_min) of the thermal process of one batch.
-    Uses the simulated duration (drying + heating + hold) when available; the naive
-    (T_hold - T_start) / heating_rate estimate ignores drying and underestimates the cycle.
-    """
-    t_hold_min = float(solver_inputs.get('hold_time_min', 60.0))
-    sim_cycle = summary.get('cycle_time_min') if summary else None
-    if sim_cycle:
-        t_cycle_min = float(sim_cycle)
-        t_heat_min = max(0.0, t_cycle_min - t_hold_min)
-    else:
-        rate = max(float(solver_inputs.get('heating_rate_cmin', 1.0)), 1e-6)
-        t_heat_min = (float(solver_inputs.get('temp_hold_c', 400.0)) - float(solver_inputs.get('temp_start_c', 25.0))) / rate
-        t_cycle_min = t_heat_min + t_hold_min
-    return t_cycle_min, t_heat_min, t_hold_min
 
 def render_kpi_card(title, value_str, subtitle=None, is_positive=True):
     """Renders a premium visual card for financial KPIs."""
     color = "#10b981" if is_positive else "#ef4444"
-    
+
     html = f"""
     <div style="
         background: rgba(128,128,128,0.08);
@@ -144,534 +80,10 @@ def render_kpi_card(title, value_str, subtitle=None, is_positive=True):
     """
     st.markdown(html, unsafe_allow_html=True)
 
-def run_financial_model(
-    total_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
-    fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
-    opex_handling, opex_fuel, opex_electricity, opex_aux_utilities, price_generator_fuel,
-    opex_labor, opex_maint, opex_insurance_tax,
-    opex_tipping, price_oil, price_char, price_gas, price_carbon, rate_carbon_offset,
-    discount_rate, project_lifetime, tax_rate, inflation_rate,
-    char_carbon_kg=None
-):
-    """
-    Runs the detailed cash flow model over the project lifetime and returns year-by-year cash flows
-    and advanced economic indicators (computed in gallons, kg, and m3).
 
-    `char_carbon_kg` is the carbon-bearing char (residue without ash) used for carbon credits;
-    defaults to `char_produced_kg` when not given.
-    """
-    if char_carbon_kg is None:
-        char_carbon_kg = char_produced_kg
-    r = discount_rate / 100.0
-    inf = inflation_rate / 100.0
-    tax = tax_rate / 100.0
-    
-    # Year 1 base values (uninflated)
-    rev_tipping = sludge_treated_gal * opex_tipping
-    rev_oil = oil_produced_gal * price_oil
-    rev_char = char_produced_kg * price_char
-    rev_gas = gas_produced_m3 * price_gas
-    
-    annual_co2_sequestered_ton = (char_carbon_kg * rate_carbon_offset) / 1000.0
-    rev_carbon = annual_co2_sequestered_ton * price_carbon
-
-    total_rev_base = rev_tipping + rev_oil + rev_char + rev_gas + rev_carbon
-    
-    cost_handling = sludge_treated_gal * opex_handling
-    cost_fuel = fuel_consumed_gal * opex_fuel
-    cost_electricity = elec_consumed_kwh * opex_electricity
-    cost_aux_utilities = opex_aux_utilities
-    cost_generator_fuel = generator_fuel_consumed_gal * price_generator_fuel
-    cost_labor = opex_labor
-    cost_maintenance = total_capex * (opex_maint / 100.0)
-    cost_insurance_tax = total_capex * (opex_insurance_tax / 100.0)
-    
-    total_opex_base = (
-        cost_handling + cost_fuel + cost_electricity + cost_aux_utilities + 
-        cost_generator_fuel + cost_labor + cost_maintenance + cost_insurance_tax
-    )
-    
-    years = list(range(0, int(project_lifetime) + 1))
-    
-    rev_flows = [0.0] * len(years)
-    opex_flows = [0.0] * len(years)
-    depr_flows = [0.0] * len(years)
-    taxable_flows = [0.0] * len(years)
-    tax_flows = [0.0] * len(years)
-    net_flows = [0.0] * len(years)
-    disc_flows = [0.0] * len(years)
-    cum_flows = [0.0] * len(years)
-    
-    net_flows[0] = -total_capex
-    disc_flows[0] = -total_capex
-    cum_flows[0] = -total_capex
-    
-    depreciation_annual = total_capex / project_lifetime if project_lifetime > 0 else 0.0
-    
-    for yr in range(1, int(project_lifetime) + 1):
-        inf_factor = (1.0 + inf) ** (yr - 1)
-        r_t = total_rev_base * inf_factor
-        o_t = total_opex_base * inf_factor
-        
-        ebitda = r_t - o_t
-        depr = depreciation_annual
-        taxable_income = ebitda - depr
-        taxes = max(0.0, taxable_income * tax)
-        
-        net_cf = ebitda - taxes
-        
-        rev_flows[yr] = r_t
-        opex_flows[yr] = o_t
-        depr_flows[yr] = depr
-        taxable_flows[yr] = taxable_income
-        tax_flows[yr] = taxes
-        net_flows[yr] = net_cf
-        
-        disc_cf = net_cf / ((1.0 + r) ** yr)
-        disc_flows[yr] = disc_cf
-        cum_flows[yr] = cum_flows[yr-1] + net_cf
-        
-    npv = sum(disc_flows)
-    irr = solve_irr(net_flows)
-    
-    # Simple payback (undiscounted)
-    payback = float('inf')
-    cum_undisc = -total_capex
-    for yr in range(1, int(project_lifetime) + 1):
-        prev = cum_undisc
-        cum_undisc += net_flows[yr]
-        if cum_undisc >= 0:
-            payback = (yr - 1) + (-prev / net_flows[yr]) if net_flows[yr] > 0 else (yr - 1)
-            break
-            
-    # Discounted payback
-    disc_payback = float('inf')
-    cum_disc = -total_capex
-    for yr in range(1, int(project_lifetime) + 1):
-        prev = cum_disc
-        cum_disc += disc_flows[yr]
-        if cum_disc >= 0:
-            disc_payback = (yr - 1) + (-prev / disc_flows[yr]) if disc_flows[yr] > 0 else (yr - 1)
-            break
-            
-    pi = 1.0 + (npv / total_capex) if total_capex > 0 else 0.0
-    
-    # Break-even tipping fee (Secant method)
-    def get_npv_for_tipping(t_fee):
-        temp_rev_tipping = sludge_treated_gal * t_fee
-        temp_total_rev_base = temp_rev_tipping + rev_oil + rev_char + rev_gas + rev_carbon
-        
-        temp_disc_flows = [-total_capex]
-        for yr in range(1, int(project_lifetime) + 1):
-            inf_factor = (1.0 + inf) ** (yr - 1)
-            r_t = temp_total_rev_base * inf_factor
-            o_t = total_opex_base * inf_factor
-            
-            ebitda = r_t - o_t
-            depr = depreciation_annual
-            taxable_income = ebitda - depr
-            taxes = max(0.0, taxable_income * tax)
-            net_cf = ebitda - taxes
-            
-            temp_disc_flows.append(net_cf / ((1.0 + r) ** yr))
-        return sum(temp_disc_flows)
-
-    # Bisection: NPV rises with the fee but not in a straight line (taxes only apply to profit),
-    # so a two-point secant misses the break-even.
-    if sludge_treated_gal > 0:
-        lo, hi = -1.0, 1.0
-        while get_npv_for_tipping(lo) > 0 and lo > -1e9:
-            lo *= 2.0
-        while get_npv_for_tipping(hi) < 0 and hi < 1e9:
-            hi *= 2.0
-        for _ in range(100):
-            mid = (lo + hi) / 2.0
-            if get_npv_for_tipping(mid) < 0:
-                lo = mid
-            else:
-                hi = mid
-        breakeven_tipping = (lo + hi) / 2.0
-    else:
-        breakeven_tipping = 0.0
-        
-    return {
-        'npv': npv,
-        'irr': irr,
-        'payback': payback,
-        'disc_payback': disc_payback,
-        'pi': pi,
-        'breakeven_tipping': breakeven_tipping,
-        'annual_co2_sequestered_ton': annual_co2_sequestered_ton,
-        'years': years,
-        'net_flows': net_flows,
-        'disc_flows': disc_flows,
-        'cum_flows': cum_flows,
-        'rev_flows': rev_flows,
-        'opex_flows': opex_flows,
-        'depr_flows': depr_flows,
-        'tax_flows': tax_flows,
-        'revenue_breakdown': {
-            'tipping': rev_tipping,
-            'oil': rev_oil,
-            'char': rev_char,
-            'gas': rev_gas,
-            'carbon': rev_carbon
-        },
-        'opex_breakdown': {
-            'handling': cost_handling,
-            'fuel': cost_fuel,
-            'electricity': cost_electricity,
-            'aux_utilities': cost_aux_utilities,
-            'gen_diesel': cost_generator_fuel,
-            'labor': cost_labor,
-            'maintenance': cost_maintenance,
-            'insurance_tax': cost_insurance_tax
-        }
-    }
-
-def render_pre_drying_evaluator(
-    solver_inputs,
-    summary,
-    results,
-    is_continuous,
-    curr_sym,
-    opex_fuel,
-    available_calendar_days,
-    batches_per_year,
-    t_cycle_hours,
-    t_op_batch_hours,
-    maint_penalty_per_batch_h,
-    m,
-    lang
-):
-    """
-    Renders an interactive Sludge Pre-Drying Evaluator.
-    Compares the energy, fuel savings, batch cycle reduction, throughput gain,
-    and financial payback of installing an external pre-dryer vs direct wet sludge pyrolysis.
-    NO LATEX is used anywhere in the text or formulas.
-    """
-    st.markdown("---")
-    with st.expander(
-        "♨️ Evaluador de Pre-Secado de Lodos (Análisis de Humedad y Ahorro)"
-        if lang == 'es'
-        else "♨️ Sludge Pre-Drying Evaluator (Moisture & Cost Analysis)",
-        expanded=True
-    ):
-        if lang == 'es':
-            st.markdown(
-                "Evalúa la viabilidad técnica y financiera de instalar un sistema de pre-secado para reducir la humedad del lodo "
-                "antes de ingresar al reactor pirolítico. Compara el costo de secado previo contra el ahorro de combustible en quemadores, "
-                "la reducción del tiempo de ciclo y la ganancia en capacidad anual de lotes."
-            )
-        else:
-            st.markdown(
-                "Evaluate the technical and financial viability of installing a pre-drying system to reduce sludge moisture "
-                "prior to entering the pyrolysis reactor. Compares pre-drying cost against burner fuel savings, cycle time reduction, "
-                "and annual batch throughput gains."
-            )
-            
-        current_feed = solver_inputs.get('current_feed')
-        feed_moist = float(getattr(current_feed, 'moisture', 35.0)) if current_feed else 35.0
-        default_moist = feed_moist if feed_moist >= 10.0 else 35.0
-        
-        col_d1, col_d2, col_d3 = st.columns(3)
-        with col_d1:
-            init_val = float(st.session_state.get('pre_dry_init_moist', default_moist))
-            init_val = max(1.0, min(95.0, init_val))
-            initial_moist_pct = st.number_input(
-                "Humedad Inicial del Lodo Bruto (%)" if lang == 'es' else "Raw Sludge Initial Moisture (%)",
-                min_value=1.0,
-                max_value=95.0,
-                value=init_val,
-                step=1.0,
-                key='pre_dry_init_moist',
-                help="Contenido de humedad en base húmeda con el que llega el lodo crudo a la planta." if lang == 'es' else "Raw sludge moisture content as received."
-            )
-        with col_d2:
-            target_default = float(min(12.0, max(1.0, initial_moist_pct - 5.0)))
-            target_val = float(st.session_state.get('pre_dry_target_moist', target_default))
-            max_target = float(max(1.0, initial_moist_pct))
-            target_val = max(0.5, min(max_target, target_val))
-            target_moist_pct = st.number_input(
-                "Humedad Objetivo tras Pre-Secado (%)" if lang == 'es' else "Target Pre-Dried Moisture (%)",
-                min_value=0.5,
-                max_value=max_target,
-                value=target_val,
-                step=1.0,
-                key='pre_dry_target_moist',
-                help="Contenido de humedad final del lodo a la salida del pre-secador hacia el reactor." if lang == 'es' else "Sludge moisture content after pre-drying feeding into reactor."
-            )
-        with col_d3:
-            tech_options_es = [
-                "Calor Residual de Gases de Escape (Sin costo de combustible)",
-                "Quemador Dedicado a Combustible Líquido (Fuel Oil / Aceite Usado)",
-                "Secador Solar / Invernadero Térmico"
-            ]
-            tech_options_en = [
-                "Pyrolysis Flue Gas Waste Heat (Zero fuel cost)",
-                "Dedicated Fuel Burner (Fuel Oil / Waste Oil)",
-                "Solar / Thermal Greenhouse Dryer"
-            ]
-            tech_options = tech_options_es if lang == 'es' else tech_options_en
-            selected_tech = st.selectbox(
-                "Fuente Térmica del Pre-Secador" if lang == 'es' else "Pre-Dryer Thermal Source",
-                options=tech_options,
-                key='pre_dry_tech'
-            )
-            
-        col_e1, col_e2, col_e3 = st.columns(3)
-        with col_e1:
-            dryer_capex = st.number_input(
-                f"Inversión Estimada en Pre-Secador ({curr_sym})" if lang == 'es' else f"Estimated Pre-Dryer CAPEX ({curr_sym})",
-                min_value=0.0,
-                value=float(st.session_state.get('pre_dry_capex', 1500000.0)),
-                step=100000.0,
-                key='pre_dry_capex',
-                help="Costo total de compra, transporte, obras civiles e instalación del equipo pre-secador." if lang == 'es' else "Total purchase, civil works, and installation cost of the pre-dryer."
-            )
-        with col_e2:
-            dryer_eff_pct = st.number_input(
-                "Eficiencia Térmica del Secador (%)" if lang == 'es' else "Dryer Thermal Efficiency (%)",
-                min_value=30.0,
-                max_value=95.0,
-                value=75.0,
-                step=5.0,
-                key='pre_dry_eff',
-                help="Rendimiento térmico en la evaporación de agua (usualmente 70% a 80% en secadores industriales)." if lang == 'es' else "Thermal efficiency for water evaporation."
-            )
-        with col_e3:
-            dryer_elec_kwh_ton = st.number_input(
-                "Consumo Eléctrico Auxiliar (kWh / ton lodo)" if lang == 'es' else "Auxiliary Electricity (kWh / ton sludge)",
-                min_value=0.0,
-                max_value=100.0,
-                value=12.0,
-                step=1.0,
-                key='pre_dry_elec_rate',
-                help="Electricidad consumida por motores del tambor rotativo, ventiladores y bombas de tiro forzado." if lang == 'es' else "Electricity for dryer motors, pumps, and blowers."
-            )
-            
-        # Calculation logic
-        if is_continuous:
-            m_sludge_basis = float(summary.get('feed_rate_kgh', 500.0))
-            basis_label = "por hora" if lang == 'es' else "per hour"
-            annual_multiplier = available_calendar_days * 24.0
-        else:
-            m_sludge_basis = float(summary.get('batch_load_kg', 5000.0))
-            basis_label = "por lote" if lang == 'es' else "per batch"
-            annual_multiplier = batches_per_year
-
-        h_in = initial_moist_pct / 100.0
-        h_out = target_moist_pct / 100.0
-
-        m_solids = m_sludge_basis * (1.0 - h_in)
-        m_water_initial = m_sludge_basis * h_in
-
-        m_sludge_final = m_solids / (1.0 - h_out) if (1.0 - h_out) > 0 else m_sludge_basis
-        m_water_final = m_sludge_final * h_out
-
-        m_water_removed = max(0.0, m_sludge_basis - m_sludge_final)
-        water_removed_gal = (m_water_removed / 1000.0) * 264.172
-        pct_water_removed = (m_water_removed / m_water_initial * 100.0) if m_water_initial > 0 else 0.0
-
-        # Thermal energy required for water evaporation: 2,570 kJ/kg (sensible + latent heat)
-        energy_kj_per_kg_water = 2570.0
-        energy_needed_kj = m_water_removed * energy_kj_per_kg_water
-
-        fuel_lhv_kj_gal = 135000.0
-        reactor_burner_eff = 0.75
-
-        # Fuel saved in pyrolysis reactor
-        fuel_saved_reactor_gal = energy_needed_kj / (reactor_burner_eff * fuel_lhv_kj_gal)
-        cost_saved_reactor = fuel_saved_reactor_gal * opex_fuel
-
-        # Fuel used in pre-dryer
-        is_fuel_burner = ("Quemador Dedicado" in selected_tech) or ("Dedicated Fuel" in selected_tech)
-        if is_fuel_burner:
-            fuel_used_dryer_gal = energy_needed_kj / ((dryer_eff_pct / 100.0) * fuel_lhv_kj_gal)
-            cost_fuel_dryer = fuel_used_dryer_gal * opex_fuel
-        else:
-            fuel_used_dryer_gal = 0.0
-            cost_fuel_dryer = 0.0
-
-        # Electricity cost
-        ton_sludge_basis = m_sludge_basis / 1000.0
-        elec_kwh_dryer = ton_sludge_basis * dryer_elec_kwh_ton
-        cost_per_kwh = float(st.session_state.get('price_generator_fuel', 262.80)) * 0.08
-        cost_elec_dryer = elec_kwh_dryer * cost_per_kwh
-
-        # Time savings in reactor
-        if not is_continuous:
-            t_dry_plateau_min = (m_water_initial * energy_kj_per_kg_water) / (25000.0 * 60.0)
-            t_saved_min = t_dry_plateau_min * (pct_water_removed / 100.0)
-            t_saved_hours = t_saved_min / 60.0
-            t_cycle_new = max(1.0, t_cycle_hours - t_saved_hours)
-            available_hours = available_calendar_days * 24.0
-            batches_year_new = np.floor(available_hours / t_cycle_new) if t_cycle_new > 0 else batches_per_year
-            extra_batches = max(0.0, batches_year_new - batches_per_year)
-            if int(st.session_state.get('econ_batches_per_year', 0)) > 0:
-                # Batches fixed by plant data: a shorter cycle adds no batches
-                batches_year_new, extra_batches = batches_per_year, 0.0
-
-            annual_rev_base = m['rev_flows'][1] if len(m['rev_flows']) > 1 else 0.0
-            rev_per_batch = annual_rev_base / max(batches_per_year, 1)
-            extra_revenue_annual = extra_batches * rev_per_batch
-        else:
-            t_saved_min = 0.0
-            t_saved_hours = 0.0
-            t_cycle_new = 0.0
-            batches_year_new = 0.0
-            extra_batches = 0.0
-            extra_revenue_annual = 0.0
-
-        annual_fuel_saved_cost = cost_saved_reactor * annual_multiplier
-        annual_dryer_fuel_cost = cost_fuel_dryer * annual_multiplier
-        annual_dryer_elec_cost = cost_elec_dryer * annual_multiplier
-        annual_dryer_total_opex = annual_dryer_fuel_cost + annual_dryer_elec_cost
-        
-        # Net annual financial gain
-        annual_net_benefit = (annual_fuel_saved_cost - annual_dryer_total_opex) + extra_revenue_annual
-
-        if annual_net_benefit > 0 and dryer_capex > 0:
-            payback_years = dryer_capex / annual_net_benefit
-            payback_months = payback_years * 12.0
-        else:
-            payback_years = float('inf')
-            payback_months = float('inf')
-
-        # KPI Metrics Cards
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        with col_m1:
-            st.metric(
-                "Agua Retirada" if lang == 'es' else "Water Removed",
-                f"{m_water_removed:,.0f} kg {basis_label}",
-                delta=f"-{pct_water_removed:.1f}% de agua" if lang == 'es' else f"-{pct_water_removed:.1f}% water",
-                delta_color="normal"
-            )
-        with col_m2:
-            st.metric(
-                "Ahorro Combustible" if lang == 'es' else "Fuel Saved in Reactor",
-                f"{fuel_saved_reactor_gal:,.1f} gal {basis_label}",
-                delta=f"+{curr_sym}{cost_saved_reactor:,.2f} {basis_label}"
-            )
-        with col_m3:
-            if not is_continuous:
-                st.metric(
-                    "Tiempo Ahorrado" if lang == 'es' else "Time Saved in Reactor",
-                    f"{t_saved_min:.0f} min {basis_label}",
-                    delta=f"+{extra_batches:.0f} lotes/año" if lang == 'es' else f"+{extra_batches:.0f} batches/yr"
-                )
-            else:
-                st.metric(
-                    "Ahorro Neto Combustible" if lang == 'es' else "Net Fuel Saved",
-                    f"{(fuel_saved_reactor_gal - fuel_used_dryer_gal):,.1f} gal/h",
-                    delta=f"{fuel_saved_reactor_gal * annual_multiplier:,.0f} gal/año" if lang == 'es' else f"{fuel_saved_reactor_gal * annual_multiplier:,.0f} gal/yr"
-                )
-        with col_m4:
-            st.metric(
-                "Beneficio Neto Anual" if lang == 'es' else "Net Annual Benefit",
-                f"{curr_sym}{annual_net_benefit:,.2f}/año" if lang == 'es' else f"{curr_sym}{annual_net_benefit:,.2f}/yr",
-                delta=f"Retorno: {payback_months:.1f} meses" if payback_months < 60 else "Evaluación especial"
-            )
-
-        # Comparison Table
-        st.markdown("##### 📊 Comparativo Técnico y Económico: Sin Pre-Secado vs. Con Pre-Secado" if lang == 'es' else "##### 📊 Technical & Economic Comparison: Baseline vs. With Pre-Drying")
-        
-        comp_data = {
-            "Concepto / Parámetro" if lang == 'es' else "Parameter": [
-                "Humedad del lodo al entrar al reactor" if lang == 'es' else "Sludge moisture entering reactor",
-                "Masa de carga al reactor" if lang == 'es' else "Sludge mass loaded into reactor",
-                "Agua evaporada dentro del reactor" if lang == 'es' else "Water evaporated inside reactor",
-                "Combustible consumido en reactor" if lang == 'es' else "Burner fuel consumed in reactor",
-                "Combustible consumido por pre-secador" if lang == 'es' else "Fuel consumed by pre-dryer",
-                "Costo de combustible de proceso" if lang == 'es' else "Process fuel operational cost",
-                "Consumo eléctrico del pre-secador" if lang == 'es' else "Pre-dryer auxiliary electricity",
-                "Tiempo de ciclo por lote" if not is_continuous and lang == 'es' else ("Batch cycle duration" if not is_continuous else "Régimen de operación"),
-                "Capacidad anual de procesamiento" if not is_continuous and lang == 'es' else ("Annual batch capacity" if not is_continuous else "Horas anuales"),
-                "Beneficio económico neto anual" if lang == 'es' else "Net annual financial benefit"
-            ],
-            "Operación Actual (Lodo Crudo)" if lang == 'es' else "Current Baseline": [
-                f"{initial_moist_pct:.1f} %",
-                f"{m_sludge_basis:,.0f} kg {basis_label}",
-                f"{m_water_initial:,.0f} kg ({m_water_initial * 264.172 / 1000.0:,.0f} gal) {basis_label}",
-                f"{summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0):,.1f} gal {basis_label}",
-                "0.0 gal",
-                f"{curr_sym}{(summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)) * opex_fuel * annual_multiplier:,.2f}/año",
-                "0.0 kWh/año",
-                f"{t_cycle_hours:.2f} horas" if not is_continuous else f"{available_calendar_days * 24:.0f} horas",
-                f"{batches_per_year:.0f} lotes/año" if not is_continuous else f"{available_calendar_days:.0f} días",
-                "Línea Base (RD$ 0.00)"
-            ],
-            "Con Sistema de Pre-Secado" if lang == 'es' else "With Pre-Drying System": [
-                f"{target_moist_pct:.1f} %",
-                f"{m_sludge_final:,.0f} kg {basis_label}",
-                f"{m_water_final:,.0f} kg ({m_water_final * 264.172 / 1000.0:,.0f} gal) {basis_label}",
-                f"{max(0.0, (summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)) - fuel_saved_reactor_gal):,.1f} gal {basis_label}",
-                f"{fuel_used_dryer_gal:,.1f} gal {basis_label}",
-                f"{curr_sym}{(max(0.0, (summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)) - fuel_saved_reactor_gal) * opex_fuel + cost_fuel_dryer) * annual_multiplier:,.2f}/año",
-                f"{elec_kwh_dryer * annual_multiplier:,.0f} kWh/año ({curr_sym}{annual_dryer_elec_cost:,.2f})",
-                f"{t_cycle_new:.2f} horas" if not is_continuous else f"{available_calendar_days * 24:.0f} horas",
-                f"{batches_year_new:.0f} lotes/año" if not is_continuous else f"{available_calendar_days:.0f} días",
-                f"+{curr_sym}{annual_net_benefit:,.2f}/año"
-            ],
-            "Ahorro / Impacto Favorable" if lang == 'es' else "Favorable Impact / Savings": [
-                f"-{(initial_moist_pct - target_moist_pct):.1f} puntos de humedad",
-                f"-{m_water_removed:,.0f} kg agua retirada antes del reactor",
-                f"-{pct_water_removed:.1f} % menos agua a hervir",
-                f"-{fuel_saved_reactor_gal:,.1f} gal {basis_label} ahorrados en reactor",
-                "Incluido en balance",
-                f"Ahorro combustible: +{curr_sym}{annual_fuel_saved_cost - annual_dryer_fuel_cost:,.2f}/año",
-                f"Costo auxiliar secador: -{curr_sym}{annual_dryer_elec_cost:,.2f}/año",
-                f"-{t_saved_min:.0f} min menos por lote" if not is_continuous else "Régimen continuo",
-                f"+{extra_batches:.0f} lotes extra (+{curr_sym}{extra_revenue_annual:,.2f}/año)" if not is_continuous else "Mismo tiempo",
-                f"Retorno inversión: {payback_months:.1f} meses ({payback_years:.2f} años)" if payback_months < 60 else "Sin retorno directo"
-            ]
-        }
-        df_comp = pd.DataFrame(comp_data)
-        st.table(df_comp)
-
-        # Technical Verdict Card
-        if payback_months <= 12.0:
-            verdict_badge = "🟢 ALTAMENTE RECOMENDADO" if lang == 'es' else "🟢 HIGHLY RECOMMENDED"
-            verdict_border = "#10b981"
-            verdict_expl = (
-                f"La inversión de {curr_sym}{dryer_capex:,.2f} en el pre-secador se recupera en apenas {payback_months:.1f} meses. "
-                f"Al retirar {pct_water_removed:.1f}% del agua antes del reactor, se ahorran {fuel_saved_reactor_gal * annual_multiplier:,.0f} galones de combustible al año "
-                f"y se liberan {t_saved_min:.0f} minutos por lote, generando un beneficio neto anual de {curr_sym}{annual_net_benefit:,.2f}."
-                if lang == 'es' else
-                f"The pre-dryer investment of {curr_sym}{dryer_capex:,.2f} pays back in just {payback_months:.1f} months, "
-                f"saving {fuel_saved_reactor_gal * annual_multiplier:,.0f} gal/yr in burner fuel and releasing {t_saved_min:.0f} min per batch."
-            )
-        elif payback_months <= 24.0:
-            verdict_badge = "🟡 VIABLE Y RENTABLE" if lang == 'es' else "🟡 FEASIBLE & PROFITABLE"
-            verdict_border = "#f59e0b"
-            verdict_expl = (
-                f"El pre-secado ofrece un retorno sólido en {payback_months:.1f} meses ({payback_years:.1f} años). "
-                f"El ahorro anual en combustible y la capacidad extra de procesamiento superan holgadamente los costos operativos del secador."
-                if lang == 'es' else
-                f"Pre-drying offers a solid payback of {payback_months:.1f} months ({payback_years:.1f} years), comfortably exceeding operational costs."
-            )
-        else:
-            verdict_badge = "🔵 EVALUAR CON FUENTES RESIDUALES" if lang == 'es' else "🔵 OPTIMIZE WITH WASTE HEAT"
-            verdict_border = "#0284c7"
-            verdict_expl = (
-                f"Para maximizar la rentabilidad, se recomienda operar el pre-secador utilizando los gases calientes de escape de la pirólisis "
-                f"o secado solar, eliminando el consumo de combustible auxiliar y acortando el tiempo de amortización."
-                if lang == 'es' else
-                f"To maximize profitability, utilizing hot pyrolysis flue gases or solar drying is recommended to eliminate auxiliary fuel consumption."
-            )
-
-        st.markdown(f"""
-        <div style="background-color: {verdict_border}22; border: 1px solid {verdict_border}; border-radius: 8px; padding: 14px 18px; margin-top: 10px;">
-            <div style="font-weight: 700; font-size: 0.95rem; margin-bottom: 6px;">
-                Dictamen Técnico y Financiero: {verdict_badge}
-            </div>
-            <div style="font-size: 0.86rem; line-height: 1.5;">
-                {verdict_expl}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
+# =============================================================================================
+# 1. Economic inputs form
+# =============================================================================================
 def _econ_defaults(is_continuous):
     """Fallback values of the economic inputs (session_state normally already holds them via DEFAULT_PARAMS)."""
     return {
@@ -717,6 +129,17 @@ def _econ_defaults(is_continuous):
     }
 
 
+# CAPEX items as a fraction of the main equipment cost (button "apply ratios")
+_CAPEX_RATIOS = {
+    'capex_install': 0.35,
+    'capex_civil': 0.25,
+    'capex_piping_elec': 0.25,
+    'capex_eng': 0.15,
+    'capex_permits': 0.05,
+    'capex_cont': 0.10,
+}
+
+
 def render_economics_inputs(mode_option):
     """Economic parameters inside a form: new values reach session_state (and every section) only when the
     user presses "Recalcular", so typing a number does not reload the page."""
@@ -731,12 +154,8 @@ def render_economics_inputs(mode_option):
 
     def _apply_capex_ratios_cb():
         eq_val = ss.get('capex_equip', d['capex_equip'])
-        ss['capex_install'] = float(round(eq_val * 0.35, 2))
-        ss['capex_civil'] = float(round(eq_val * 0.25, 2))
-        ss['capex_piping_elec'] = float(round(eq_val * 0.25, 2))
-        ss['capex_eng'] = float(round(eq_val * 0.15, 2))
-        ss['capex_permits'] = float(round(eq_val * 0.05, 2))
-        ss['capex_cont'] = float(round(eq_val * 0.10, 2))
+        for key, ratio in _CAPEX_RATIOS.items():
+            ss[key] = float(round(eq_val * ratio, 2))
 
     if ss.get('econ_sludge_scenario') not in SLUDGE_SCENARIOS:
         ss['econ_sludge_scenario'] = 'tipping'
@@ -857,9 +276,16 @@ def render_economics_inputs(mode_option):
                                   use_container_width=True)
 
 
+# =============================================================================================
+# 2. Economic results
+# =============================================================================================
 def compute_economics(mode_option, summary, solver_inputs):
     """Every economic result, computed from the parameters stored in session_state (no widgets).
-    The Summary and Economy sections both use it, so they always show the same numbers."""
+    The Summary and Economy sections both use it, so they always show the same numbers.
+
+    Returns every local variable of this function as a dict (the `econ` dict): the local names below
+    ARE its keys, read by render_economics_tab and summary_panel, so rename them only together.
+    `m` is the run_financial_model() result and `_model(fee)` re-runs it for another tipping fee."""
     ss = st.session_state
     is_continuous = (mode_option == "Continuous Operation")
     d = _econ_defaults(is_continuous)
@@ -867,6 +293,7 @@ def compute_economics(mode_option, summary, solver_inputs):
     def g(key):
         return ss.get(key, d[key])
 
+    # --- parameters --------------------------------------------------------------------------
     capex_equip = float(g('capex_equip'))
     capex_install = float(g('capex_install'))
     capex_civil = float(g('capex_civil'))
@@ -923,6 +350,7 @@ def compute_economics(mode_option, summary, solver_inputs):
         econ_oil_gal_batch = float(g('econ_oil_gal_per_batch'))
         econ_fuel_gal_batch = float(g('econ_fuel_gal_per_batch'))
     else:
+        # Batch-only values: fixed placeholders so the econ dict has the same keys in both modes
         gen_diesel_rate = float(g('gen_diesel_rate'))
         batch_cooldown_h = 0.50
         batch_loading_h = 0.50
@@ -937,19 +365,16 @@ def compute_economics(mode_option, summary, solver_inputs):
 
     total_capex = capex_equip + capex_install + capex_civil + capex_piping_elec + capex_eng + capex_permits + capex_cont
 
-    # ----------------------------------------------------
-    # CORE COMPUTATIONS PREPARATION
-    # ----------------------------------------------------
+    # --- annual production and consumption ---------------------------------------------------
     sludge_density = float(ss.get('sludge_density', 944.7))
     oil_density = float(ss.get('bio_oil_density', 750.0))
-    gas_density = 1.15
+    gas_density = 1.15   # kg/m³, non-condensable gas
+    annual_hours = annual_days * 24.0
 
     if is_continuous:
-        annual_hours = annual_days * 24.0
         batches_per_year = 0.0
         t_cycle_hours = 0.0
         t_op_batch_hours = 0.0
-        maint_penalty_per_batch_h = 0.0
         operating_days_batches = float(annual_days)
         cleaning_days_annual = 0.0
         campaign_active_days = float(annual_days)
@@ -968,7 +393,6 @@ def compute_economics(mode_option, summary, solver_inputs):
         t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
         t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
 
-        annual_hours = annual_days * 24.0
         if econ_batches_fixed > 0:
             batches_per_year = float(econ_batches_fixed)
         else:
@@ -990,17 +414,15 @@ def compute_economics(mode_option, summary, solver_inputs):
         elec_consumed_kwh = 0.0
         generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
 
-    # Volumetric Conversions for Liquids & Gases
-    sludge_treated_gal = (sludge_treated_kg / sludge_density) * 264.172
+    # Liquids in gallons, gas in m³, char stays in kg
+    sludge_treated_gal = (sludge_treated_kg / sludge_density) * GAL_PER_M3
     if econ_oil_gal_batch > 0:
         oil_produced_gal = econ_oil_gal_batch * batches_per_year
     else:
-        oil_produced_gal = (oil_produced_kg / oil_density) * 264.172
+        oil_produced_gal = (oil_produced_kg / oil_density) * GAL_PER_M3
     gas_produced_m3 = gas_produced_kg / gas_density
 
-    # ----------------------------------------------------
-    # RUN DETAILED FINANCIAL MODEL (BIO-CHAR IN KG)
-    # ----------------------------------------------------
+    # --- financial model ---------------------------------------------------------------------
     def _model(tipping_fee):
         return run_financial_model(
             total_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
@@ -1014,6 +436,83 @@ def compute_economics(mode_option, summary, solver_inputs):
 
     m = _model(opex_tipping)
     return {k: v for k, v in locals().items() if k not in ('ss', 'd', 'g')}
+
+
+# =============================================================================================
+# 3. Economy section
+# =============================================================================================
+def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None):
+    """Renders the Economy section (Standardized in DOP - RD$): parameters form, then results.
+    `econ` is the compute_economics() result already used by the other sections (computed here if omitted).
+    `results` is accepted for the caller's signature and not used."""
+    lang = get_lang()
+    _render_header_with_save_button()
+    st.markdown("---")
+
+    render_economics_inputs(mode_option)
+    if econ is None:
+        econ = compute_economics(mode_option, summary, solver_inputs)
+
+    if not econ['is_continuous']:
+        _render_batch_calendar(econ, lang)
+    else:
+        st.caption(f"📅 **Calendario Anual Continuo:** `{econ['available_calendar_days']} días disponibles/año` (365 días base - `{econ['shutdown_days']}` días parada - `{econ['holidays_days']}` feriados = `{econ['available_calendar_days'] * 24:.0f} h/año`).")
+
+    _render_kpi_cards(econ, lang)
+    _render_sludge_scenarios(econ, lang)
+
+    st.markdown("---")
+    _render_cumulative_cash_flow_chart(econ)
+    _render_npv_vs_sludge_price(econ, lang)
+    _render_cost_composition(econ, lang)
+
+    col_table_l, col_table_r = st.columns(2)
+    with col_table_l:
+        _render_annual_quantities(econ, summary, lang)
+    with col_table_r:
+        _render_cash_flow_breakdown(econ)
+
+    _render_monthly_cash_flow(econ, summary)
+    _render_sensitivity_tornado(econ)
+
+    render_pre_drying_evaluator(
+        solver_inputs=solver_inputs,
+        summary=summary,
+        is_continuous=econ['is_continuous'],
+        curr_sym=CURR_SYM,
+        opex_fuel=econ['opex_fuel'],
+        available_calendar_days=econ['available_calendar_days'],
+        batches_per_year=econ['batches_per_year'],
+        t_cycle_hours=econ['t_cycle_hours'],
+        m=econ['m'],
+        lang=lang
+    )
+
+    _render_yearly_projection_table(econ)
+
+
+def _render_header_with_save_button():
+    """Title, description and the button that saves every parameter to the browser's LocalStorage."""
+    def _save_econ_to_ls_cb():
+        st.session_state['trigger_save_ls'] = True
+        st.session_state['econ_saved_flag'] = True
+
+    col_hdr_txt, col_hdr_btn = st.columns([3, 2])
+    with col_hdr_txt:
+        st.markdown(f"### 💸 {t('econ_title')}")
+        st.markdown(t('econ_desc'))
+    with col_hdr_btn:
+        st.button(t('econ_save_ls_btn'), key='btn_save_econ_ls', on_click=_save_econ_to_ls_cb, use_container_width=True)
+
+    if st.session_state.get('trigger_save_ls', False):
+        from pyrolysis.gui.config_manager import DEFAULT_PARAMS
+        from pyrolysis.gui.local_storage import local_storage_set
+        full_config_data = {k: st.session_state.get(k, DEFAULT_PARAMS.get(k)) for k in DEFAULT_PARAMS.keys()}
+        res = local_storage_set("pyrolysis_config", full_config_data, key_suffix="econ_save")
+        if res is True or st.session_state.get('econ_saved_flag', False):
+            st.session_state['trigger_save_ls'] = False
+            st.session_state['econ_saved_flag'] = False
+            st.success(t('econ_save_ls_success'))
 
 
 def _render_batch_calendar(econ, lang):
@@ -1069,7 +568,147 @@ def _render_batch_calendar(econ, lang):
     """, unsafe_allow_html=True)
 
 
-_CHART_LAYOUT = dict(margin=dict(l=40, r=20, t=50, b=40))   # colours come from the Streamlit theme
+def _render_kpi_cards(econ, lang):
+    """Five KPI cards: NPV, IRR, payback (discounted, else simple), profitability index, break-even fee."""
+    m = econ['m']
+    project_lifetime = econ['project_lifetime']
+    st.markdown(f"#### 📊 {t('econ_metrics')}")
+
+    col_kpi1, col_kpi2, col_kpi3, col_kpi4, col_kpi5 = st.columns(5)
+
+    with col_kpi1:
+        render_kpi_card(
+            t('econ_metric_npv'),
+            f"{CURR_SYM}{m['npv']:,.2f}",
+            "Net Present Value / Valor Actual Neto",
+            is_positive=(m['npv'] > 0)
+        )
+
+    with col_kpi2:
+        render_kpi_card(
+            t('econ_metric_irr'),
+            format_irr(m['irr']),
+            "Internal Rate of Return / TIR",
+            is_positive=(m['irr'] is not None and m['irr'] > econ['discount_rate'])
+        )
+
+    with col_kpi3:
+        if m['disc_payback'] != float('inf'):
+            payback_label = t('econ_metric_disc_payback')
+            payback_val_str = f"{m['disc_payback']:.2f} yr"
+            payback_sub = "Discounted Return / Retorno Descontado"
+            is_pos = (m['disc_payback'] < project_lifetime)
+        else:
+            payback_label = t('econ_metric_payback')
+            payback_val_str = f"{m['payback']:.2f} yr" if m['payback'] != float('inf') else "N/A"
+            payback_sub = "Simple Return / Retorno Simple"
+            is_pos = (m['payback'] < project_lifetime)
+        render_kpi_card(payback_label, payback_val_str, payback_sub, is_positive=is_pos)
+
+    with col_kpi4:
+        render_kpi_card(
+            t('econ_metric_pi'),
+            f"{m['pi']:.2f}",
+            "Profitability Index / Índice Rentabilidad",
+            is_positive=(m['pi'] > 1.0)
+        )
+
+    with col_kpi5:
+        if m['breakeven_tipping'] <= 0:
+            be_sub = "Autosostenible (Venta productos cubre costos)" if lang == 'es' else "Self-sustaining (Product sales cover costs)"
+            is_pos = True
+        else:
+            be_sub = "Tarifa equilibrio (VAN=0)" if lang == 'es' else "Tipping fee for NPV=0"
+            is_pos = (m['breakeven_tipping'] < econ['opex_tipping'])
+        render_kpi_card(
+            t('econ_metric_breakeven_tipping'),
+            f"{CURR_SYM}{m['breakeven_tipping']:.2f}/gal",
+            be_sub,
+            is_positive=is_pos
+        )
+
+
+def _render_sludge_scenarios(econ, lang):
+    """The three sludge scenarios (purchase / free / disposal fee) side by side, then the break-even note."""
+    st.markdown("##### " + ("Escenarios del lodo" if lang == 'es' else "Sludge scenarios"))
+    scenario_cols, scenario_rows = [], {}
+    yrs = "años" if lang == 'es' else "yr"
+    for sc in SLUDGE_SCENARIOS:
+        fee = scenario_tipping_fee(sc, econ['sludge_cost'], econ['tipping_y'])
+        ms = econ['_model'](fee)
+        sludge_cost_y1 = max(0.0, -fee) * econ['sludge_treated_gal']   # what the plant pays for the sludge
+        revenue_y1 = ms['rev_flows'][1] + sludge_cost_y1                # revenue without the purchase cost
+        scenario_cols.append(f"{SLUDGE_SCENARIO_LABELS[sc][lang]} ({fee:+,.2f} RD$/gal)")
+        for label, value in (
+            ("Ingresos año 1 (RD$)" if lang == 'es' else "Year-1 revenue (RD$)", f"{revenue_y1:,.2f}"),
+            ("Costo del lodo año 1 (RD$)" if lang == 'es' else "Year-1 sludge cost (RD$)", f"{sludge_cost_y1:,.2f}"),
+            ("EBITDA año 1 (RD$)" if lang == 'es' else "Year-1 EBITDA (RD$)", f"{ms['rev_flows'][1] - ms['opex_flows'][1]:,.2f}"),
+            ("VAN (RD$)" if lang == 'es' else "NPV (RD$)", f"{ms['npv']:,.2f}"),
+            ("TIR" if lang == 'es' else "IRR", format_irr(ms['irr'])),
+            ("Recuperación simple" if lang == 'es' else "Simple payback",
+             f"{ms['payback']:.2f} {yrs}" if ms['payback'] != float('inf') else "N/A"),
+            ("Recuperación descontada" if lang == 'es' else "Discounted payback",
+             f"{ms['disc_payback']:.2f} {yrs}" if ms['disc_payback'] != float('inf') else "N/A"),
+            ("Índice de rentabilidad" if lang == 'es' else "Profitability index", f"{ms['pi']:.2f}"),
+        ):
+            scenario_rows.setdefault(label, []).append(value)
+    st.table(pd.DataFrame.from_dict(scenario_rows, orient='index', columns=scenario_cols))
+    st.info(breakeven_note(econ['m']['breakeven_tipping'], lang))
+
+
+def _cumulative_discounted(m):
+    """Cumulative discounted cash flow per year, starting at -CAPEX in year 0."""
+    return list(accumulate(m['disc_flows']))
+
+
+def _render_cumulative_cash_flow_chart(econ):
+    """Cumulative cash flow (bars) and cumulative discounted cash flow (line) over the project life."""
+    m = econ['m']
+    project_lifetime = econ['project_lifetime']
+    st.markdown(f"##### 📈 {t('econ_metric_cashflow')}")
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=m['years'],
+        y=m['cum_flows'],
+        name="Undiscounted Cumulative Cash Flow / Flujo Acumulado",
+        marker_color="#3b82f6",
+        opacity=0.85
+    ))
+    fig.add_trace(go.Scatter(
+        x=m['years'],
+        y=_cumulative_discounted(m),
+        name="Discounted Cumulative Cash Flow (NPV) / Flujo Descontado",
+        line=dict(color="#10b981", width=3, dash='dash'),
+        mode='lines+markers',
+        marker=dict(size=8)
+    ))
+    fig.add_trace(go.Scatter(   # zero line
+        x=[0, project_lifetime],
+        y=[0, 0],
+        showlegend=False,
+        line=dict(color="#64748b", width=1.5, dash='solid'),
+        mode='lines'
+    ))
+    fig.update_layout(
+        title=dict(
+            text=f"{t('econ_metric_cashflow')} vs. Project Lifetime / Vida del Proyecto",
+            font=dict(size=14)
+        ),
+        xaxis=dict(
+            title="Project Year / Año del Proyecto",
+            tickmode='linear',
+            tick0=0,
+            dtick=1,
+        ),
+        yaxis=dict(
+            title=f"Cumulative Balance / Balance Acumulado ({CURR_SYM})",
+        ),
+        legend=_bottom_legend(-0.3, 10),
+        margin=dict(l=40, r=40, t=40, b=40),
+        height=380
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_npv_vs_sludge_price(econ, lang):
@@ -1138,609 +777,340 @@ def _render_cost_composition(econ, lang):
             st.plotly_chart(fig, use_container_width=True)
 
 
-def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None):
-    """Renders the Economy section (Standardized in DOP - RD$): parameters form, then results.
-    `econ` is the compute_economics() result already used by the other sections (computed here if omitted)."""
-    lang = get_lang()
+def _render_annual_quantities(econ, summary, lang):
+    """Annual quantities table, then the cycle/calendar details of the operating mode."""
+    e = econ
+    st.markdown(f"##### 🎛️ {t('econ_summary_table')}")
 
-    # Callback for saving current financial parameters to browser LocalStorage
-    def _save_econ_to_ls_cb():
-        st.session_state['trigger_save_ls'] = True
-        st.session_state['econ_saved_flag'] = True
+    summary_data = {
+        t('econ_table_param'): [
+            t('econ_annual_sludge'),
+            t('econ_annual_oil'),
+            t('econ_annual_char'),
+            t('econ_annual_gas'),
+            t('econ_annual_fuel'),
+            t('econ_annual_elec'),
+            t('econ_annual_gen_fuel')
+        ],
+        t('econ_table_val'): [
+            e['sludge_treated_gal'],
+            e['oil_produced_gal'],
+            e['char_produced_kg'],
+            e['gas_produced_m3'],
+            e['fuel_consumed_gal'],
+            e['elec_consumed_kwh'],
+            e['generator_fuel_consumed_gal']
+        ],
+        t('econ_table_units'): [
+            "gal/yr",
+            "gal/yr",
+            "kg/yr",
+            "m³/yr",
+            "gal/yr",
+            "kWh/yr",
+            "gal/yr"
+        ]
+    }
+    df_summary = pd.DataFrame(summary_data)
+    df_summary[t('econ_table_val')] = df_summary[t('econ_table_val')].map(lambda x: f"{x:,.2f}")
+    st.table(df_summary)
 
-    # Header with LocalStorage Save Button
-    col_hdr_txt, col_hdr_btn = st.columns([3, 2])
-    with col_hdr_txt:
-        st.markdown(f"### 💸 {t('econ_title')}")
-        st.markdown(t('econ_desc'))
-    with col_hdr_btn:
-        st.button(t('econ_save_ls_btn'), key='btn_save_econ_ls', on_click=_save_econ_to_ls_cb, use_container_width=True)
-
-    if st.session_state.get('trigger_save_ls', False):
-        from pyrolysis.gui.config_manager import DEFAULT_PARAMS
-        from pyrolysis.gui.local_storage import local_storage_set
-        full_config_data = {k: st.session_state.get(k, DEFAULT_PARAMS.get(k)) for k in DEFAULT_PARAMS.keys()}
-        res = local_storage_set("pyrolysis_config", full_config_data, key_suffix="econ_save")
-        if res is True or st.session_state.get('econ_saved_flag', False):
-            st.session_state['trigger_save_ls'] = False
-            st.session_state['econ_saved_flag'] = False
-            st.success(t('econ_save_ls_success'))
-
-    st.markdown("---")
-
-    curr_sym = "RD$"
-
-    render_economics_inputs(mode_option)
-    if econ is None:
-        econ = compute_economics(mode_option, summary, solver_inputs)
-    # Same names the result code below has always used, now taken from compute_economics()
-    annual_days, annual_hours, available_calendar_days, batch_cooldown_h, batch_loading_h, batches_before_cleaning = econ.get('annual_days'), econ.get('annual_hours'), econ.get('available_calendar_days'), econ.get('batch_cooldown_h'), econ.get('batch_loading_h'), econ.get('batches_before_cleaning')
-    batches_per_year, campaign_active_days, char_carbon_kg, char_produced_kg, cleaning_days_annual, cleaning_time_h = econ.get('batches_per_year'), econ.get('campaign_active_days'), econ.get('char_carbon_kg'), econ.get('char_produced_kg'), econ.get('cleaning_days_annual'), econ.get('cleaning_time_h')
-    discount_rate, elec_consumed_kwh, fuel_consumed_gal, gas_density, gas_produced_m3, gen_diesel_batch = econ.get('discount_rate'), econ.get('elec_consumed_kwh'), econ.get('fuel_consumed_gal'), econ.get('gas_density'), econ.get('gas_produced_m3'), econ.get('gen_diesel_batch')
-    gen_diesel_rate, generator_fuel_consumed_gal, holidays_days, inflation_rate, is_continuous, m = econ.get('gen_diesel_rate'), econ.get('generator_fuel_consumed_gal'), econ.get('holidays_days'), econ.get('inflation_rate'), econ.get('is_continuous'), econ.get('m')
-    maint_cooldown_h, maint_penalty_per_batch_h, maint_stop_total_h, oil_density, oil_produced_gal, operating_days_batches = econ.get('maint_cooldown_h'), econ.get('maint_penalty_per_batch_h'), econ.get('maint_stop_total_h'), econ.get('oil_density'), econ.get('oil_produced_gal'), econ.get('operating_days_batches')
-    opex_aux_utilities, opex_electricity, opex_fuel, opex_handling, opex_insurance_tax, opex_labor = econ.get('opex_aux_utilities'), econ.get('opex_electricity'), econ.get('opex_fuel'), econ.get('opex_handling'), econ.get('opex_insurance_tax'), econ.get('opex_labor')
-    opex_maint, opex_tipping, price_carbon, price_char, price_gas, price_generator_fuel = econ.get('opex_maint'), econ.get('opex_tipping'), econ.get('price_carbon'), econ.get('price_char'), econ.get('price_gas'), econ.get('price_generator_fuel')
-    price_oil, project_lifetime, rate_carbon_offset, shutdown_days, sludge_cost, sludge_density = econ.get('price_oil'), econ.get('project_lifetime'), econ.get('rate_carbon_offset'), econ.get('shutdown_days'), econ.get('sludge_cost'), econ.get('sludge_density')
-    sludge_treated_gal, t_cycle_hours, t_heat_min, t_hold_min, t_op_batch_hours, tax_rate = econ.get('sludge_treated_gal'), econ.get('t_cycle_hours'), econ.get('t_heat_min'), econ.get('t_hold_min'), econ.get('t_op_batch_hours'), econ.get('tax_rate')
-    tipping_y, total_capex = econ.get('tipping_y'), econ.get('total_capex')
-    _model = econ['_model']   # financial model for any tipping fee (scenarios, charts)
-
-    if not is_continuous:
-        _render_batch_calendar(econ, lang)
+    holidays_days, shutdown_days = e['holidays_days'], e['shutdown_days']
+    if not e['is_continuous']:
+        t_heat_min, t_hold_min = e['t_heat_min'], e['t_hold_min']
+        batch_cooldown_h, batch_loading_h = e['batch_cooldown_h'], e['batch_loading_h']
+        t_op_batch_hours, t_cycle_hours = e['t_op_batch_hours'], e['t_cycle_hours']
+        maint_stop_total_h, maint_cooldown_h, cleaning_time_h = e['maint_stop_total_h'], e['maint_cooldown_h'], e['cleaning_time_h']
+        batches_before_cleaning, maint_penalty_per_batch_h = e['batches_before_cleaning'], e['maint_penalty_per_batch_h']
+        available_calendar_days, batches_per_year = e['available_calendar_days'], e['batches_per_year']
+        operating_days_batches, cleaning_days_annual, campaign_active_days = e['operating_days_batches'], e['cleaning_days_annual'], e['campaign_active_days']
+        gen_diesel_per_batch = e['gen_diesel_batch']
+        burner_fuel_per_batch = summary['waste_oil_consumed_gal']
+        if lang == 'es':
+            st.info(f"⏱️ **Detalles del Ciclo, Mantenimiento y Calendario:**\n"
+                    f"- Proceso térmico: Calentamiento `{t_heat_min:.1f} min` | Retención `{t_hold_min:.1f} min`\n"
+                    f"- Turnaround de rutina: Enfriamiento `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Carga y descarga `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
+                    f"- Ciclo operativo por lote: `{t_op_batch_hours:.2f} horas`\n"
+                    f"- Mantenimiento programado: Parada de `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento + `{cleaning_time_h:.2f} h` limpieza) cada `{batches_before_cleaning}` lotes (+`{maint_penalty_per_batch_h:.2f} h/lote` ponderado)\n"
+                    f"- Tiempo efectivo promedio por lote: `{t_cycle_hours:.2f} horas`\n"
+                    f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{available_calendar_days} d`\n"
+                    f"- **Días de Operación al Año:** `{operating_days_batches:.1f} días de proceso de lotes` + `{cleaning_days_annual:.1f} días de parada por limpieza` = `{campaign_active_days:.1f} días activos` (`{batches_per_year:.0f} lotes/año`)\n"
+                    f"- **Consumo por lote:** Diésel planta eléctrica: `{gen_diesel_per_batch:.2f} gal` | Combustible quemadores: `{burner_fuel_per_batch:.2f} gal`")
+        else:
+            st.info(f"⏱️ **Batch Timeline, Maintenance & Calendar Details:**\n"
+                    f"- Thermal process: Heating `{t_heat_min:.1f} min` | Holding `{t_hold_min:.1f} min`\n"
+                    f"- Routine turnaround: Cooldown `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Loading/Unloading `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
+                    f"- Operational batch cycle: `{t_op_batch_hours:.2f} hours`\n"
+                    f"- Scheduled maintenance: Downtime of `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` cooldown + `{cleaning_time_h:.2f} h` cleaning) every `{batches_before_cleaning}` batches (+`{maint_penalty_per_batch_h:.2f} h/batch` weighted)\n"
+                    f"- Effective average cycle time: `{t_cycle_hours:.2f} hours`\n"
+                    f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{available_calendar_days} d`\n"
+                    f"- **Operating Days per Year:** `{operating_days_batches:.1f} batch process days` + `{cleaning_days_annual:.1f} cleaning days` = `{campaign_active_days:.1f} active days` (`{batches_per_year:.0f} batches/year`)\n"
+                    f"- **Consumption per batch:** Generator diesel: `{gen_diesel_per_batch:.2f} gal` | Burner fuel: `{burner_fuel_per_batch:.2f} gal`")
     else:
-        st.caption(f"📅 **Calendario Anual Continuo:** `{available_calendar_days} días disponibles/año` (365 días base - `{shutdown_days}` días parada - `{holidays_days}` feriados = `{available_calendar_days * 24:.0f} h/año`).")
-
-    # ----------------------------------------------------
-    # RENDERING FINANCIAL KPI CARDS
-    # ----------------------------------------------------
-    st.markdown(f"#### 📊 {t('econ_metrics')}")
-    
-    col_kpi1, col_kpi2, col_kpi3, col_kpi4, col_kpi5 = st.columns(5)
-    
-    with col_kpi1:
-        render_kpi_card(
-            t('econ_metric_npv'),
-            f"{curr_sym}{m['npv']:,.2f}",
-            "Net Present Value / Valor Actual Neto",
-            is_positive=(m['npv'] > 0)
-        )
-        
-    with col_kpi2:
-        irr_val_str = format_irr(m['irr'])
-        render_kpi_card(
-            t('econ_metric_irr'),
-            irr_val_str,
-            "Internal Rate of Return / TIR",
-            is_positive=(m['irr'] is not None and m['irr'] > discount_rate)
-        )
-        
-    with col_kpi3:
-        if m['disc_payback'] != float('inf'):
-            payback_label = t('econ_metric_disc_payback')
-            payback_val_str = f"{m['disc_payback']:.2f} yr"
-            payback_sub = "Discounted Return / Retorno Descontado"
-            is_pos = (m['disc_payback'] < project_lifetime)
+        annual_hours, annual_days = e['annual_hours'], e['annual_days']
+        gen_diesel_per_hour = e['gen_diesel_rate']
+        burner_fuel_per_hour = summary['waste_oil_consumed_galh']
+        if lang == 'es':
+            st.info(f"⚡ **Detalles de la Operación Continua:**\n"
+                    f"- Horas de operación al año: `{annual_hours:.0f} horas` ({annual_days} días/año × 24h).\n"
+                    f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{annual_days} días`\n"
+                    f"- **Consumo horario:** Diésel planta eléctrica: `{gen_diesel_per_hour:.2f} gal/h` | Combustible quemadores: `{burner_fuel_per_hour:.2f} gal/h`")
         else:
-            payback_label = t('econ_metric_payback')
-            payback_val_str = f"{m['payback']:.2f} yr" if m['payback'] != float('inf') else "N/A"
-            payback_sub = "Simple Return / Retorno Simple"
-            is_pos = (m['payback'] < project_lifetime)
-            
-        render_kpi_card(
-            payback_label,
-            payback_val_str,
-            payback_sub,
-            is_positive=is_pos
-        )
-        
-    with col_kpi4:
-        render_kpi_card(
-            t('econ_metric_pi'),
-            f"{m['pi']:.2f}",
-            "Profitability Index / Índice Rentabilidad",
-            is_positive=(m['pi'] > 1.0)
-        )
-        
-    with col_kpi5:
-        be_val_str = f"{curr_sym}{m['breakeven_tipping']:.2f}/gal"
-        if m['breakeven_tipping'] <= 0:
-            be_sub = "Autosostenible (Venta productos cubre costos)" if lang == 'es' else "Self-sustaining (Product sales cover costs)"
-            is_pos = True
-        else:
-            be_sub = "Tarifa equilibrio (VAN=0)" if lang == 'es' else "Tipping fee for NPV=0"
-            is_pos = (m['breakeven_tipping'] < opex_tipping)
-            
-        render_kpi_card(
-            t('econ_metric_breakeven_tipping'),
-            be_val_str,
-            be_sub,
-            is_positive=is_pos
-        )
+            st.info(f"⚡ **Continuous Operation Details:**\n"
+                    f"- Operating hours per year: `{annual_hours:.0f} hours` ({annual_days} days/year × 24h).\n"
+                    f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{annual_days} days`\n"
+                    f"- **Consumption per hour:** Generator diesel: `{gen_diesel_per_hour:.2f} gal/h` | Burner fuel: `{burner_fuel_per_hour:.2f} gal/h`")
 
-    # ----------------------------------------------------
-    # SLUDGE SCENARIOS SIDE BY SIDE
-    # ----------------------------------------------------
-    st.markdown("##### " + ("Escenarios del lodo" if lang == 'es' else "Sludge scenarios"))
-    scenario_cols, scenario_rows = [], {}
-    yrs = "años" if lang == 'es' else "yr"
-    for sc in SLUDGE_SCENARIOS:
-        fee = scenario_tipping_fee(sc, sludge_cost, tipping_y)
-        ms = _model(fee)
-        sludge_cost_y1 = max(0.0, -fee) * sludge_treated_gal   # what the plant pays for the sludge
-        revenue_y1 = ms['rev_flows'][1] + sludge_cost_y1        # revenue without the purchase cost
-        scenario_cols.append(f"{SLUDGE_SCENARIO_LABELS[sc][lang]} ({fee:+,.2f} RD$/gal)")
-        for label, value in (
-            ("Ingresos año 1 (RD$)" if lang == 'es' else "Year-1 revenue (RD$)", f"{revenue_y1:,.2f}"),
-            ("Costo del lodo año 1 (RD$)" if lang == 'es' else "Year-1 sludge cost (RD$)", f"{sludge_cost_y1:,.2f}"),
-            ("EBITDA año 1 (RD$)" if lang == 'es' else "Year-1 EBITDA (RD$)", f"{ms['rev_flows'][1] - ms['opex_flows'][1]:,.2f}"),
-            ("VAN (RD$)" if lang == 'es' else "NPV (RD$)", f"{ms['npv']:,.2f}"),
-            ("TIR" if lang == 'es' else "IRR", format_irr(ms['irr'])),
-            ("Recuperación simple" if lang == 'es' else "Simple payback",
-             f"{ms['payback']:.2f} {yrs}" if ms['payback'] != float('inf') else "N/A"),
-            ("Recuperación descontada" if lang == 'es' else "Discounted payback",
-             f"{ms['disc_payback']:.2f} {yrs}" if ms['disc_payback'] != float('inf') else "N/A"),
-            ("Índice de rentabilidad" if lang == 'es' else "Profitability index", f"{ms['pi']:.2f}"),
-        ):
-            scenario_rows.setdefault(label, []).append(value)
-    st.table(pd.DataFrame.from_dict(scenario_rows, orient='index', columns=scenario_cols))
-    st.info(breakeven_note(m['breakeven_tipping'], lang))
 
-    # ----------------------------------------------------
-    # PROJECTION CHART (CUMULATIVE CASH FLOW)
-    # ----------------------------------------------------
-    st.markdown("---")
-    st.markdown(f"##### 📈 {t('econ_metric_cashflow')}")
-    
-    # Calculate cumulative undiscounted cash flows
-    cum_cash = [-total_capex]
-    cum_discounted = [-total_capex]
-    
-    for yr in range(1, int(project_lifetime) + 1):
-        cum_cash.append(cum_cash[-1] + m['net_flows'][yr])
-        cum_discounted.append(cum_discounted[-1] + m['disc_flows'][yr])
-        
-    fig = go.Figure()
-    
-    # Add Undiscounted Cash Flow Bar
-    fig.add_trace(go.Bar(
-        x=m['years'],
-        y=cum_cash,
-        name="Undiscounted Cumulative Cash Flow / Flujo Acumulado",
-        marker_color="#3b82f6",
-        opacity=0.85
-    ))
-    
-    # Add Discounted Cash Flow Line
-    fig.add_trace(go.Scatter(
-        x=m['years'],
-        y=cum_discounted,
-        name="Discounted Cumulative Cash Flow (NPV) / Flujo Descontado",
-        line=dict(color="#10b981", width=3, dash='dash'),
-        mode='lines+markers',
-        marker=dict(size=8)
-    ))
-    
-    # Add horizontal line at zero
-    fig.add_trace(go.Scatter(
-        x=[0, project_lifetime],
-        y=[0, 0],
-        showlegend=False,
-        line=dict(color="#64748b", width=1.5, dash='solid'),
-        mode='lines'
-    ))
-    
-    # Style plot layout
-    fig.update_layout(
-        title=dict(
-            text=f"{t('econ_metric_cashflow')} vs. Project Lifetime / Vida del Proyecto",
-            font=dict(size=14)
-        ),
-        xaxis=dict(
-            title="Project Year / Año del Proyecto",
-            tickmode='linear',
-            tick0=0,
-            dtick=1,
-        ),
-        yaxis=dict(
-            title=f"Cumulative Balance / Balance Acumulado ({curr_sym})",
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.3,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=10)
-        ),
-        margin=dict(l=40, r=40, t=40, b=40),
-        height=380
-    )
-    st.plotly_chart(fig, use_container_width=True)
+def _render_cash_flow_breakdown(econ):
+    """Year-1 (base) cash flow by item: CAPEX, each revenue and each cost."""
+    m = econ['m']
+    rev, cost = m['revenue_breakdown'], m['opex_breakdown']
+    st.markdown("##### 💵 Cash Flow Breakdown / Desglose de Caja")
 
-    _render_npv_vs_sludge_price(econ, lang)
-    _render_cost_composition(econ, lang)
+    col_flow_name = f"Base Annual Flow / Flujo Anual ({CURR_SYM})"
+    financial_breakdown = {
+        "Category / Categoría": [
+            "Total CAPEX (Inversión Inicial)",
+            "Disposal Tipping Fees Revenue (Disposición)",
+            "Pyrolysis oil Sales Revenue (Venta Aceite pirolítico)",
+            "Char Sales Revenue (Venta Carbón)",
+            "Syngas Sales Revenue (Venta Syngas)",
+            "Carbon Offset Revenue (Venta de Carbono)",
+            "Feedstock Handling Costs (Costo Manejo Lodos)",
+            "Burner Fuel Consumption Costs (Combustible)",
+            "Electricity Utilities Costs (Electricidad)",
+            "Water & Aux Utilities (Servicios Auxiliares)",
+            "Generator Diesel Fuel Costs (Diésel Planta)",
+            "Annual Labor & Operators (Mano de Obra)",
+            "Annual Maintenance Cost (Mantenimiento)",
+            "Insurance & Property Tax (Seguros y Tasas)"
+        ],
+        col_flow_name: [
+            -econ['total_capex'],
+            rev['tipping'],
+            rev['oil'],
+            rev['char'],
+            rev['gas'],
+            rev['carbon'],
+            -cost['handling'],
+            -cost['fuel'],
+            -cost['electricity'],
+            -cost['aux_utilities'],
+            -cost['gen_diesel'],
+            -cost['labor'],
+            -cost['maintenance'],
+            -cost['insurance_tax']
+        ]
+    }
+    df_financial_disp = pd.DataFrame(financial_breakdown)
+    df_financial_disp[col_flow_name] = df_financial_disp[col_flow_name].map(_fmt_money)
+    st.table(df_financial_disp)
 
-    # ----------------------------------------------------
-    # DATA TABLES AND BREAKDOWNS
-    # ----------------------------------------------------
-    col_table_l, col_table_r = st.columns(2)
-    
-    with col_table_l:
-        st.markdown(f"##### 🎛️ {t('econ_summary_table')}")
-        
-        # Compile quantities to display
-        summary_data = {
-            t('econ_table_param'): [
-                t('econ_annual_sludge'),
-                t('econ_annual_oil'),
-                t('econ_annual_char'),
-                t('econ_annual_gas'),
-                t('econ_annual_fuel'),
-                t('econ_annual_elec'),
-                t('econ_annual_gen_fuel')
-            ],
-            t('econ_table_val'): [
-                sludge_treated_gal,
-                oil_produced_gal,
-                char_produced_kg,
-                gas_produced_m3,
-                fuel_consumed_gal,
-                elec_consumed_kwh,
-                generator_fuel_consumed_gal
-            ],
-            t('econ_table_units'): [
-                "gal/yr",
-                "gal/yr",
-                "kg/yr",
-                "m³/yr",
-                "gal/yr",
-                "kWh/yr",
-                "gal/yr"
-            ]
-        }
-        
-        df_summary = pd.DataFrame(summary_data)
-        df_summary[t('econ_table_val')] = df_summary[t('econ_table_val')].map(lambda x: f"{x:,.2f}")
-        st.table(df_summary)
-        
-        # Display Batch/Continuous Info
-        if not is_continuous:
-            gen_diesel_per_batch = gen_diesel_batch
-            burner_fuel_per_batch = summary['waste_oil_consumed_gal']
-            if lang == 'es':
-                st.info(f"⏱️ **Detalles del Ciclo, Mantenimiento y Calendario:**\n"
-                        f"- Proceso térmico: Calentamiento `{t_heat_min:.1f} min` | Retención `{t_hold_min:.1f} min`\n"
-                        f"- Turnaround de rutina: Enfriamiento `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Carga y descarga `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
-                        f"- Ciclo operativo por lote: `{t_op_batch_hours:.2f} horas`\n"
-                        f"- Mantenimiento programado: Parada de `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento + `{cleaning_time_h:.2f} h` limpieza) cada `{batches_before_cleaning}` lotes (+`{maint_penalty_per_batch_h:.2f} h/lote` ponderado)\n"
-                        f"- Tiempo efectivo promedio por lote: `{t_cycle_hours:.2f} horas`\n"
-                        f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{available_calendar_days} d`\n"
-                        f"- **Días de Operación al Año:** `{operating_days_batches:.1f} días de proceso de lotes` + `{cleaning_days_annual:.1f} días de parada por limpieza` = `{campaign_active_days:.1f} días activos` (`{batches_per_year:.0f} lotes/año`)\n"
-                        f"- **Consumo por lote:** Diésel planta eléctrica: `{gen_diesel_per_batch:.2f} gal` | Combustible quemadores: `{burner_fuel_per_batch:.2f} gal`")
-            else:
-                st.info(f"⏱️ **Batch Timeline, Maintenance & Calendar Details:**\n"
-                        f"- Thermal process: Heating `{t_heat_min:.1f} min` | Holding `{t_hold_min:.1f} min`\n"
-                        f"- Routine turnaround: Cooldown `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Loading/Unloading `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
-                        f"- Operational batch cycle: `{t_op_batch_hours:.2f} hours`\n"
-                        f"- Scheduled maintenance: Downtime of `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` cooldown + `{cleaning_time_h:.2f} h` cleaning) every `{batches_before_cleaning}` batches (+`{maint_penalty_per_batch_h:.2f} h/batch` weighted)\n"
-                        f"- Effective average cycle time: `{t_cycle_hours:.2f} hours`\n"
-                        f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{available_calendar_days} d`\n"
-                        f"- **Operating Days per Year:** `{operating_days_batches:.1f} batch process days` + `{cleaning_days_annual:.1f} cleaning days` = `{campaign_active_days:.1f} active days` (`{batches_per_year:.0f} batches/year`)\n"
-                        f"- **Consumption per batch:** Generator diesel: `{gen_diesel_per_batch:.2f} gal` | Burner fuel: `{burner_fuel_per_batch:.2f} gal`")
-        else:
-            gen_diesel_per_hour = gen_diesel_rate
-            burner_fuel_per_hour = summary['waste_oil_consumed_galh']
-            if lang == 'es':
-                st.info(f"⚡ **Detalles de la Operación Continua:**\n"
-                        f"- Horas de operación al año: `{annual_hours:.0f} horas` ({annual_days} días/año × 24h).\n"
-                        f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{annual_days} días`\n"
-                        f"- **Consumo horario:** Diésel planta eléctrica: `{gen_diesel_per_hour:.2f} gal/h` | Combustible quemadores: `{burner_fuel_per_hour:.2f} gal/h`")
-            else:
-                st.info(f"⚡ **Continuous Operation Details:**\n"
-                        f"- Operating hours per year: `{annual_hours:.0f} hours` ({annual_days} days/year × 24h).\n"
-                        f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{annual_days} days`\n"
-                        f"- **Consumption per hour:** Generator diesel: `{gen_diesel_per_hour:.2f} gal/h` | Burner fuel: `{burner_fuel_per_hour:.2f} gal/h`")
-            
-    with col_table_r:
-        st.markdown(f"##### 💵 Cash Flow Breakdown / Desglose de Caja")
-        
-        financial_breakdown = {
-            "Category / Categoría": [
-                "Total CAPEX (Inversión Inicial)",
-                "Disposal Tipping Fees Revenue (Disposición)",
-                "Pyrolysis oil Sales Revenue (Venta Aceite pirolítico)",
-                "Char Sales Revenue (Venta Carbón)",
-                "Syngas Sales Revenue (Venta Syngas)",
-                "Carbon Offset Revenue (Venta de Carbono)",
-                "Feedstock Handling Costs (Costo Manejo Lodos)",
-                "Burner Fuel Consumption Costs (Combustible)",
-                "Electricity Utilities Costs (Electricidad)",
-                "Water & Aux Utilities (Servicios Auxiliares)",
-                "Generator Diesel Fuel Costs (Diésel Planta)",
-                "Annual Labor & Operators (Mano de Obra)",
-                "Annual Maintenance Cost (Mantenimiento)",
-                "Insurance & Property Tax (Seguros y Tasas)"
-            ],
-            f"Base Annual Flow / Flujo Anual ({curr_sym})": [
-                -total_capex,
-                m['revenue_breakdown']['tipping'],
-                m['revenue_breakdown']['oil'],
-                m['revenue_breakdown']['char'],
-                m['revenue_breakdown']['gas'],
-                m['revenue_breakdown']['carbon'],
-                -m['opex_breakdown']['handling'],
-                -m['opex_breakdown']['fuel'],
-                -m['opex_breakdown']['electricity'],
-                -m['opex_breakdown']['aux_utilities'],
-                -m['opex_breakdown']['gen_diesel'],
-                -m['opex_breakdown']['labor'],
-                -m['opex_breakdown']['maintenance'],
-                -m['opex_breakdown']['insurance_tax']
-            ]
-        }
-        df_financial = pd.DataFrame(financial_breakdown)
-        df_financial_disp = df_financial.copy()
-        col_flow_name = f"Base Annual Flow / Flujo Anual ({curr_sym})"
-        df_financial_disp[col_flow_name] = df_financial_disp[col_flow_name].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
-        st.table(df_financial_disp)
 
-    # ----------------------------------------------------
-    # MONTHLY CASH FLOW SIMULATOR (YEAR 1)
-    # ----------------------------------------------------
+# --- monthly cash flow (year 1) ------------------------------------------------------------------
+_COL_MONTH = "Month / Mes"
+_COL_DAYS = "Days Operated / Días Operados"
+_COL_OIL_PCT = "Pyrolysis oil Sales / Venta Aceite pirolítico (%)"
+_COL_CHAR_PCT = "Char Sales / Venta Carbón (%)"
+_COL_GAS_PCT = "Syngas Sales / Venta Syngas (%)"
+
+
+def _render_monthly_cash_flow(econ, summary):
+    """Editable month plan (days operated, % of stock sold), the resulting monthly table, CSV and charts."""
     st.markdown("---")
     st.markdown(f"#### {t('econ_monthly_title')}")
     st.markdown(t('econ_monthly_desc'))
-    
-    # Initialize config in session state if not present
+
+    edited_df = _monthly_plan_editor(econ['annual_days'])
+    months = _monthly_projection(econ, summary, edited_df)
+    _render_monthly_table(months)
+    _render_monthly_charts(months)
+
+
+def _monthly_plan_editor(annual_days):
+    """Month plan kept in session_state['monthly_config']; reset to an even split when the
+    annual operating days change."""
     if 'monthly_config' not in st.session_state:
         avg_days = float(annual_days) / 12.0
         st.session_state.monthly_config = pd.DataFrame({
-            "Month / Mes": [f"Month / Mes {i:02d}" for i in range(1, 13)],
-            "Days Operated / Días Operados": [round(avg_days, 1)] * 12,
-            "Pyrolysis oil Sales / Venta Aceite pirolítico (%)": [100.0] * 12,
-            "Char Sales / Venta Carbón (%)": [100.0] * 12,
-            "Syngas Sales / Venta Syngas (%)": [100.0] * 12
+            _COL_MONTH: [f"Month / Mes {i:02d}" for i in range(1, 13)],
+            _COL_DAYS: [round(avg_days, 1)] * 12,
+            _COL_OIL_PCT: [100.0] * 12,
+            _COL_CHAR_PCT: [100.0] * 12,
+            _COL_GAS_PCT: [100.0] * 12
         })
-        
-    # Sync with annual_days if changed externally
-    current_days_sum = st.session_state.monthly_config["Days Operated / Días Operados"].sum()
+
+    current_days_sum = st.session_state.monthly_config[_COL_DAYS].sum()
     if abs(current_days_sum - annual_days) > 0.5:
         avg_days = float(annual_days) / 12.0
-        st.session_state.monthly_config["Days Operated / Días Operados"] = [round(avg_days, 1)] * 12
+        st.session_state.monthly_config[_COL_DAYS] = [round(avg_days, 1)] * 12
 
-    # Render st.data_editor
     edited_df = st.data_editor(
         st.session_state.monthly_config,
         num_rows="fixed",
         width='stretch',
         column_config={
-            "Month / Mes": st.column_config.TextColumn("Month / Mes", disabled=True),
-            "Days Operated / Días Operados": st.column_config.NumberColumn("Days Operated", min_value=0.0, max_value=31.0, step=0.5),
-            "Pyrolysis oil Sales / Venta Aceite pirolítico (%)": st.column_config.NumberColumn("Pyrolysis oil Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
-            "Char Sales / Venta Carbón (%)": st.column_config.NumberColumn("Char Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
-            "Syngas Sales / Venta Syngas (%)": st.column_config.NumberColumn("Syngas Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
+            _COL_MONTH: st.column_config.TextColumn("Month / Mes", disabled=True),
+            _COL_DAYS: st.column_config.NumberColumn("Days Operated", min_value=0.0, max_value=31.0, step=0.5),
+            _COL_OIL_PCT: st.column_config.NumberColumn("Pyrolysis oil Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
+            _COL_CHAR_PCT: st.column_config.NumberColumn("Char Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
+            _COL_GAS_PCT: st.column_config.NumberColumn("Syngas Sales (%)", min_value=0.0, max_value=100.0, step=5.0),
         },
         key="monthly_editor"
     )
     st.session_state.monthly_config = edited_df
+    return edited_df
 
-    # Run month-by-month projection
+
+def _monthly_projection(econ, summary, plan_df):
+    """Month-by-month production, sales with oil/char inventory carried over, revenue, OPEX and net cash
+    flow after taxes. Returns a dict of 12-item lists keyed by the monthly table's column names."""
+    e = econ
+    is_continuous = e['is_continuous']
     inv_oil = 0.0
     inv_char = 0.0
-    
-    m_names = []
-    m_days = []
-    m_sludge = []
-    m_oil_prod = []
-    m_oil_sold = []
-    m_oil_inv = []
-    m_char_prod = []
-    m_char_sold = []
-    m_char_inv = []
-    m_gas_prod = []
-    m_gas_sold = []
-    m_revenues = []
-    m_opex = []
-    m_net_flow = []
-    
+    cols = {name: [] for name in (
+        "Month", "Days Operated", "Sludge Treated (gal)",
+        "Pyrolysis oil Produced (gal)", "Pyrolysis oil Sold (gal)", "Pyrolysis oil Inventory (gal)",
+        "Char Produced (kg)", "Char Sold (kg)", "Char Inventory (kg)",
+        "Syngas Produced (m³)", "Syngas Sold (m³)",
+        f"Revenue ({CURR_SYM})", f"OPEX ({CURR_SYM})", f"Net Cash Flow ({CURR_SYM})")}
+
     for idx in range(12):
-        row = edited_df.iloc[idx]
-        m_name = row["Month / Mes"]
-        days = row["Days Operated / Días Operados"]
-        o_pct = row["Pyrolysis oil Sales / Venta Aceite pirolítico (%)"]
-        c_pct = row["Char Sales / Venta Carbón (%)"]
-        g_pct = row["Syngas Sales / Venta Syngas (%)"] if "Syngas Sales / Venta Syngas (%)" in row else row.get("Syngas Sales / Venta Syngas (%)", 100.0)
-        
-        # Calculate monthly production and utilities
+        row = plan_df.iloc[idx]
+        days = row[_COL_DAYS]
+        oil_pct = row[_COL_OIL_PCT]
+        char_pct = row[_COL_CHAR_PCT]
+        gas_pct = row.get(_COL_GAS_PCT, 100.0)
+
+        # Production and consumption of the month
         if is_continuous:
             sludge_kg = summary['feed_rate_kgh'] * 24.0 * days
             oil_kg = summary['oil_yield_kgh'] * 24.0 * days
             char_kg = summary['char_yield_kgh'] * 24.0 * days
             gas_kg = summary['gas_yield_kgh'] * 24.0 * days
-            
+
             fuel_gal = summary['waste_oil_consumed_galh'] * 24.0 * days
             elec_kwh = 0.0
-            diesel_gal = gen_diesel_rate * 24.0 * days
+            diesel_gal = e['gen_diesel_rate'] * 24.0 * days
         else:
-            batches = np.floor((days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+            batches = np.floor((days * 24.0) / e['t_cycle_hours']) if e['t_cycle_hours'] > 0 else 0.0
             sludge_kg = summary['batch_load_kg'] * batches
             oil_kg = summary['oil_yield_kg'] * batches
             char_kg = summary['char_yield_kg'] * batches
             gas_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches
-            
+
             fuel_gal = summary['waste_oil_consumed_gal'] * batches
             elec_kwh = 0.0
-            diesel_gal = gen_diesel_batch * batches
-            
-        # Volumetric conversion for liquids & gases; mass for char
-        sludge_gal = (sludge_kg / sludge_density) * 264.172
-        oil_prod_gal = (oil_kg / oil_density) * 264.172
+            diesel_gal = e['gen_diesel_batch'] * batches
+
+        sludge_gal = (sludge_kg / e['sludge_density']) * GAL_PER_M3
+        oil_prod_gal = (oil_kg / e['oil_density']) * GAL_PER_M3
         char_prod_kg = char_kg
-        gas_prod_m3 = gas_kg / gas_density
-        
-        # Inventory flow calculations
+        gas_prod_m3 = gas_kg / e['gas_density']
+
+        # Sales take a share of what is in stock; the rest stays as inventory (gas is not stored)
         avail_oil = inv_oil + oil_prod_gal
         avail_char = inv_char + char_prod_kg
-        
-        oil_sold = avail_oil * (o_pct / 100.0)
-        char_sold = avail_char * (c_pct / 100.0)
-        gas_sold = gas_prod_m3 * (g_pct / 100.0)
-        
+        oil_sold = avail_oil * (oil_pct / 100.0)
+        char_sold = avail_char * (char_pct / 100.0)
+        gas_sold = gas_prod_m3 * (gas_pct / 100.0)
         inv_oil = avail_oil - oil_sold
         inv_char = avail_char - char_sold
-        
-        # Revenues
-        rev_tip = sludge_gal * opex_tipping
-        rev_o = oil_sold * price_oil
-        rev_c = char_sold * price_char
-        rev_g = gas_sold * price_gas
+
+        rev_tip = sludge_gal * e['opex_tipping']
+        rev_o = oil_sold * e['price_oil']
+        rev_c = char_sold * e['price_char']
+        rev_g = gas_sold * e['price_gas']
         char_carbon_month_kg = char_prod_kg if is_continuous else (
             summary.get('char_organic_kg', summary['char_yield_kg']) * batches)
-        rev_carb = ((char_carbon_month_kg * rate_carbon_offset) / 1000.0) * price_carbon
+        rev_carb = ((char_carbon_month_kg * e['rate_carbon_offset']) / 1000.0) * e['price_carbon']
         total_rev = rev_tip + rev_o + rev_c + rev_g + rev_carb
-        
-        # OPEX
-        c_handling = sludge_gal * opex_handling
-        c_fuel = fuel_gal * opex_fuel
-        c_elec = elec_kwh * opex_electricity
-        c_aux = opex_aux_utilities / 12.0
-        c_diesel = diesel_gal * price_generator_fuel
-        c_labor = opex_labor / 12.0
-        c_maint = (total_capex * (opex_maint / 100.0)) / 12.0
-        c_ins_tax = (total_capex * (opex_insurance_tax / 100.0)) / 12.0
+
+        total_capex = e['total_capex']
+        c_handling = sludge_gal * e['opex_handling']
+        c_fuel = fuel_gal * e['opex_fuel']
+        c_elec = elec_kwh * e['opex_electricity']
+        c_aux = e['opex_aux_utilities'] / 12.0
+        c_diesel = diesel_gal * e['price_generator_fuel']
+        c_labor = e['opex_labor'] / 12.0
+        c_maint = (total_capex * (e['opex_maint'] / 100.0)) / 12.0
+        c_ins_tax = (total_capex * (e['opex_insurance_tax'] / 100.0)) / 12.0
         total_opex = c_handling + c_fuel + c_elec + c_aux + c_diesel + c_labor + c_maint + c_ins_tax
-        
-        # Net Cash Flow after monthly taxes
+
         ebitda = total_rev - total_opex
-        depr = total_capex / (project_lifetime * 12.0) if project_lifetime > 0 else 0.0
+        depr = total_capex / (e['project_lifetime'] * 12.0) if e['project_lifetime'] > 0 else 0.0
         taxable = ebitda - depr
-        taxes = max(0.0, taxable * (tax_rate / 100.0))
+        taxes = max(0.0, taxable * (e['tax_rate'] / 100.0))
         net_cf = ebitda - taxes
-        
-        m_names.append(m_name)
-        m_days.append(days)
-        m_sludge.append(sludge_gal)
-        m_oil_prod.append(oil_prod_gal)
-        m_oil_sold.append(oil_sold)
-        m_oil_inv.append(inv_oil)
-        m_char_prod.append(char_prod_kg)
-        m_char_sold.append(char_sold)
-        m_char_inv.append(inv_char)
-        m_gas_prod.append(gas_prod_m3)
-        m_gas_sold.append(gas_sold)
-        m_revenues.append(total_rev)
-        m_opex.append(total_opex)
-        m_net_flow.append(net_cf)
-        
-    df_monthly_proj = pd.DataFrame({
-        "Month": m_names,
-        "Days Operated": m_days,
-        "Sludge Treated (gal)": m_sludge,
-        "Pyrolysis oil Produced (gal)": m_oil_prod,
-        "Pyrolysis oil Sold (gal)": m_oil_sold,
-        "Pyrolysis oil Inventory (gal)": m_oil_inv,
-        "Char Produced (kg)": m_char_prod,
-        "Char Sold (kg)": m_char_sold,
-        "Char Inventory (kg)": m_char_inv,
-        "Syngas Produced (m³)": m_gas_prod,
-        "Syngas Sold (m³)": m_gas_sold,
-        f"Revenue ({curr_sym})": m_revenues,
-        f"OPEX ({curr_sym})": m_opex,
-        f"Net Cash Flow ({curr_sym})": m_net_flow
-    })
-    
-    # Format monthly table for display
+
+        for name, value in zip(cols, (row[_COL_MONTH], days, sludge_gal,
+                                      oil_prod_gal, oil_sold, inv_oil,
+                                      char_prod_kg, char_sold, inv_char,
+                                      gas_prod_m3, gas_sold,
+                                      total_rev, total_opex, net_cf)):
+            cols[name].append(value)
+    return cols
+
+
+def _render_monthly_table(months):
+    """Monthly table (formatted) and its CSV download (raw numbers)."""
+    df_monthly_proj = pd.DataFrame(months)
     df_monthly_disp = df_monthly_proj.copy()
-    df_monthly_disp["Days Operated"] = df_monthly_disp["Days Operated"].map(lambda x: f"{x:.1f}")
-    df_monthly_disp["Sludge Treated (gal)"] = df_monthly_disp["Sludge Treated (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Pyrolysis oil Produced (gal)"] = df_monthly_disp["Pyrolysis oil Produced (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Pyrolysis oil Sold (gal)"] = df_monthly_disp["Pyrolysis oil Sold (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Pyrolysis oil Inventory (gal)"] = df_monthly_disp["Pyrolysis oil Inventory (gal)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Char Produced (kg)"] = df_monthly_disp["Char Produced (kg)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Char Sold (kg)"] = df_monthly_disp["Char Sold (kg)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Char Inventory (kg)"] = df_monthly_disp["Char Inventory (kg)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Syngas Produced (m³)"] = df_monthly_disp["Syngas Produced (m³)"].map(lambda x: f"{x:,.1f}")
-    df_monthly_disp["Syngas Sold (m³)"] = df_monthly_disp["Syngas Sold (m³)"] .map(lambda x: f"{x:,.1f}")
-    df_monthly_disp[f"Revenue ({curr_sym})"] = df_monthly_disp[f"Revenue ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
-    df_monthly_disp[f"OPEX ({curr_sym})"] = df_monthly_disp[f"OPEX ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
-    df_monthly_disp[f"Net Cash Flow ({curr_sym})"] = df_monthly_disp[f"Net Cash Flow ({curr_sym})"].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
-    
+    money_cols = (f"Revenue ({CURR_SYM})", f"OPEX ({CURR_SYM})", f"Net Cash Flow ({CURR_SYM})")
+    for col in df_monthly_disp.columns[1:]:
+        if col == "Days Operated":
+            df_monthly_disp[col] = df_monthly_disp[col].map(lambda x: f"{x:.1f}")
+        elif col in money_cols:
+            df_monthly_disp[col] = df_monthly_disp[col].map(_fmt_money)
+        else:
+            df_monthly_disp[col] = df_monthly_disp[col].map(lambda x: f"{x:,.1f}")
     st.dataframe(df_monthly_disp, width='stretch')
-    
-    # Export to CSV
+
     csv_monthly_buf = io.StringIO()
     df_monthly_proj.to_csv(csv_monthly_buf, index=False)
-    csv_monthly_bytes = csv_monthly_buf.getvalue().encode('utf-8')
-    
     st.download_button(
         label="📥 Download Monthly Cash Flows as CSV / Descargar Flujo Mensual (CSV)",
-        data=csv_monthly_bytes,
+        data=csv_monthly_buf.getvalue().encode('utf-8'),
         file_name="pyrolysis_monthly_cash_flows.csv",
         mime="text/csv",
         key="download_monthly_cash_flows"
     )
 
-    # ----------------------------------------------------
-    # MONTHLY VISUALIZATION CHARTS
-    # ----------------------------------------------------
+
+def _bar(x, y, name, color, hover):
+    return go.Bar(x=x, y=y, name=name, marker_color=color, opacity=0.85, hovertemplate=hover)
+
+
+def _line(x, y, name, color, width, marker_size, hover, dash=None):
+    line = dict(color=color, width=width) if dash is None else dict(color=color, width=width, dash=dash)
+    return go.Scatter(x=x, y=y, name=name, line=line, mode='lines+markers', marker=dict(size=marker_size),
+                      hovertemplate=hover)
+
+
+def _render_monthly_charts(months):
+    """Two tabs: monthly money (revenue, OPEX, net and cumulative flow) and oil/char volumes."""
     st.markdown("---")
     st.markdown(f"#### {t('econ_monthly_chart_title')}")
     st.markdown(t('econ_monthly_chart_desc'))
 
-    m_cum_flow = np.cumsum(m_net_flow).tolist()
+    m_net_flow = months[f"Net Cash Flow ({CURR_SYM})"]
     month_labels = [f"M{i+1:02d}" for i in range(12)]
+    money_hover = '%{x}: ' + CURR_SYM + '%{y:,.2f}<extra></extra>'
+    gal_hover = '%{x}: %{y:,.1f} gal<extra></extra>'
+    kg_hover = '%{x}: %{y:,.1f} kg<extra></extra>'
 
     tab_m_fin, tab_m_vol = st.tabs([t('econ_monthly_tab_financial'), t('econ_monthly_tab_volumes')])
 
     with tab_m_fin:
         fig_m_fin = go.Figure()
-
-        # Monthly Revenue Bar
-        fig_m_fin.add_trace(go.Bar(
-            x=month_labels,
-            y=m_revenues,
-            name=t('econ_monthly_rev_label'),
-            marker_color="#10b981",
-            opacity=0.85,
-            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
-        ))
-
-        # Monthly OPEX Bar
-        fig_m_fin.add_trace(go.Bar(
-            x=month_labels,
-            y=m_opex,
-            name=t('econ_monthly_opex_label'),
-            marker_color="#ef4444",
-            opacity=0.85,
-            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
-        ))
-
-        # Monthly Net Cash Flow Line
-        fig_m_fin.add_trace(go.Scatter(
-            x=month_labels,
-            y=m_net_flow,
-            name=t('econ_monthly_net_label'),
-            line=dict(color="#3b82f6", width=3),
-            mode='lines+markers',
-            marker=dict(size=7),
-            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
-        ))
-
-        # Cumulative Net Cash Flow Line
-        fig_m_fin.add_trace(go.Scatter(
-            x=month_labels,
-            y=m_cum_flow,
-            name=t('econ_monthly_cum_label'),
-            line=dict(color="#f59e0b", width=2.5, dash='dash'),
-            mode='lines+markers',
-            marker=dict(size=6),
-            hovertemplate='%{x}: ' + curr_sym + '%{y:,.2f}<extra></extra>'
-        ))
-
-        # Zero reference line
+        fig_m_fin.add_trace(_bar(month_labels, months[f"Revenue ({CURR_SYM})"], t('econ_monthly_rev_label'), "#10b981", money_hover))
+        fig_m_fin.add_trace(_bar(month_labels, months[f"OPEX ({CURR_SYM})"], t('econ_monthly_opex_label'), "#ef4444", money_hover))
+        fig_m_fin.add_trace(_line(month_labels, m_net_flow, t('econ_monthly_net_label'), "#3b82f6", 3, 7, money_hover))
+        fig_m_fin.add_trace(_line(month_labels, np.cumsum(m_net_flow).tolist(), t('econ_monthly_cum_label'),
+                                  "#f59e0b", 2.5, 6, money_hover, dash='dash'))
         fig_m_fin.add_hline(y=0, line_width=1, line_dash="solid", line_color="#64748b")
-
         fig_m_fin.update_layout(
             title=dict(
                 text=f"{t('econ_monthly_chart_title')}",
@@ -1750,17 +1120,10 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
                 title="Month / Mes",
             ),
             yaxis=dict(
-                title=f"Amount / Monto ({curr_sym})",
+                title=f"Amount / Monto ({CURR_SYM})",
             ),
             barmode='group',
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.35,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=10)
-            ),
+            legend=_bottom_legend(-0.35, 10),
             margin=dict(l=50, r=40, t=40, b=50),
             height=400
         )
@@ -1768,65 +1131,14 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
 
     with tab_m_vol:
         fig_m_vol = go.Figure()
-
-        # Pyrolysis oil Production vs Sales vs Inventory
-        fig_m_vol.add_trace(go.Bar(
-            x=month_labels,
-            y=m_oil_prod,
-            name=t('econ_monthly_oil_prod'),
-            marker_color="#8b5cf6",
-            opacity=0.85,
-            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
-        ))
-
-        fig_m_vol.add_trace(go.Bar(
-            x=month_labels,
-            y=m_oil_sold,
-            name=t('econ_monthly_oil_sold'),
-            marker_color="#10b981",
-            opacity=0.85,
-            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
-        ))
-
-        fig_m_vol.add_trace(go.Scatter(
-            x=month_labels,
-            y=m_oil_inv,
-            name=t('econ_monthly_oil_inv'),
-            line=dict(color="#f43f5e", width=2.5, dash='dash'),
-            mode='lines+markers',
-            marker=dict(size=6),
-            hovertemplate='%{x}: %{y:,.1f} gal<extra></extra>'
-        ))
-
-        # Char Production vs Sales vs Inventory (in kg)
-        fig_m_vol.add_trace(go.Bar(
-            x=month_labels,
-            y=m_char_prod,
-            name=t('econ_monthly_char_prod'),
-            marker_color="#0ea5e9",
-            opacity=0.85,
-            hovertemplate='%{x}: %{y:,.1f} kg<extra></extra>'
-        ))
-
-        fig_m_vol.add_trace(go.Bar(
-            x=month_labels,
-            y=m_char_sold,
-            name=t('econ_monthly_char_sold'),
-            marker_color="#fde047",
-            opacity=0.85,
-            hovertemplate='%{x}: %{y:,.1f} kg<extra></extra>'
-        ))
-
-        fig_m_vol.add_trace(go.Scatter(
-            x=month_labels,
-            y=m_char_inv,
-            name=t('econ_monthly_char_inv'),
-            line=dict(color="#d97706", width=2.5, dash='dash'),
-            mode='lines+markers',
-            marker=dict(size=6),
-            hovertemplate='%{x}: %{y:,.1f} kg<extra></extra>'
-        ))
-
+        fig_m_vol.add_trace(_bar(month_labels, months["Pyrolysis oil Produced (gal)"], t('econ_monthly_oil_prod'), "#8b5cf6", gal_hover))
+        fig_m_vol.add_trace(_bar(month_labels, months["Pyrolysis oil Sold (gal)"], t('econ_monthly_oil_sold'), "#10b981", gal_hover))
+        fig_m_vol.add_trace(_line(month_labels, months["Pyrolysis oil Inventory (gal)"], t('econ_monthly_oil_inv'),
+                                  "#f43f5e", 2.5, 6, gal_hover, dash='dash'))
+        fig_m_vol.add_trace(_bar(month_labels, months["Char Produced (kg)"], t('econ_monthly_char_prod'), "#0ea5e9", kg_hover))
+        fig_m_vol.add_trace(_bar(month_labels, months["Char Sold (kg)"], t('econ_monthly_char_sold'), "#fde047", kg_hover))
+        fig_m_vol.add_trace(_line(month_labels, months["Char Inventory (kg)"], t('econ_monthly_char_inv'),
+                                  "#d97706", 2.5, 6, kg_hover, dash='dash'))
         fig_m_vol.update_layout(
             title=dict(
                 text=f"{t('econ_monthly_tab_volumes')} - Pyrolysis oil (gal) & Char (kg) Dynamics",
@@ -1840,207 +1152,122 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
                 tickformat=",~f"
             ),
             barmode='group',
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.35,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=9)
-            ),
+            legend=_bottom_legend(-0.35, 9),
             margin=dict(l=50, r=40, t=40, b=50),
             height=420
         )
         st.plotly_chart(fig_m_vol, use_container_width=True)
 
-    # ----------------------------------------------------
-    # TORNADO CHART (SENSITIVITY ANALYSIS)
-    # ----------------------------------------------------
+
+# --- sensitivity and yearly projection -----------------------------------------------------------
+def _render_sensitivity_tornado(econ):
+    """NPV when CAPEX, all OPEX, the tipping fee, the oil price or the char price move ±10 % and ±20 %,
+    sorted by swing."""
+    e = econ
     st.markdown("---")
     st.markdown(f"#### {t('econ_sensitivity_title')}")
     st.markdown(t('econ_sensitivity_desc'))
-    
-    # Sensitivity calculation helper
+
     def get_perturbed_npv(param, change_pct):
         mult = 1.0 + (change_pct / 100.0)
-        
-        p_capex = total_capex * mult if param == 'capex' else total_capex
-        p_handling = opex_handling * mult if param == 'opex' else opex_handling
-        p_fuel = opex_fuel * mult if param == 'opex' else opex_fuel
-        p_elec = opex_electricity * mult if param == 'opex' else opex_electricity
-        p_aux = opex_aux_utilities * mult if param == 'opex' else opex_aux_utilities
-        p_gen_fuel = price_generator_fuel * mult if param == 'opex' else price_generator_fuel
-        p_labor = opex_labor * mult if param == 'opex' else opex_labor
-        p_maint = opex_maint * mult if param == 'opex' else opex_maint
-        p_ins = opex_insurance_tax * mult if param == 'opex' else opex_insurance_tax
-        
-        p_tipping = opex_tipping * mult if param == 'tipping' else opex_tipping
-        p_oil = price_oil * mult if param == 'oil' else price_oil
-        p_char = price_char * mult if param == 'char' else price_char
-        
+
+        def scaled(value, group):
+            return value * mult if param == group else value
+
         res = run_financial_model(
-            p_capex, sludge_treated_gal, oil_produced_gal, char_produced_kg, gas_produced_m3,
-            fuel_consumed_gal, elec_consumed_kwh, generator_fuel_consumed_gal,
-            p_handling, p_fuel, p_elec, p_aux, p_gen_fuel,
-            p_labor, p_maint, p_ins,
-            p_tipping, p_oil, p_char, price_gas, price_carbon, rate_carbon_offset,
-            discount_rate, project_lifetime, tax_rate, inflation_rate,
-            char_carbon_kg=char_carbon_kg
+            scaled(e['total_capex'], 'capex'), e['sludge_treated_gal'], e['oil_produced_gal'],
+            e['char_produced_kg'], e['gas_produced_m3'],
+            e['fuel_consumed_gal'], e['elec_consumed_kwh'], e['generator_fuel_consumed_gal'],
+            scaled(e['opex_handling'], 'opex'), scaled(e['opex_fuel'], 'opex'), scaled(e['opex_electricity'], 'opex'),
+            scaled(e['opex_aux_utilities'], 'opex'), scaled(e['price_generator_fuel'], 'opex'),
+            scaled(e['opex_labor'], 'opex'), scaled(e['opex_maint'], 'opex'), scaled(e['opex_insurance_tax'], 'opex'),
+            scaled(e['opex_tipping'], 'tipping'), scaled(e['price_oil'], 'oil'), scaled(e['price_char'], 'char'),
+            e['price_gas'], e['price_carbon'], e['rate_carbon_offset'],
+            e['discount_rate'], e['project_lifetime'], e['tax_rate'], e['inflation_rate'],
+            char_carbon_kg=e['char_carbon_kg']
         )
         return res['npv']
 
     sens_keys = ['capex', 'opex', 'tipping', 'oil', 'char']
     sens_labels = [t('econ_param_capex'), t('econ_param_opex'), t('econ_param_tipping'), t('econ_param_oil'), t('econ_param_char')]
-    
-    npvs_minus20 = [get_perturbed_npv(k, -20) for k in sens_keys]
-    npvs_minus10 = [get_perturbed_npv(k, -10) for k in sens_keys]
-    npvs_plus10 = [get_perturbed_npv(k, +10) for k in sens_keys]
-    npvs_plus20 = [get_perturbed_npv(k, +20) for k in sens_keys]
-    
-    base_npv = m['npv']
-    
-    # Dynamic Sorting: Sort parameters by total swing range
-    swings = [abs(npvs_plus20[i] - npvs_minus20[i]) for i in range(len(sens_keys))]
+    npvs = {pct: [get_perturbed_npv(k, pct) for k in sens_keys] for pct in (-20, -10, +10, +20)}
+    base_npv = e['m']['npv']
+
+    # Widest swing at the top of the chart
+    swings = [abs(npvs[20][i] - npvs[-20][i]) for i in range(len(sens_keys))]
     sorted_idx = np.argsort(swings)
-    
     sorted_labels = [sens_labels[i] for i in sorted_idx]
-    sorted_minus20 = [npvs_minus20[i] for i in sorted_idx]
-    sorted_minus10 = [npvs_minus10[i] for i in sorted_idx]
-    sorted_plus10 = [npvs_plus10[i] for i in sorted_idx]
-    sorted_plus20 = [npvs_plus20[i] for i in sorted_idx]
-    
+
     fig_sens = go.Figure()
-    
-    # Add +20% variation bar
-    fig_sens.add_trace(go.Bar(
-        y=sorted_labels,
-        x=[val - base_npv for val in sorted_plus20],
-        base=base_npv,
-        orientation='h',
-        name='+20% Variation',
-        marker=dict(color='#10b981', line=dict(color='#047857', width=1)),
-        hovertemplate='NPV at +20%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
-    ))
-    
-    # Add +10% variation bar
-    fig_sens.add_trace(go.Bar(
-        y=sorted_labels,
-        x=[val - base_npv for val in sorted_plus10],
-        base=base_npv,
-        orientation='h',
-        name='+10% Variation',
-        marker=dict(color='#6ee7b7', line=dict(color='#34d399', width=1)),
-        hovertemplate='NPV at +10%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
-    ))
-    
-    # Add -10% variation bar
-    fig_sens.add_trace(go.Bar(
-        y=sorted_labels,
-        x=[val - base_npv for val in sorted_minus10],
-        base=base_npv,
-        orientation='h',
-        name='-10% Variation',
-        marker=dict(color='#fca5a5', line=dict(color='#f87171', width=1)),
-        hovertemplate='NPV at -10%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
-    ))
-    
-    # Add -20% variation bar
-    fig_sens.add_trace(go.Bar(
-        y=sorted_labels,
-        x=[val - base_npv for val in sorted_minus20],
-        base=base_npv,
-        orientation='h',
-        name='-20% Variation',
-        marker=dict(color='#ef4444', line=dict(color='#dc2626', width=1)),
-        hovertemplate='NPV at -20%: ' + curr_sym + '%{x:,.2f}<extra></extra>'
-    ))
-    
-    # Vertical line representing base case NPV
-    fig_sens.add_vline(x=base_npv, line_width=2, line_dash="dash", line_color="gray", annotation_text=f"Base Case NPV: {curr_sym}{base_npv:,.2f}")
-    
+    for pct, color, edge in ((+20, '#10b981', '#047857'), (+10, '#6ee7b7', '#34d399'),
+                             (-10, '#fca5a5', '#f87171'), (-20, '#ef4444', '#dc2626')):
+        fig_sens.add_trace(go.Bar(
+            y=sorted_labels,
+            x=[npvs[pct][i] - base_npv for i in sorted_idx],
+            base=base_npv,
+            orientation='h',
+            name=f'{pct:+d}% Variation',
+            marker=dict(color=color, line=dict(color=edge, width=1)),
+            hovertemplate=f'NPV at {pct:+d}%: ' + CURR_SYM + '%{x:,.2f}<extra></extra>'
+        ))
+
+    fig_sens.add_vline(x=base_npv, line_width=2, line_dash="dash", line_color="gray", annotation_text=f"Base Case NPV: {CURR_SYM}{base_npv:,.2f}")
     fig_sens.update_layout(
         title=dict(
-            text=f"NPV Sensitivity Tornado Chart ({curr_sym})",
+            text=f"NPV Sensitivity Tornado Chart ({CURR_SYM})",
             font=dict(size=14)
         ),
         xaxis=dict(
-            title=f"Net Present Value (NPV) ({curr_sym})",
+            title=f"Net Present Value (NPV) ({CURR_SYM})",
         ),
         yaxis=dict(
         ),
         barmode='overlay',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=-0.25,
-            xanchor="center",
-            x=0.5,
-            font=dict(size=10)
-        ),
+        legend=_bottom_legend(-0.25, 10),
         margin=dict(l=120, r=40, t=40, b=40),
         height=350
     )
-    
     st.plotly_chart(fig_sens, use_container_width=True)
 
-    # ----------------------------------------------------
-    # SLUDGE PRE-DRYING EVALUATOR (OPTION 2)
-    # ----------------------------------------------------
-    render_pre_drying_evaluator(
-        solver_inputs=solver_inputs,
-        summary=summary,
-        results=results,
-        is_continuous=is_continuous,
-        curr_sym=curr_sym,
-        opex_fuel=opex_fuel,
-        available_calendar_days=available_calendar_days,
-        batches_per_year=batches_per_year,
-        t_cycle_hours=t_cycle_hours,
-        t_op_batch_hours=t_op_batch_hours,
-        maint_penalty_per_batch_h=maint_penalty_per_batch_h,
-        m=m,
-        lang=lang
-    )
 
-    # ----------------------------------------------------
-    # PROJECTION DATA FRAME AND DOWNLOAD SECTION
-    # ----------------------------------------------------
+def _render_yearly_projection_table(econ):
+    """Year-by-year projection table and its CSV download."""
+    m = econ['m']
     st.markdown("---")
-    st.markdown(f"#### 📅 Year-by-Year Financial Projections / Tabla de Proyecciones")
-    
+    st.markdown("#### 📅 Year-by-Year Financial Projections / Tabla de Proyecciones")
+
     proj_data = {
         "Year / Año": m['years'],
-        f"CAPEX ({curr_sym})": [m['net_flows'][0] if yr == 0 else 0.0 for yr in m['years']],
-        f"Revenue / Ingresos ({curr_sym})": m['rev_flows'],
-        f"OPEX ({curr_sym})": m['opex_flows'],
-        f"Depreciation ({curr_sym})": m['depr_flows'],
-        f"Taxes / Impuestos ({curr_sym})": m['tax_flows'],
-        f"Net Cash Flow ({curr_sym})": m['net_flows'],
-        f"Discounted Cash Flow ({curr_sym})": m['disc_flows'],
-        f"Cumulative NPV ({curr_sym})": cum_discounted
+        f"CAPEX ({CURR_SYM})": [m['net_flows'][0] if yr == 0 else 0.0 for yr in m['years']],
+        f"Revenue / Ingresos ({CURR_SYM})": m['rev_flows'],
+        f"OPEX ({CURR_SYM})": m['opex_flows'],
+        f"Depreciation ({CURR_SYM})": m['depr_flows'],
+        f"Taxes / Impuestos ({CURR_SYM})": m['tax_flows'],
+        f"Net Cash Flow ({CURR_SYM})": m['net_flows'],
+        f"Discounted Cash Flow ({CURR_SYM})": m['disc_flows'],
+        f"Cumulative NPV ({CURR_SYM})": _cumulative_discounted(m)
     }
-    
     df_proj = pd.DataFrame(proj_data)
     df_proj_disp = df_proj.copy()
-    
     for col in df_proj_disp.columns:
         if col != "Year / Año":
-            df_proj_disp[col] = df_proj_disp[col].map(lambda x: f"{curr_sym}{x:,.2f}" if x >= 0 else f"-{curr_sym}{abs(x):,.2f}")
-            
+            df_proj_disp[col] = df_proj_disp[col].map(_fmt_money)
     st.dataframe(df_proj_disp, width='stretch')
-    
+
     csv_buffer = io.StringIO()
     df_proj.to_csv(csv_buffer, index=False)
-    csv_bytes = csv_buffer.getvalue().encode('utf-8')
-    
     st.download_button(
         label="📥 Download Projections as CSV / Descargar Proyecciones (CSV)",
-        data=csv_bytes,
+        data=csv_buffer.getvalue().encode('utf-8'),
         file_name="pyrolysis_financial_projections.csv",
         mime="text/csv",
         key="download_financial_projections"
     )
 
+
+# =============================================================================================
+# 4. Sustainability section
+# =============================================================================================
 def render_sustainability_tab(summary, solver_inputs):
     """Renders the independent Sustainability & Carbon Offsets Dashboard."""
     lang = get_lang()
@@ -2049,99 +1276,43 @@ def render_sustainability_tab(summary, solver_inputs):
         t('econ_sustainability_desc', "Evaluate the carbon sequestration potential and environmental benefits of industrial pyrolysis sludge treatment.")
     )
     st.markdown("---")
-    
-    is_continuous = (st.session_state.get('mode_option', 'Continuous Operation') == "Continuous Operation")
-    shutdown_days = int(st.session_state.get('shutdown_days', 15))
-    holidays_days = int(st.session_state.get('holidays_days', 15))
-    available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
-    annual_days = st.session_state.get('annual_days', available_calendar_days)
-    
-    # Financial keys & currency retrieval (Standardized in DOP - RD$)
-    curr_sym = "RD$"
-    price_carbon = st.session_state.get('price_carbon', 1200.0)
-    rate_carbon_offset = st.session_state.get('rate_carbon_offset', 2.2)
-    
+
+    ss = st.session_state
+    is_continuous = (ss.get('mode_option', 'Continuous Operation') == "Continuous Operation")
+    price_carbon = ss.get('price_carbon', 1200.0)
+    rate_carbon_offset = ss.get('rate_carbon_offset', 2.2)
+
     if is_continuous:
-        annual_hours = annual_days * 24.0
-        char_produced_kg = summary['char_yield_kgh'] * annual_hours
+        batches_per_year = None
+        char_produced_kg = summary['char_yield_kgh'] * (_sustainability_annual_days() * 24.0)
     else:
-        t_cycle_min, _, _ = batch_thermal_cycle_min(summary, solver_inputs)
-        batch_cooldown_h = float(st.session_state.get('batch_cooldown_h', 0.50))
-        batch_loading_h = float(st.session_state.get('batch_loading_h', 0.50))
-        batch_turnaround_h = float(st.session_state.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
-        batches_before_cleaning = int(st.session_state.get('batches_before_cleaning', 20))
-        cleaning_time_h = float(st.session_state.get('cleaning_time_h', 4.0))
-        maint_cooldown_h = float(st.session_state.get('maint_cooldown_h', 6.0))
-        maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
-        t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
-        t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
-        batches_fixed = int(st.session_state.get('econ_batches_per_year', 0))
-        if batches_fixed > 0:
-            batches_per_year = float(batches_fixed)
-        else:
-            batches_per_year = np.floor((annual_days * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+        batches_per_year = _sustainability_batches_per_year(summary, solver_inputs)
         # Carbon credit applies to carbon-bearing char only (ash excluded)
         char_produced_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
 
     co2_tons = (char_produced_kg * rate_carbon_offset) / 1000.0
-    trees_planted = co2_tons / 0.022
-    cars_removed = co2_tons / 4.6
-
-    # Process emissions (batch mode): burner fuel, generator diesel and syngas combustion
-    if not is_continuous:
-        fuel_density = float(st.session_state.get('fuel_density', 0.90))
-        gen_diesel_batch = float(st.session_state.get('gen_diesel_batch', 1.0))
-        fuel_per_batch_gal = float(st.session_state.get('econ_fuel_gal_per_batch', 0.0)) or summary['waste_oil_consumed_gal']
-        co2_burner_t = fuel_per_batch_gal * batches_per_year * fuel_density * 3.785 * EF_CO2_FUEL_OIL_KG_PER_KG / 1000.0
-        co2_diesel_t = gen_diesel_batch * batches_per_year * EF_CO2_DIESEL_KG_PER_GAL / 1000.0
-        co2_syngas_t = summary['gas_yield_kg'] * batches_per_year * EF_CO2_SYNGAS_KG_PER_KG / 1000.0
-        co2_emitted_t = co2_burner_t + co2_diesel_t + co2_syngas_t
-    else:
-        co2_burner_t = co2_diesel_t = co2_syngas_t = co2_emitted_t = 0.0
-    co2_net_t = co2_tons - co2_emitted_t
 
     col1, col2, col3 = st.columns(3)
-    
     with col1:
         st.metric(
             label=t('econ_co2_sequestered_annually'),
             value=f"{co2_tons:,.2f} t CO2e/yr",
-            delta=f"{curr_sym}{co2_tons * price_carbon:,.2f}/yr"
+            delta=f"{CURR_SYM}{co2_tons * price_carbon:,.2f}/yr"
         )
     with col2:
         st.metric(
             label=t('econ_co2_trees_eq'),
-            value=f"{int(trees_planted):,}"
+            value=f"{int(co2_tons / CO2_T_PER_TREE_YEAR):,}"
         )
     with col3:
         st.metric(
             label=t('econ_co2_cars_eq'),
-            value=f"{int(cars_removed):,}"
-        )
-        
-    if not is_continuous:
-        st.markdown("#### " + ("Balance neto de CO₂e del proceso" if lang == 'es' else "Net process CO₂e balance"))
-        ecol1, ecol2, ecol3, ecol4 = st.columns(4)
-        ecol1.metric("Quemador / Burner (t CO₂/yr)", f"{co2_burner_t:,.2f}")
-        ecol2.metric("Diésel / Diesel gen. (t CO₂/yr)", f"{co2_diesel_t:,.2f}")
-        ecol3.metric("Syngas (t CO₂/yr)", f"{co2_syngas_t:,.2f}")
-        ecol4.metric(
-            "Neto / Net (t CO₂e/yr)", f"{co2_net_t:,.2f}",
-            delta=f"-{co2_emitted_t:,.2f} emitido" if lang == 'es' else f"-{co2_emitted_t:,.2f} emitted"
-        )
-        st.caption(
-            "Factores de emisión supuestos (ajustables en el código): aceite residual 3.15 kg CO₂/kg, diésel 10.2 kg CO₂/gal, "
-            "syngas 0.84 kg CO₂/kg. No incluye la combustión posterior del bio-crudo vendido ni el transporte. "
-            "Los créditos de carbono por biochar normalmente exigen biomasa (carbono biogénico); el char de lodo petrolero "
-            "es mayormente carbono fósil y puede no ser elegible: confirme con el estándar de certificación antes de contar este ingreso."
-            if lang == 'es' else
-            "Assumed emission factors (editable in code): waste oil 3.15 kg CO₂/kg, diesel 10.2 kg CO₂/gal, "
-            "syngas 0.84 kg CO₂/kg. Excludes later combustion of the sold bio-oil and transport. "
-            "Biochar carbon credits normally require biogenic carbon; char from petroleum sludge is mostly fossil carbon "
-            "and may not be eligible: confirm with the certification standard before counting this revenue."
+            value=f"{int(co2_tons / CO2_T_PER_CAR_YEAR):,}"
         )
 
-    # Visual green impact description
+    if not is_continuous:
+        _render_process_emissions(summary, batches_per_year, co2_tons, lang)
+
     st.markdown(f"""
     <div style="
         background: rgba(16,185,129,0.10);
@@ -2159,3 +1330,64 @@ def render_sustainability_tab(summary, solver_inputs):
         </p>
     </div>
     """, unsafe_allow_html=True)
+
+
+def _sustainability_annual_days():
+    """Operating days per year: the value compute_economics stored, else 365 minus stops and holidays."""
+    shutdown_days = int(st.session_state.get('shutdown_days', 15))
+    holidays_days = int(st.session_state.get('holidays_days', 15))
+    available_calendar_days = max(1, 365 - shutdown_days - holidays_days)
+    return st.session_state.get('annual_days', available_calendar_days)
+
+
+def _sustainability_batches_per_year(summary, solver_inputs):
+    """Batches per year from session_state, with the same cycle arithmetic as compute_economics."""
+    ss = st.session_state
+    t_cycle_min, _, _ = batch_thermal_cycle_min(summary, solver_inputs)
+    batch_cooldown_h = float(ss.get('batch_cooldown_h', 0.50))
+    batch_loading_h = float(ss.get('batch_loading_h', 0.50))
+    batch_turnaround_h = float(ss.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
+    batches_before_cleaning = int(ss.get('batches_before_cleaning', 20))
+    cleaning_time_h = float(ss.get('cleaning_time_h', 4.0))
+    maint_cooldown_h = float(ss.get('maint_cooldown_h', 6.0))
+    maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
+    t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+    t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
+    batches_fixed = int(ss.get('econ_batches_per_year', 0))
+    if batches_fixed > 0:
+        return float(batches_fixed)
+    return np.floor((_sustainability_annual_days() * 24.0) / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+
+
+def _render_process_emissions(summary, batches_per_year, co2_tons, lang):
+    """Batch mode: CO2 emitted by the burner fuel, generator diesel and syngas, and the net balance."""
+    ss = st.session_state
+    fuel_density = float(ss.get('fuel_density', 0.90))
+    gen_diesel_batch = float(ss.get('gen_diesel_batch', 1.0))
+    fuel_per_batch_gal = float(ss.get('econ_fuel_gal_per_batch', 0.0)) or summary['waste_oil_consumed_gal']
+    co2_burner_t = fuel_per_batch_gal * batches_per_year * fuel_density * LITRES_PER_GAL * EF_CO2_FUEL_OIL_KG_PER_KG / 1000.0
+    co2_diesel_t = gen_diesel_batch * batches_per_year * EF_CO2_DIESEL_KG_PER_GAL / 1000.0
+    co2_syngas_t = summary['gas_yield_kg'] * batches_per_year * EF_CO2_SYNGAS_KG_PER_KG / 1000.0
+    co2_emitted_t = co2_burner_t + co2_diesel_t + co2_syngas_t
+    co2_net_t = co2_tons - co2_emitted_t
+
+    st.markdown("#### " + ("Balance neto de CO₂e del proceso" if lang == 'es' else "Net process CO₂e balance"))
+    ecol1, ecol2, ecol3, ecol4 = st.columns(4)
+    ecol1.metric("Quemador / Burner (t CO₂/yr)", f"{co2_burner_t:,.2f}")
+    ecol2.metric("Diésel / Diesel gen. (t CO₂/yr)", f"{co2_diesel_t:,.2f}")
+    ecol3.metric("Syngas (t CO₂/yr)", f"{co2_syngas_t:,.2f}")
+    ecol4.metric(
+        "Neto / Net (t CO₂e/yr)", f"{co2_net_t:,.2f}",
+        delta=f"-{co2_emitted_t:,.2f} emitido" if lang == 'es' else f"-{co2_emitted_t:,.2f} emitted"
+    )
+    st.caption(
+        "Factores de emisión supuestos (ajustables en el código): aceite residual 3.15 kg CO₂/kg, diésel 10.2 kg CO₂/gal, "
+        "syngas 0.84 kg CO₂/kg. No incluye la combustión posterior del bio-crudo vendido ni el transporte. "
+        "Los créditos de carbono por biochar normalmente exigen biomasa (carbono biogénico); el char de lodo petrolero "
+        "es mayormente carbono fósil y puede no ser elegible: confirme con el estándar de certificación antes de contar este ingreso."
+        if lang == 'es' else
+        "Assumed emission factors (editable in code): waste oil 3.15 kg CO₂/kg, diesel 10.2 kg CO₂/gal, "
+        "syngas 0.84 kg CO₂/kg. Excludes later combustion of the sold bio-oil and transport. "
+        "Biochar carbon credits normally require biogenic carbon; char from petroleum sludge is mostly fossil carbon "
+        "and may not be eligible: confirm with the certification standard before counting this revenue."
+    )
