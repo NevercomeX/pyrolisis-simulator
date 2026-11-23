@@ -1,7 +1,8 @@
 import subprocess
 import sys
 import socket
-import os
+
+STREAMLIT_PORT = 8501   # Streamlit default port
 
 def is_port_in_use(port: int) -> bool:
     """Checks if a local port is in use."""
@@ -34,13 +35,11 @@ def kill_process_on_port(port: int):
         print(f"Could not automatically clean up port {port}: {e}")
 
 if __name__ == "__main__":
-    # Clean up port 8501 (default Streamlit port)
-    kill_process_on_port(8501)
+    kill_process_on_port(STREAMLIT_PORT)
     
     print("Launching Streamlit application...")
     try:
-        # Spawn Streamlit as a subprocess
         subprocess.run([sys.executable, "-m", "streamlit", "run", "app.py"])
     except KeyboardInterrupt:
         print("\nTerminated launcher. cleaning up...")
-        kill_process_on_port(8501)
+        kill_process_on_port(STREAMLIT_PORT)

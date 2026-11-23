@@ -11,8 +11,19 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+def find_venv_pip(project_dir):
+    """pip of a virtual environment inside the project (Windows or Unix layout), or None."""
+    for candidate in (project_dir / ".venv" / "Scripts" / "pip.exe",
+                      project_dir / "venv" / "Scripts" / "pip.exe",
+                      project_dir / ".venv" / "bin" / "pip",
+                      project_dir / "venv" / "bin" / "pip"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def run_update():
-    # Ensure working directory is project root
+    # Run from the project root so git and requirements.txt are found
     project_dir = Path(__file__).parent.resolve()
     os.chdir(project_dir)
 
@@ -48,16 +59,8 @@ def run_update():
     req_file = project_dir / "requirements.txt"
     print("\n[2/2] Installing / updating Python dependencies...")
     if req_file.exists():
-        # Check for virtual environment in project folder
-        venv_pip = project_dir / ".venv" / "Scripts" / "pip.exe"
-        if not venv_pip.exists():
-            venv_pip = project_dir / "venv" / "Scripts" / "pip.exe"
-        if not venv_pip.exists():
-            venv_pip = project_dir / ".venv" / "bin" / "pip"
-        if not venv_pip.exists():
-            venv_pip = project_dir / "venv" / "bin" / "pip"
-
-        if venv_pip.exists():
+        venv_pip = find_venv_pip(project_dir)
+        if venv_pip:
             print(f"Using virtual environment pip: {venv_pip}")
             pip_cmd = [str(venv_pip), "install", "-r", str(req_file)]
         else:
@@ -77,7 +80,6 @@ def run_update():
     if sys.platform != "win32":
         print("\n[3/3] Restarting systemd service 'pyrolysis'...")
         try:
-            # Check if systemctl exists
             check_sysctl = subprocess.run(["which", "systemctl"], capture_output=True)
             if check_sysctl.returncode == 0:
                 res = subprocess.run(["systemctl", "restart", "pyrolysis"], capture_output=True, text=True)

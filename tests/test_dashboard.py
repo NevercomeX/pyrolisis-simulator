@@ -7,13 +7,16 @@ import unittest
 
 from streamlit.testing.v1 import AppTest
 
+from pyrolysis.profiles import THESIS_PROFILE_VERSION
+
 logging.getLogger("streamlit").setLevel(logging.ERROR)
 APP = "../app.py"   # AppTest resolves the path from this file's folder
 
 
 def _thesis_app():
+    """The app already run once with the thesis profile loaded."""
     from pyrolysis.gui.config_manager import DEFAULT_PARAMS
-    from pyrolysis.profiles import THESIS_GUI_OVERRIDES, THESIS_PROFILE_VERSION
+    from pyrolysis.profiles import THESIS_GUI_OVERRIDES
     at = AppTest.from_file(APP, default_timeout=180)
     for k, v in {**DEFAULT_PARAMS, **THESIS_GUI_OVERRIDES,
                  'profile': 'tesis', 'profile_version': THESIS_PROFILE_VERSION}.items():
@@ -21,7 +24,12 @@ def _thesis_app():
     return at.run()
 
 
+def _open_section(at, section):
+    at.button_group(key='nav_section').set_value(section).run()
+
+
 def _text(at):
+    """All markdown, info and caption text on the page."""
     return "\n".join(str(e.value) for e in list(at.markdown) + list(at.info) + list(at.caption))
 
 
@@ -29,7 +37,7 @@ class TestDashboard(unittest.TestCase):
 
     def test_section_stays_after_changing_a_sidebar_parameter(self):
         at = AppTest.from_file(APP, default_timeout=180).run()
-        at.button_group(key='nav_section').set_value('economy').run()
+        _open_section(at, 'economy')
         batch = next(n for n in at.sidebar.number_input if n.label.startswith(("Tamaño del Lote", "Batch Size")))
         batch.set_value(batch.value + 100.0).run()
         self.assertFalse(at.exception)
@@ -40,7 +48,7 @@ class TestDashboard(unittest.TestCase):
         # AppTest sends widget values on every run, so the form's "apply only on submit" behaviour is a
         # browser feature it cannot reproduce; here we check that submitting applies the value and stays put.
         at = _thesis_app()
-        at.button_group(key='nav_section').set_value('economy').run()
+        _open_section(at, 'economy')
         at.number_input(key='price_oil').set_value(130.0)
         next(b for b in at.button if b.label.endswith(("Recalcular", "Recalculate"))).click().run()
         self.assertFalse(at.exception)
@@ -59,7 +67,7 @@ class TestDashboard(unittest.TestCase):
     def test_section_stays_after_resetting_the_thesis_profile(self):
         # The reset button calls st.rerun() from the sidebar, before the navigation is drawn
         at = _thesis_app()
-        at.button_group(key='nav_section').set_value('economy').run()
+        _open_section(at, 'economy')
         at.session_state['price_oil'] = 130.0
         next(b for b in at.sidebar.button if b.label.startswith("↺")).click().run()
         self.assertFalse(at.exception)
@@ -92,14 +100,12 @@ class TestSavedConfiguration(unittest.TestCase):
     def test_thesis_config_from_an_older_version_gets_the_profile_again(self):
         # Saved before the economics were added to the profile: no version, no fixed batches
         at = self._load({'profile': 'tesis', 'econ_batches_per_year': 0, 'price_oil': 120.0})
-        from pyrolysis.profiles import THESIS_PROFILE_VERSION
         self.assertTrue(at.session_state['reapplied'])
         self.assertEqual(at.session_state['econ_batches_per_year'], 216)
         self.assertEqual(at.session_state['price_oil'], 121.0)
         self.assertEqual(at.session_state['profile_version'], THESIS_PROFILE_VERSION)
 
     def test_current_thesis_config_keeps_the_user_edits(self):
-        from pyrolysis.profiles import THESIS_PROFILE_VERSION
         at = self._load({'profile': 'tesis', 'profile_version': THESIS_PROFILE_VERSION, 'price_oil': 130.0})
         self.assertFalse(at.session_state['reapplied'])
         self.assertEqual(at.session_state['price_oil'], 130.0)

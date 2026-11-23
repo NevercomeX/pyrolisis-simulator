@@ -1,3 +1,8 @@
+"""User-interface text in English and Spanish.
+
+TRANSLATIONS[lang][key] gives the text for 'en' or 'es'; both languages have the same keys, in the same order.
+"""
+
 TRANSLATIONS = {
     'en': {
         'page_title': "Rotary Pyrolysis Reactor Simulator",
@@ -719,28 +724,31 @@ TRANSLATIONS = {
     }
 }
 
+# Labels that name the burner fuel: key -> (Spanish, English) template, {} is the fuel name
+FUEL_LABEL_TEMPLATES = {
+    'waste_oil_consumed_metric': ("⛽ {} Quemado", "⛽ {} Burned"),
+    'chart_y_oil_consumed': ("{} Quemado (gal)", "{} Burned (gal)"),
+    'chart_oil_vs_syngas_title': ("{} Quemado vs. Syngas Producido", "{} Burned vs. Syngas Produced"),
+    'trace_p_oil': ("Potencia Quemador {}", "{} Burner Power"),
+}
+
+
 def get_fuel_translation(lang, key, fuel_type):
     """
     Returns dynamically translated strings for burner fuel based on the selected fuel type.
+    Unknown keys return the fuel name alone.
     """
     is_es = (lang == 'es')
-    
-    # Identify the base fuel name
+
     if "Diesel" in fuel_type:
         fuel_name = "Diesel"
     elif "Fuel Oil" in fuel_type:
         fuel_name = "Fuel Oil"
     else:
         fuel_name = "Aceite Residual" if is_es else "Waste Oil"
-        
-    if key == 'waste_oil_consumed_metric':
-        return f"⛽ {fuel_name} Quemado" if is_es else f"⛽ {fuel_name} Burned"
-    elif key == 'chart_y_oil_consumed':
-        return f"{fuel_name} Quemado (gal)" if is_es else f"{fuel_name} Burned (gal)"
-    elif key == 'chart_oil_vs_syngas_title':
-        return f"{fuel_name} Quemado vs. Syngas Producido" if is_es else f"{fuel_name} Burned vs. Syngas Produced"
-    elif key == 'trace_p_oil':
-        return f"Potencia Quemador {fuel_name}" if is_es else f"{fuel_name} Burner Power"
-    else:
+
+    if key not in FUEL_LABEL_TEMPLATES:
         return fuel_name
+    es_template, en_template = FUEL_LABEL_TEMPLATES[key]
+    return (es_template if is_es else en_template).format(fuel_name)
 
