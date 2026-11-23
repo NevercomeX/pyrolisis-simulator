@@ -115,6 +115,14 @@ class TestSavedConfiguration(unittest.TestCase):
         self.assertFalse(at.session_state['reapplied'])
         self.assertEqual(at.session_state['price_oil'], 130.0)
 
+    def test_removed_continuous_keys_are_ignored(self):
+        at = self._load({'profile': 'general', 'mode_option': 'Continuous Operation', 'feed_rate': 150.0,
+                         'price_oil': 130.0})
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state['price_oil'], 130.0)
+        self.assertNotIn('mode_option', at.session_state)
+        self.assertNotIn('feed_rate', at.session_state)
+
 
 if __name__ == "__main__":
     unittest.main()

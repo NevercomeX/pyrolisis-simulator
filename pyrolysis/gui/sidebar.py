@@ -42,7 +42,7 @@ _PASSTHROUGH_PARAMS = [
     ('capex_equip', float), ('capex_install', float), ('capex_civil', float), ('capex_piping_elec', float),
     ('capex_eng', float), ('capex_permits', float), ('capex_cont', float),
     ('opex_handling', float), ('opex_tipping', float), ('opex_fuel', float), ('opex_electricity', float),
-    ('opex_aux_utilities', float), ('price_generator_fuel', float), ('gen_diesel_rate', float),
+    ('opex_aux_utilities', float), ('price_generator_fuel', float),
     ('gen_diesel_batch', float), ('opex_labor', float), ('opex_maint', float), ('opex_insurance_tax', float),
     ('price_oil', float), ('price_char', float), ('price_gas', float), ('price_carbon', float),
     ('rate_carbon_offset', float), ('discount_rate', float),
@@ -211,17 +211,6 @@ def render_sidebar():
             apply_profile(PROFILE_THESIS)
             st.rerun()
 
-    # Operation Mode Selection
-    _box = st.sidebar.expander(t("op_mode"), expanded=False)
-    # Continuous mode is temporarily disabled: only Batch Operation is available.
-    _box.radio(
-        t("select_op_mode"),
-        [t("mode_batch")],
-        index=0
-    )
-    mode_option = "Batch Operation"
-    st.session_state['mode_option'] = mode_option
-
     _box = st.sidebar.expander(t("feedstock_cond"), expanded=False)
 
     feed_blend_str = t("feed_blend")
@@ -385,29 +374,18 @@ def render_sidebar():
     if feed_option == "Blend (Petroleum + Hydrocarbon)":
         st.session_state['blend_ratio'] = blend_ratio * 100.0
 
-    # Mode-specific feed config and initialization
-    feed_rate_kgh = float(st.session_state.get('feed_rate', 100.0))
-    temp_inlet_c = float(st.session_state.get('feed_inlet_temp', 25.0))
-    
     # Batch size is entered in gallons; the density is the one from the burner/shell expander (previous run)
     sludge_density_prev = float(st.session_state.get('sludge_density', 944.7))
     kg_per_gal = (sludge_density_prev / 1000.0) * LITERS_PER_GALLON
-    batch_load_gal = float(st.session_state.get('batch_size', 440.0))
-
-    if mode_option == "Continuous Operation":
-        feed_rate_kgh = _box.number_input(t("feed_rate"), min_value=1.0, max_value=50000.0, value=float(st.session_state.get('feed_rate', 100.0)), step=10.0, format="%.1f")
-        temp_inlet_c = _box.number_input(t("feed_inlet_temp"), min_value=-20.0, max_value=300.0, value=float(st.session_state.get('feed_inlet_temp', 25.0)), step=1.0, format="%.1f")
-        batch_load_kg = batch_load_gal * kg_per_gal
-    else:
-        batch_load_gal = _box.number_input(
-            t("batch_size"), 
-            min_value=0.0, 
-            max_value=100000.0, 
-            value=float(st.session_state.get('batch_size', 440.0)), 
-            step=50.0,
-            format="%.1f"
-        )
-        batch_load_kg = batch_load_gal * kg_per_gal
+    batch_load_gal = _box.number_input(
+        t("batch_size"), 
+        min_value=0.0, 
+        max_value=100000.0, 
+        value=float(st.session_state.get('batch_size', 440.0)), 
+        step=50.0,
+        format="%.1f"
+    )
+    batch_load_kg = batch_load_gal * kg_per_gal
 
     bio_oil_density = _box.number_input(
         t("bio_oil_density"),
@@ -434,12 +412,6 @@ def render_sidebar():
     length = _box.number_input(t("reactor_len"), min_value=0.5, max_value=50.0, value=float(st.session_state.get('reactor_len', 8.0)), step=0.5, format="%.2f")
     diameter = _box.number_input(t("reactor_dia"), min_value=0.1, max_value=15.0, value=float(st.session_state.get('reactor_dia', 3.0)), step=0.1, format="%.2f")
     rpm = _box.number_input(t("rotation_speed"), min_value=0.1, max_value=30.0, value=float(st.session_state.get('rotation_speed', 3.0)), step=0.5, format="%.2f")
-
-    slope_pct = float(st.session_state.get('reactor_slope', 2.0))
-    slope = slope_pct / 100.0
-    if mode_option == "Continuous Operation":
-        slope_pct = _box.number_input(t("reactor_slope"), min_value=0.1, max_value=20.0, value=float(st.session_state.get('reactor_slope', 2.0)), step=0.1, format="%.2f")
-        slope = slope_pct / 100.0
 
     # Burner and Shell Calibration expander
     with st.sidebar.expander(t("burner_calib_header"), expanded=False):
@@ -571,77 +543,23 @@ def render_sidebar():
     _box = st.sidebar.expander(t("heating_config"), expanded=False)
     h_eff = _box.number_input(t("heat_transfer_coeff"), min_value=1.0, max_value=1000.0, value=float(st.session_state.get('heat_transfer_coeff', 80.0)), step=5.0, format="%.1f")
 
-    # Pre-declare/initialize heating params to avoid unbound variables
-    T_wall_type_str = "uniform"
-    T_wall_params = {}
-    t_uniform = float(st.session_state.get('wall_temp', 550.0))
-    t_in = float(st.session_state.get('wall_temp_inlet', 300.0))
-    t_out = float(st.session_state.get('wall_temp_outlet', 600.0))
-    t_z1 = float(st.session_state.get('zone_1', 350.0))
-    t_z2 = float(st.session_state.get('zone_2', 550.0))
-    t_z3 = float(st.session_state.get('zone_3', 500.0))
+    _box.markdown(t("batch_temp_prog"))
+    temp_start_c = _box.number_input(t("starting_temp"), min_value=0.0, max_value=500.0, value=float(st.session_state.get('starting_temp', 25.0)), step=5.0, format="%.1f")
     
-    temp_start_c = float(st.session_state.get('starting_temp', 25.0))
-    heating_rate_cmin = float(st.session_state.get('heating_rate', 10.0))
-    temp_hold_c = float(st.session_state.get('holding_temp', 550.0))
-    hold_time_min = float(st.session_state.get('holding_time', 60.0))
-
-    if mode_option == "Continuous Operation":
-        heating_uniform_str = t("heating_uniform")
-        heating_linear_str = t("heating_linear")
-        heating_zones_str = t("heating_zones")
-        
-        wall_heating_options = [heating_uniform_str, heating_linear_str, heating_zones_str]
-        
-        stored_heating = st.session_state.get('wall_heating_type', 'uniform')
-        if stored_heating == 'linear':
-            default_wall_idx = 1
-        elif stored_heating == 'zones':
-            default_wall_idx = 2
-        else:
-            default_wall_idx = 0
-            
-        wall_profile_type_translated = _box.selectbox(
-            t("wall_heating_type"),
-            wall_heating_options,
-            index=default_wall_idx
-        )
-        
-        if wall_profile_type_translated == heating_uniform_str:
-            t_uniform = _box.number_input(t("wall_temp"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('wall_temp', 550.0)), step=10.0, format="%.1f")
-            T_wall_params = {'T_wall': t_uniform}
-            T_wall_type_str = 'uniform'
-        elif wall_profile_type_translated == heating_linear_str:
-            t_in = _box.number_input(t("wall_temp_inlet"), min_value=50.0, max_value=1000.0, value=float(st.session_state.get('wall_temp_inlet', 300.0)), step=10.0, format="%.1f")
-            t_out = _box.number_input(t("wall_temp_outlet"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('wall_temp_outlet', 600.0)), step=10.0, format="%.1f")
-            T_wall_params = {'T_wall_in': t_in, 'T_wall_out': t_out}
-            T_wall_type_str = 'linear'
-        else:  # 3-Zone
-            _box.markdown(t("zone_temps"))
-            t_z1 = _box.number_input(t("zone_1"), min_value=50.0, max_value=1000.0, value=float(st.session_state.get('zone_1', 350.0)), step=10.0, format="%.1f")
-            t_z2 = _box.number_input(t("zone_2"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('zone_2', 550.0)), step=10.0, format="%.1f")
-            t_z3 = _box.number_input(t("zone_3"), min_value=50.0, max_value=1200.0, value=float(st.session_state.get('zone_3', 500.0)), step=10.0, format="%.1f")
-            T_wall_params = {'zones': [(0.3, t_z1), (0.7, t_z2), (1.0, t_z3)]}
-            T_wall_type_str = 'zones'
+    if auto_heating_rate:
+        heating_rate_cmin = _nominal_heating_rate_cmin(
+            current_feed, batch_load_kg, length, diameter, shell_thickness_mm, selected_material_dict,
+            burner_hp, custom_cp_oil, custom_cp_char, custom_cp_ash)
+        _box.info(t("nominal_heating_rate_info").format(heating_rate_cmin))
     else:
-        _box.markdown(t("batch_temp_prog"))
-        temp_start_c = _box.number_input(t("starting_temp"), min_value=0.0, max_value=500.0, value=float(st.session_state.get('starting_temp', 25.0)), step=5.0, format="%.1f")
+        heating_rate_cmin = _box.number_input(t("heating_rate"), min_value=0.1, max_value=100.0, value=float(st.session_state.get('heating_rate', 10.0)), step=0.5, format="%.2f")
         
-        if auto_heating_rate:
-            heating_rate_cmin = _nominal_heating_rate_cmin(
-                current_feed, batch_load_kg, length, diameter, shell_thickness_mm, selected_material_dict,
-                burner_hp, custom_cp_oil, custom_cp_char, custom_cp_ash)
-            _box.info(t("nominal_heating_rate_info").format(heating_rate_cmin))
-        else:
-            heating_rate_cmin = _box.number_input(t("heating_rate"), min_value=0.1, max_value=100.0, value=float(st.session_state.get('heating_rate', 10.0)), step=0.5, format="%.2f")
-            
-        temp_hold_c = _box.number_input(t("holding_temp"), min_value=100.0, max_value=1200.0, value=float(st.session_state.get('holding_temp', 550.0)), step=10.0, format="%.1f")
-        hold_time_min = _box.number_input(t("holding_time"), min_value=1.0, max_value=10000.0, value=float(st.session_state.get('holding_time', 60.0)), step=10.0, format="%.1f")
+    temp_hold_c = _box.number_input(t("holding_temp"), min_value=100.0, max_value=1200.0, value=float(st.session_state.get('holding_temp', 550.0)), step=10.0, format="%.1f")
+    hold_time_min = _box.number_input(t("holding_time"), min_value=1.0, max_value=10000.0, value=float(st.session_state.get('holding_time', 60.0)), step=10.0, format="%.1f")
 
     # Compile the active configurations dictionary
     config_dict = {
         'lang_option': lang_option,
-        'mode_option': mode_option,
         'feed_option': feed_option,
         'blend_ratio': blend_ratio * 100.0 if feed_option == "Blend (Petroleum + Hydrocarbon)" else 50.0,
         'c_moist': float(c_moist),
@@ -660,21 +578,11 @@ def render_sidebar():
         'c_a2': float(c_a2),
         'c_ea3': float(c_ea3 / 1000.0),
         'c_a3': float(c_a3),
-        'feed_rate': float(feed_rate_kgh),
-        'feed_inlet_temp': float(temp_inlet_c),
         'batch_size': float(batch_load_gal),
         'reactor_len': float(length),
         'reactor_dia': float(diameter),
         'rotation_speed': float(rpm),
-        'reactor_slope': float(slope_pct),
         'heat_transfer_coeff': float(h_eff),
-        'wall_heating_type': T_wall_type_str if mode_option == "Continuous Operation" else "Uniform Temperature",
-        'wall_temp': float(t_uniform),
-        'wall_temp_inlet': float(t_in),
-        'wall_temp_outlet': float(t_out),
-        'zone_1': float(t_z1),
-        'zone_2': float(t_z2),
-        'zone_3': float(t_z3),
         'starting_temp': float(temp_start_c),
         'heating_rate': float(heating_rate_cmin),
         'holding_temp': float(temp_hold_c),
@@ -722,16 +630,11 @@ def render_sidebar():
         'current_feed': current_feed,
         'feed_option': feed_option,
         'blend_ratio': blend_ratio,
-        'feed_rate_kgh': feed_rate_kgh,
-        'temp_inlet_c': temp_inlet_c,
         'batch_load_kg': batch_load_kg,
         'length': length,
         'diameter': diameter,
         'rpm': rpm,
-        'slope': slope,
         'h_eff': h_eff,
-        'T_wall_type_str': T_wall_type_str,
-        'T_wall_params': T_wall_params,
         'temp_start_c': temp_start_c,
         'heating_rate_cmin': heating_rate_cmin,
         'temp_hold_c': temp_hold_c,

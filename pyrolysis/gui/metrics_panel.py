@@ -10,27 +10,23 @@ PYRO_START_TEMP_C = 220.0          # ... or once the bed reaches this temperatur
 PYRO_END_CONV_FRAC = 0.995         # pyrolysis ends at 99.5 % of the final conversion
 
 
-def render_metrics_panel(mode_option, summary, results):
+def render_metrics_panel(summary, results):
     """
     Renders metrics cards for mass yield, estimated volumetric yields,
     and operational diagnostics along with necessary status warning cards.
 
     Args:
-        mode_option (str): "Continuous Operation" or "Batch Operation".
         summary (dict): The summary dictionary returned by the reactor simulation.
         results (dict): The full results dictionary containing profile arrays.
     """
     fuel_type = st.session_state.get('fuel_type', "Waste Oil / Aceite Residual")
     fuel_label = get_fuel_translation(get_lang(), 'waste_oil_consumed_metric', fuel_type)
 
-    if mode_option == "Continuous Operation":
-        _render_continuous_metrics(summary, results, fuel_label)
-    else:
-        _render_batch_metrics(summary, results, fuel_label)
+    _render_batch_metrics(summary, results, fuel_label)
 
 
 def _milestones(x_arr, moist_arr, conv_arr, temp_s_arr):
-    """Values of x_arr (time or reactor length) where drying ends, pyrolysis starts and pyrolysis ends.
+    """Values of x_arr (time) where drying ends, pyrolysis starts and pyrolysis ends.
     None when the milestone is never reached; drying is 0.0 for a feed without moisture."""
     x_drying_end = None
     initial_moisture = moist_arr[0]
@@ -82,9 +78,8 @@ def _render_timeline(val_dry, val_start, val_end, subtitle):
         st.write(f"* **{t('timeline_drying_end')}:** `{val_dry}`")
 
 
-def _render_yield_tables(results, summary, in_title, out_title, mass_col, gal_col, mass_suffix, rate_suffix):
-    """Solids in (from the first profile point) and products out, in mass and volume.
-    mass_suffix picks the summary keys ('kg' or 'kgh'); rate_suffix ('' or '/h') goes after the volume units."""
+def _render_yield_tables(results, summary, in_title, out_title, mass_col, gal_col):
+    """Solids in (from the first profile point) and products out, in mass and volume."""
     st.markdown("---")
     st.markdown(f"### {t('summary_yields_header')}")
 
@@ -113,8 +108,7 @@ def _render_yield_tables(results, summary, in_title, out_title, mass_col, gal_co
 
     with scol2:
         st.markdown(f"**{out_title}**")
-        m_out = [summary[f'oil_yield_{mass_suffix}'], summary[f'gas_yield_{mass_suffix}'],
-                 summary[f'char_yield_{mass_suffix}'], summary[f'water_yield_{mass_suffix}']]
+        m_out = [summary['oil_yield_kg'], summary['gas_yield_kg'], summary['char_yield_kg'], summary['water_yield_kg']]
         m_out_total = m_out[0] + m_out[1] + m_out[2] + m_out[3]
         oil_gal, gas_m3, char_gal, water_gal = product_volumes(*m_out)
 
@@ -128,90 +122,32 @@ def _render_yield_tables(results, summary, in_title, out_title, mass_col, gal_co
             ],
             mass_col: m_out + [m_out_total],
             "Volumen / Volume": [
-                f"{oil_gal:.1f} gal{rate_suffix}",
-                f"{gas_m3:.1f} m³{rate_suffix}",
-                f"{char_gal:.1f} gal{rate_suffix}",
-                f"{water_gal:.1f} gal{rate_suffix}",
+                f"{oil_gal:.1f} gal",
+                f"{gas_m3:.1f} m³",
+                f"{char_gal:.1f} gal",
+                f"{water_gal:.1f} gal",
                 "-"
             ]
         })
         st.table(out_df.style.format({mass_col: "{:.2f}"}))
 
 
-def _render_volume_metrics(summary, mass_suffix, rate_suffix, fuel_label, fuel_gal):
+def _render_volume_metrics(summary, fuel_label, fuel_gal):
     """Row of product volumes plus the burner fuel used."""
     st.markdown(t("volumetric_yields_header"))
     vcol1, vcol2, vcol3, vcol4, vcol5 = st.columns(5)
     oil_gal, gas_m3, char_gal, water_gal = product_volumes(
-        summary[f'oil_yield_{mass_suffix}'], summary[f'gas_yield_{mass_suffix}'],
-        summary[f'char_yield_{mass_suffix}'], summary[f'water_yield_{mass_suffix}'])
+        summary['oil_yield_kg'], summary['gas_yield_kg'], summary['char_yield_kg'], summary['water_yield_kg'])
     with vcol1:
-        st.metric(t("bio_oil_vol_metric"), f"{oil_gal:.1f} gal{rate_suffix}")
+        st.metric(t("bio_oil_vol_metric"), f"{oil_gal:.1f} gal")
     with vcol2:
-        st.metric(t("syngas_vol_metric"), f"{gas_m3:.1f} m³{rate_suffix}")
+        st.metric(t("syngas_vol_metric"), f"{gas_m3:.1f} m³")
     with vcol3:
-        st.metric(t("char_vol_metric"), f"{char_gal:.1f} gal{rate_suffix}")
+        st.metric(t("char_vol_metric"), f"{char_gal:.1f} gal")
     with vcol4:
-        st.metric(t("water_vol_metric"), f"{water_gal:.1f} gal{rate_suffix}")
+        st.metric(t("water_vol_metric"), f"{water_gal:.1f} gal")
     with vcol5:
-        st.metric(fuel_label, f"{fuel_gal:.1f} gal{rate_suffix}")
-
-
-def _render_continuous_metrics(summary, results, fuel_label):
-    """Yield flows, diagnostics, milestones along the reactor and yield tables of the continuous mode."""
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(t("bio_oil_yield_metric"), f"{summary['oil_yield_kgh']:.1f} kg/h", f"{summary['oil_yield_pct']:.1f} wt.%")
-    with col2:
-        st.metric(t("syngas_yield_metric"), f"{summary['gas_yield_kgh']:.1f} kg/h", f"{summary['gas_yield_pct']:.1f} wt.%")
-    with col3:
-        st.metric(t("char_yield_metric"), f"{summary['char_yield_kgh']:.1f} kg/h", f"{summary['char_yield_pct']:.1f} wt.%")
-    with col4:
-        st.metric(t("water_vapor_metric"), f"{summary['water_yield_kgh']:.1f} kg/h", f"{summary['water_yield_pct']:.1f} wt.%")
-
-    _render_volume_metrics(summary, 'kgh', '/h', fuel_label, summary.get('waste_oil_consumed_galh', 0.0))
-
-    st.markdown(t("diagnostics"))
-    dcol1, dcol2, dcol3, dcol4, dcol5, dcol6 = st.columns(6)
-    fill_deg = summary['filling_degree_pct']
-    with dcol1:
-        st.metric(t("mrt"), f"{summary['residence_time_min']:.1f} min")
-    with dcol2:
-        st.metric(t("filling_degree"), f"{fill_deg:.2f} %")
-    with dcol3:
-        st.metric(t("heating_duty"), f"{summary['heating_duty_kw']:.2f} kW")
-    with dcol4:
-        st.metric(t("volatiles_conv"), f"{summary['conversion_pct']:.1f} %")
-    with dcol5:
-        st.metric(t("inlet_humidity"), f"{summary['inlet_humidity_pct']:.1f} wt.%")
-    with dcol6:
-        st.metric(t("outlet_humidity"), f"{summary['outlet_humidity_pct']:.1f} wt.%")
-
-    if fill_deg > 15.0:
-        st.warning(t("warn_high_fill"))
-    elif fill_deg < 2.0:
-        st.info(t("warn_low_fill"))
-    if summary['conversion_pct'] < 95.0:
-        st.error(t("warn_incomplete_pyro").format(summary['conversion_pct']))
-
-    # Milestones by position z; the time is z scaled by the mean residence time
-    z_arr = results['z']
-    length_total = z_arr[-1] if len(z_arr) > 0 else 1.0
-    res_time_total = summary['residence_time_min']
-    time_arr = [(z / length_total) * res_time_total if length_total > 0 else 0.0 for z in z_arr]
-    profiles = (results['moisture'], results['conversion'], results['T_solid'])
-    z_dry, z_start, z_end = _milestones(z_arr, *profiles)
-    t_dry, t_start, t_end = _milestones(time_arr, *profiles)
-
-    not_done = t("timeline_not_completed")
-    val_dry = f"{z_dry:.2f} m ({t_dry:.1f} min)" if t_dry is not None else not_done
-    val_start = f"{z_start:.2f} m ({t_start:.1f} min)" if t_start is not None else not_done
-    val_end = f"{z_end:.2f} m ({t_end:.1f} min)" if t_end is not None else not_done
-    _render_timeline(val_dry, val_start, val_end,
-                     f"##### 📅 {t('timeline_time_elapsed')} / {t('timeline_distance')}")
-
-    _render_yield_tables(results, summary, t('summary_solid_in_rate'), t('summary_products_out_rate'),
-                         "Flujo / Flow Rate (kg/h)", "Flujo / Flow Rate (gal/h)", 'kgh', '/h')
+        st.metric(fuel_label, f"{fuel_gal:.1f} gal")
 
 
 def _render_batch_metrics(summary, results, fuel_label):
@@ -226,7 +162,7 @@ def _render_batch_metrics(summary, results, fuel_label):
     with col4:
         st.metric(t("water_evap_metric"), f"{summary['water_yield_kg']:.1f} kg", f"{summary['water_yield_pct']:.1f} wt.%")
 
-    _render_volume_metrics(summary, 'kg', '', fuel_label, summary.get('waste_oil_consumed_gal', 0.0))
+    _render_volume_metrics(summary, fuel_label, summary.get('waste_oil_consumed_gal', 0.0))
 
     st.markdown(t("diagnostics_batch"))
     dcol1, dcol2, dcol3, dcol4, dcol5, dcol6 = st.columns(6)
@@ -299,4 +235,4 @@ def _render_batch_metrics(summary, results, fuel_label):
         f"##### 📅 {t('timeline_time_elapsed')}")
 
     _render_yield_tables(results, summary, t('summary_solid_in'), t('summary_products_out'),
-                         "Masa / Mass (kg)", "Masa / Mass (gal)", 'kg', '')
+                         "Masa / Mass (kg)", "Masa / Mass (gal)")

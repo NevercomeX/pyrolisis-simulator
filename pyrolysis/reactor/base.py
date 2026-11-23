@@ -5,7 +5,7 @@ Encapsulates core physical geometry, thermodynamic constants, combustion
 calculations, multicomponent kinetic reaction stepping, and phase-change drying.
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 import numpy as np
 from ..feedstock import Feedstock
 
@@ -54,9 +54,6 @@ class BaseReactorSimulation:
         self.Cp_char = float(Cp_char)
         self.Cp_ash = float(Cp_ash)
         self.Cp_moist = 4184.0          # Liquid water
-        self.Cp_steam = 2000.0          # Water vapor / steam
-        self.Cp_oil_vap = 2200.0        # Oil vapor
-        self.Cp_pyro_gas = 1500.0       # Pyrolysis gas
 
         # Universal constants and reaction enthalpies
         self.R = 8.3144598              # Ideal gas constant (J/mol·K)
@@ -147,22 +144,6 @@ class BaseReactorSimulation:
             m_char * self.Cp_char +
             m_ash * self.Cp_ash
         ) / m_solid_total
-
-    def calculate_Cp_gas(
-        self,
-        m_steam: float,
-        m_oil_vap: float,
-        m_gas_vap: float,
-        m_gas_total: float
-    ) -> float:
-        """Calculates gas phase heat capacity (J/kg·K)."""
-        if m_gas_total <= 1e-8:
-            return self.Cp_steam
-        return (
-            m_steam * self.Cp_steam +
-            m_oil_vap * self.Cp_oil_vap +
-            m_gas_vap * self.Cp_pyro_gas
-        ) / m_gas_total
 
     @staticmethod
     def calculate_humidity_pct(m_moist: float, m_solid_total: float) -> float:
@@ -262,10 +243,8 @@ class BaseReactorSimulation:
         k1: float,
         k2: float,
         k3: float,
-        tau_gas: float = GAS_RESIDENCE_S,
-        dt_gas: Optional[float] = None,
-        m_oil_vap: float = 0.0
-    ) -> Tuple[float, float, float, float]:
+        tau_gas: float = GAS_RESIDENCE_S
+    ) ->Tuple[float, float, float, float]:
         """
         Splits reacted volatile mass into pyrolysis oil, non-condensable gas,
         and solid char, including secondary cracking of pyrolysis oil vapors.
@@ -297,13 +276,8 @@ class BaseReactorSimulation:
         d_gas_primary = d_non_oil * frac_gas
         d_char_prod = d_non_oil * frac_char
 
-        # Secondary cracking of pyrolysis oil vapor
-        if dt_gas is not None:
-            # Continuous mode differential spatial cracking
-            d_oil_cracked = min(m_oil_vap * k3 * dt_gas, m_oil_vap + d_oil_primary)
-        else:
-            # Batch mode transient residence time cracking
-            d_oil_cracked = d_oil_primary * (1.0 - np.exp(-k3 * tau_gas))
+        # Secondary cracking of the oil vapour during its residence time in the hot zone
+        d_oil_cracked = d_oil_primary * (1.0 - np.exp(-k3 * tau_gas))
 
         d_oil_prod = d_oil_primary - d_oil_cracked
         d_gas_prod = d_gas_primary + d_oil_cracked

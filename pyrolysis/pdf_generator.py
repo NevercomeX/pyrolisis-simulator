@@ -127,14 +127,12 @@ class NumberedCanvas(base_canvas_class):
 # Calculations shared by the PDF and Word reports
 # =========================================================
 
-def _report_inputs(mode_option, summary, solver_inputs):
+def _report_inputs(summary, solver_inputs):
     """Feed, load and headline results used across the report sections."""
-    is_continuous = (mode_option == "Continuous Operation")
     feed_obj = solver_inputs.get('current_feed')
     sludge_density = float(solver_inputs.get('sludge_density', 944.7))
-    load_kg = solver_inputs['feed_rate_kgh'] if is_continuous else solver_inputs['batch_load_kg']
+    load_kg = solver_inputs['batch_load_kg']
     return SimpleNamespace(
-        is_continuous=is_continuous,
         feed_obj=feed_obj,
         feed_name=feed_obj.name if feed_obj else "Lodo de Petróleo / Hidrocarburos",
         sludge_density=sludge_density,
@@ -144,40 +142,28 @@ def _report_inputs(mode_option, summary, solver_inputs):
         heating_rate=float(solver_inputs.get('heating_rate_cmin', 1.0)),
         load_kg=load_kg,
         load_gal=(load_kg / sludge_density) * GAL_PER_M3,
-        load_unit="gal/h" if is_continuous else "gal",
+        load_unit="gal",
         conv_pct=summary['conversion_pct'],
         oil_pct=summary['oil_yield_pct'],
         gas_pct=summary['gas_yield_pct'],
         char_pct=summary['char_yield_pct'],
-        duty_val=summary['heating_duty_kw'] if is_continuous else summary.get('total_energy_kwh', 0.0),
-        duty_unit="kW" if is_continuous else "kWh",
+        duty_val=summary.get('total_energy_kwh', 0.0),
+        duty_unit="kWh",
     )
 
 
 def _product_masses(summary):
-    """Oil, gas, char and water produced: kg/h (continuous) or kg per batch."""
+    """Oil, gas, char and water produced per batch (kg)."""
     return (
-        summary.get('oil_yield_kgh', summary.get('oil_yield_kg', 0)),
-        summary.get('gas_yield_kgh', summary.get('gas_yield_kg', 0)),
-        summary.get('char_yield_kgh', summary.get('char_yield_kg', 0)),
-        summary.get('water_yield_kgh', summary.get('water_yield_kg', 0)),
+        summary.get('oil_yield_kg', 0),
+        summary.get('gas_yield_kg', 0),
+        summary.get('char_yield_kg', 0),
+        summary.get('water_yield_kg', 0),
     )
 
 
-def _pyrolysis_timing(is_continuous, results, summary):
+def _pyrolysis_timing(results):
     """Drying end, pyrolysis window and cycle length (min), plus the two time rows of the geometry table."""
-    if is_continuous:
-        pyro_residence_min = summary.get('residence_time_min', 30.0)
-        return SimpleNamespace(
-            t_drying_end=0.0,
-            pyro_residence_min=pyro_residence_min,
-            total_cycle_min=pyro_residence_min,
-            time_label_1="Tiempo Medio de Residencia (MRT)",
-            time_val_1=f"{pyro_residence_min:.1f} min",
-            time_label_2="Modo de Operación Continuo",
-            time_val_2="Flujo Estacionario",
-        )
-
     t_arr = np.array(results.get('time', [0.0]))
     conv_arr = np.array(results.get('conversion', [0.0]))
     moist_arr = np.array(results.get('moisture', [0.0]))
@@ -226,45 +212,23 @@ def _pyrolysis_timing(is_continuous, results, summary):
     )
 
 
-def _thermal_energy_balance(is_continuous, results, solver_inputs, oil_kg, gas_kg, char_kg, water_kg):
-    """
-    Heat sent to each destination (char, oil, gas, reaction, steam) and the total:
-    kW for a continuous feed (masses in kg/h), kWh per batch (masses in kg).
-    """
+def _thermal_energy_balance(results, solver_inputs, oil_kg, gas_kg, char_kg, water_kg):
+    """Heat (kWh per batch) sent to each destination (char, oil, gas, reaction, steam) and the total."""
     cp_oil = float(solver_inputs.get('custom_cp_oil', 1800.0))
     e = SimpleNamespace(cp_char=CP_CHAR_J_KGK, cp_oil=cp_oil, cp_gas=CP_GAS_J_KGK, dh_pyro=DH_PYRO_J_KG)
 
-    if is_continuous:
-        e.flow_oil_kgs = oil_kg / 3600.0
-        e.flow_gas_kgs = gas_kg / 3600.0
-        e.flow_char_kgs = char_kg / 3600.0
-        e.flow_steam_kgs = water_kg / 3600.0
-        T_in = results['T_solid'][0]
-        T_out = results['T_solid'][-1]
-        T_gas_out = results['T_gas'][-1]
-        e.dT = T_out - T_in
+    e.T_start = results['T_solid'][0]
+    e.T_hold = results['T_solid'][-1]
+    e.dT = e.T_hold - e.T_start
 
-        e.char = (e.flow_char_kgs * CP_CHAR_J_KGK * e.dT) / 1000.0
-        e.oil = (e.flow_oil_kgs * cp_oil * e.dT) / 1000.0
-        e.gas = (e.flow_gas_kgs * CP_GAS_J_KGK * e.dT) / 1000.0
-        e.rxn = ((e.flow_oil_kgs + e.flow_gas_kgs) * DH_PYRO_J_KG) / 1000.0
-        if T_in < WATER_BOILING_C:
-            e.steam = (e.flow_steam_kgs * (CP_WATER_J_KGK * (WATER_BOILING_C - T_in) + DH_EVAP_J_KG + CP_STEAM_J_KGK * (max(T_gas_out, WATER_BOILING_C) - WATER_BOILING_C))) / 1000.0
-        else:
-            e.steam = (e.flow_steam_kgs * (DH_EVAP_J_KG + CP_STEAM_J_KGK * (max(T_gas_out, T_in) - T_in))) / 1000.0
+    e.char = (char_kg * CP_CHAR_J_KGK * e.dT) / J_PER_KWH
+    e.oil = (oil_kg * cp_oil * e.dT) / J_PER_KWH
+    e.gas = (gas_kg * CP_GAS_J_KGK * e.dT) / J_PER_KWH
+    e.rxn = ((oil_kg + gas_kg) * DH_PYRO_J_KG) / J_PER_KWH
+    if e.T_hold >= WATER_BOILING_C:
+        e.steam = (water_kg * (CP_WATER_J_KGK * (WATER_BOILING_C - e.T_start) + DH_EVAP_J_KG + CP_STEAM_J_KGK * (e.T_hold - WATER_BOILING_C))) / J_PER_KWH
     else:
-        e.T_start = results['T_solid'][0]
-        e.T_hold = results['T_solid'][-1]
-        e.dT = e.T_hold - e.T_start
-
-        e.char = (char_kg * CP_CHAR_J_KGK * e.dT) / J_PER_KWH
-        e.oil = (oil_kg * cp_oil * e.dT) / J_PER_KWH
-        e.gas = (gas_kg * CP_GAS_J_KGK * e.dT) / J_PER_KWH
-        e.rxn = ((oil_kg + gas_kg) * DH_PYRO_J_KG) / J_PER_KWH
-        if e.T_hold >= WATER_BOILING_C:
-            e.steam = (water_kg * (CP_WATER_J_KGK * (WATER_BOILING_C - e.T_start) + DH_EVAP_J_KG + CP_STEAM_J_KGK * (e.T_hold - WATER_BOILING_C))) / J_PER_KWH
-        else:
-            e.steam = (water_kg * (CP_WATER_J_KGK * (e.T_hold - e.T_start))) / J_PER_KWH
+        e.steam = (water_kg * (CP_WATER_J_KGK * (e.T_hold - e.T_start))) / J_PER_KWH
 
     e.total = e.char + e.oil + e.gas + e.rxn + e.steam
     return e
@@ -310,7 +274,7 @@ def _oil_gravity(bio_oil_density):
     return sg_15, api_deg
 
 
-def _generate_matplotlib_figures(mode_option, results, summary):
+def _generate_matplotlib_figures(results, summary):
     """
     Generates high-resolution Matplotlib figures and converts them to ReportLab Image flowables.
     """
@@ -320,16 +284,13 @@ def _generate_matplotlib_figures(mode_option, results, summary):
     plt.rcParams['axes.edgecolor'] = '#94A3B8'
     plt.rcParams['axes.linewidth'] = 0.8
 
-    is_continuous = (mode_option == "Continuous Operation")
-    x_data = results['z'] if is_continuous else results['time']
-    x_label = "Posición Longitudinal Z (m)" if is_continuous else "Tiempo de Proceso (min)"
+    x_data = results['time']
+    x_label = "Tiempo de Proceso (min)"
 
     # --- Figure 1: Temperature Profile ---
     fig, ax = plt.subplots(figsize=(6.5, 2.7), dpi=FIGURE_DPI)
     ax.plot(x_data, results['T_wall'], label='Temp. Pared (°C)', color='#DC2626', linestyle='--', linewidth=1.5)
     ax.plot(x_data, results['T_solid'], label='Temp. Lecho Sólido (°C)', color='#1E3A8A', linewidth=2.0)
-    if is_continuous:
-        ax.plot(x_data, results['T_gas'], label='Temp. Fase Gas (°C)', color='#059669', linestyle=':', linewidth=1.5)
     ax.axhline(100, color='#94A3B8', linestyle='-.', linewidth=1, label='Evaporación Agua (100°C)')
 
     ax.set_title("Figura 1. Perfil Térmico del Reactor Rotatorio", fontsize=10, fontweight='bold', color='#1E3A8A', pad=8)
@@ -346,7 +307,7 @@ def _generate_matplotlib_figures(mode_option, results, summary):
     ax1.plot(x_data, results['char'], label='Char (kg)', color='#1F2937', linewidth=1.5)
     ax1.plot(x_data, results['ash'], label='Cenizas (kg)', color='#64748B', linewidth=1.2)
     ax1.set_xlabel(x_label, fontsize=8.5, fontweight='bold')
-    ax1.set_ylabel("Masa en Lecho (kg" + ("/h" if is_continuous else "") + ")", fontsize=8.5, fontweight='bold')
+    ax1.set_ylabel("Masa en Lecho (kg)", fontsize=8.5, fontweight='bold')
     ax1.grid(True, linestyle=':', alpha=0.6)
 
     ax2 = ax1.twinx()
@@ -368,7 +329,7 @@ def _generate_matplotlib_figures(mode_option, results, summary):
 
     ax.set_title("Figura 3. Acumulación de Productos Volátiles Evacuados", fontsize=10, fontweight='bold', color='#1E3A8A', pad=8)
     ax.set_xlabel(x_label, fontsize=8.5, fontweight='bold')
-    ax.set_ylabel("Masa Generada (kg" + ("/h" if is_continuous else "") + ")", fontsize=8.5, fontweight='bold')
+    ax.set_ylabel("Masa Generada (kg)", fontsize=8.5, fontweight='bold')
     ax.grid(True, linestyle=':', alpha=0.6)
     ax.legend(fontsize=7.5, loc='upper left', framealpha=0.9)
     fig_images['fig_vapors'] = _figure_to_image(fig, 6.5, 2.7)
@@ -409,7 +370,7 @@ def _figure_to_image(fig, width_in, height_in):
     return Image(buf, width=width_in*inch, height=height_in*inch)
 
 
-def _calculate_financials(mode_option, summary, solver_inputs):
+def _calculate_financials(summary, solver_inputs):
     """
     Computes financial & sustainability KPIs for the thesis report.
     """
@@ -419,13 +380,11 @@ def _calculate_financials(mode_option, summary, solver_inputs):
     except Exception:
         session = {}
 
-    is_continuous = (mode_option == "Continuous Operation")
-
-    default_equip = 9000000.0 if is_continuous else 4800000.0
-    default_install = 3150000.0 if is_continuous else 1680000.0
-    default_civil = 2250000.0 if is_continuous else 1200000.0
-    default_piping_elec = 2250000.0 if is_continuous else 1200000.0
-    default_eng = 1350000.0 if is_continuous else 720000.0
+    default_equip = 4800000.0
+    default_install = 1680000.0
+    default_civil = 1200000.0
+    default_piping_elec = 1200000.0
+    default_eng = 720000.0
     default_permits = 450000.0
     default_contingency = 900000.0
 
@@ -446,40 +405,29 @@ def _calculate_financials(mode_option, summary, solver_inputs):
     sludge_density = float(session.get('sludge_density', 944.7))
     oil_density = float(session.get('bio_oil_density', 750.0))
 
-    if is_continuous:
-        annual_hours = annual_days * 24.0
-        sludge_treated_kg = summary.get('feed_rate_kgh', 500.0) * annual_hours
-        oil_produced_kg = summary.get('oil_yield_kgh', 0.0) * annual_hours
-        char_produced_kg = summary.get('char_yield_kgh', 0.0) * annual_hours
-        gas_produced_kg = summary.get('gas_yield_kgh', 0.0) * annual_hours
-        fuel_consumed_gal = summary.get('waste_oil_consumed_galh', 0.0) * annual_hours
-        elec_consumed_kwh = 0.0
-        gen_diesel_rate = float(session.get('gen_diesel_rate', 1.2))
-        generator_fuel_consumed_gal = gen_diesel_rate * annual_hours
-    else:
-        t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
-        t_hold_min = solver_inputs.get('hold_time_min', 60.0)
-        t_cycle_min = t_heat_min + t_hold_min
-        batch_cooldown_h = float(session.get('batch_cooldown_h', 0.50))
-        batch_loading_h = float(session.get('batch_loading_h', 0.50))
-        batch_turnaround_h = float(session.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
-        batches_before_cleaning = int(session.get('batches_before_cleaning', 20))
-        cleaning_time_h = float(session.get('cleaning_time_h', 4.0))
-        maint_cooldown_h = float(session.get('maint_cooldown_h', 6.0))
-        maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
-        t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
-        t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
-        annual_hours = annual_days * 24.0
-        batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+    t_heat_min = (solver_inputs.get('temp_hold_c', 400.0) - solver_inputs.get('temp_start_c', 25.0)) / solver_inputs.get('heating_rate_cmin', 1.0)
+    t_hold_min = solver_inputs.get('hold_time_min', 60.0)
+    t_cycle_min = t_heat_min + t_hold_min
+    batch_cooldown_h = float(session.get('batch_cooldown_h', 0.50))
+    batch_loading_h = float(session.get('batch_loading_h', 0.50))
+    batch_turnaround_h = float(session.get('batch_turnaround_h', batch_cooldown_h + batch_loading_h))
+    batches_before_cleaning = int(session.get('batches_before_cleaning', 20))
+    cleaning_time_h = float(session.get('cleaning_time_h', 4.0))
+    maint_cooldown_h = float(session.get('maint_cooldown_h', 6.0))
+    maint_penalty_per_batch_h = (maint_cooldown_h + cleaning_time_h) / max(batches_before_cleaning, 1)
+    t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+    t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
+    annual_hours = annual_days * 24.0
+    batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
 
-        sludge_treated_kg = summary.get('batch_load_kg', 500.0) * batches_per_year
-        oil_produced_kg = summary.get('oil_yield_kg', 0.0) * batches_per_year
-        char_produced_kg = summary.get('char_yield_kg', 0.0) * batches_per_year
-        gas_produced_kg = summary.get('gas_yield_kg', 0.0) * batches_per_year
-        fuel_consumed_gal = summary.get('waste_oil_consumed_gal', 0.0) * batches_per_year
-        elec_consumed_kwh = 0.0
-        gen_diesel_batch = float(session.get('gen_diesel_batch', 1.0))
-        generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
+    sludge_treated_kg = summary.get('batch_load_kg', 500.0) * batches_per_year
+    oil_produced_kg = summary.get('oil_yield_kg', 0.0) * batches_per_year
+    char_produced_kg = summary.get('char_yield_kg', 0.0) * batches_per_year
+    gas_produced_kg = summary.get('gas_yield_kg', 0.0) * batches_per_year
+    fuel_consumed_gal = summary.get('waste_oil_consumed_gal', 0.0) * batches_per_year
+    elec_consumed_kwh = 0.0
+    gen_diesel_batch = float(session.get('gen_diesel_batch', 1.0))
+    generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
 
     sludge_treated_gal = (sludge_treated_kg / sludge_density) * GAL_PER_M3
     oil_produced_gal = (oil_produced_kg / oil_density) * GAL_PER_M3
@@ -845,9 +793,7 @@ def _add_reactor_section(story, s, inp, summary, solver_inputs, timing):
     h_eff = solver_inputs['h_eff']
     burner_hp = solver_inputs.get('burner_hp', 300.0)
     burner_eff = solver_inputs.get('burner_eff_pct', 85.0)
-    fuel_cons = summary.get('waste_oil_consumed_galh', summary.get('waste_oil_consumed_gal', 0.0))
-    fuel_unit = "/h" if inp.is_continuous else "/lote"
-    is_continuous = inp.is_continuous
+    fuel_cons = summary.get('waste_oil_consumed_gal', 0.0)
     total_cycle_min = timing.total_cycle_min
 
     geom_table_data = [
@@ -857,10 +803,10 @@ def _add_reactor_section(story, s, inp, summary, solver_inputs, timing):
         [Paragraph("Relación de Aspecto (L/D)", s.cell), Paragraph(f"{aspect_ratio:.2f}", s.center), Paragraph("Tasa de Calentamiento", s.cell), Paragraph(f"{inp.heating_rate:.1f} °C/min", s.center)],
         [Paragraph("Velocidad de Rotación", s.cell), Paragraph(f"{rpm_val:.1f} RPM", s.center), Paragraph("Coef. Transf. Calor (h_eff)", s.cell), Paragraph(f"{h_eff:.1f} W/m²·K", s.center)],
         [Paragraph("Grado de Llenado del Lecho", s.cell), Paragraph(f"{fill_deg:.2f} %", s.center), Paragraph("Potencia Quemadores", s.cell), Paragraph(f"{burner_hp:.0f} BHP", s.center)],
-        [Paragraph("Tiempo Evaporación Agua (Secado)", s.cell), Paragraph(f"{timing.t_drying_end:.1f} min" if not is_continuous else "N/A", s.center), Paragraph("Eficiencia Térmica Quemador", s.cell), Paragraph(f"{burner_eff:.1f} %", s.center)],
-        [Paragraph(timing.time_label_1, s.cell), Paragraph(timing.time_val_1, s.center), Paragraph("Consumo Combustible Auxiliar", s.cell), Paragraph(f"{fuel_cons:.1f} gal{fuel_unit}", s.center)],
+        [Paragraph("Tiempo Evaporación Agua (Secado)", s.cell), Paragraph(f"{timing.t_drying_end:.1f} min", s.center), Paragraph("Eficiencia Térmica Quemador", s.cell), Paragraph(f"{burner_eff:.1f} %", s.center)],
+        [Paragraph(timing.time_label_1, s.cell), Paragraph(timing.time_val_1, s.center), Paragraph("Consumo Combustible Auxiliar", s.cell), Paragraph(f"{fuel_cons:.1f} gal/lote", s.center)],
         [Paragraph(timing.time_label_2, s.cell), Paragraph(timing.time_val_2, s.center), Paragraph("Conversión Volátiles Total", s.cell), Paragraph(f"{inp.conv_pct:.1f} %", s.center)],
-        [Paragraph("Carga / Alimentación Entrante", s.cell), Paragraph(f"{inp.load_gal:.1f} {inp.load_unit}", s.center), Paragraph("Tiempo Total Ciclo Lote" if not is_continuous else "Régimen", s.cell), Paragraph(f"{total_cycle_min:.1f} min ({total_cycle_min/60.0:.1f} h)" if not is_continuous else "Estacionario", s.center)]
+        [Paragraph("Carga / Alimentación Entrante", s.cell), Paragraph(f"{inp.load_gal:.1f} {inp.load_unit}", s.center), Paragraph("Tiempo Total Ciclo Lote", s.cell), Paragraph(f"{total_cycle_min:.1f} min ({total_cycle_min/60.0:.1f} h)", s.center)]
     ]
     story.append(_data_table(geom_table_data, [2.0, 1.3, 2.0, 1.3], NAVY, 3.5))
     story.append(Spacer(1, 14))
@@ -881,22 +827,21 @@ def _add_mass_balance(story, s, inp, summary, solver_inputs, masses):
     gas_m3 = gas_kg / SYNGAS_DENSITY_KG_M3
     char_gal = (char_kg / char_density) * GAL_PER_M3
     water_gal = (water_kg / 1000.0) * GAL_PER_M3
-    per_h = "/h" if inp.is_continuous else ""
 
     # The ENTRADA row prints the load in gal under the "Masa (kg)" header (kept as is).
     mass_table_data = [
-        _header_row(s, "Flujo / Corriente", "Masa (kg" + per_h + ")", "Fracción wt.%", "Volumen Estimado"),
+        _header_row(s, "Flujo / Corriente", "Masa (kg)", "Fracción wt.%", "Volumen Estimado"),
         [Paragraph("<b>ENTRADA:</b> " + inp.feed_name, s.bold), Paragraph(f"<b>{inp.load_gal:.2f}</b>", s.center), Paragraph("<b>100.00%</b>", s.center), Paragraph("-", s.center)],
-        [Paragraph("<b>SALIDA:</b> Aceite pirolítico (Pyrolysis oil)", s.cell), Paragraph(f"{oil_kg:.2f}", s.center), Paragraph(f"{inp.oil_pct:.2f}%", s.center), Paragraph(f"{oil_gal:.1f} gal" + per_h, s.cell)],
-        [Paragraph("<b>SALIDA:</b> Gas de Síntesis (Syngas)", s.cell), Paragraph(f"{gas_kg:.2f}", s.center), Paragraph(f"{inp.gas_pct:.2f}%", s.center), Paragraph(f"{gas_m3:.1f} m³" + per_h, s.cell)],
-        [Paragraph("<b>SALIDA:</b> Carbón (Char Seco)", s.cell), Paragraph(f"{char_kg:.2f}", s.center), Paragraph(f"{inp.char_pct:.2f}%", s.center), Paragraph(f"{char_gal:.1f} gal" + per_h, s.cell)],
-        [Paragraph("<b>SALIDA:</b> Vapor de Agua (Steam)", s.cell), Paragraph(f"{water_kg:.2f}", s.center), Paragraph(f"{summary['water_yield_pct']:.2f}%", s.center), Paragraph(f"{water_gal:.1f} gal" + per_h, s.cell)],
+        [Paragraph("<b>SALIDA:</b> Aceite pirolítico (Pyrolysis oil)", s.cell), Paragraph(f"{oil_kg:.2f}", s.center), Paragraph(f"{inp.oil_pct:.2f}%", s.center), Paragraph(f"{oil_gal:.1f} gal", s.cell)],
+        [Paragraph("<b>SALIDA:</b> Gas de Síntesis (Syngas)", s.cell), Paragraph(f"{gas_kg:.2f}", s.center), Paragraph(f"{inp.gas_pct:.2f}%", s.center), Paragraph(f"{gas_m3:.1f} m³", s.cell)],
+        [Paragraph("<b>SALIDA:</b> Carbón (Char Seco)", s.cell), Paragraph(f"{char_kg:.2f}", s.center), Paragraph(f"{inp.char_pct:.2f}%", s.center), Paragraph(f"{char_gal:.1f} gal", s.cell)],
+        [Paragraph("<b>SALIDA:</b> Vapor de Agua (Steam)", s.cell), Paragraph(f"{water_kg:.2f}", s.center), Paragraph(f"{summary['water_yield_pct']:.2f}%", s.center), Paragraph(f"{water_gal:.1f} gal", s.cell)],
         [Paragraph("<b>ERROR CIERRE BALANCE</b>", s.bold), Paragraph(f"<b>{summary['mass_error_pct']:.2e} %</b>", s.center), Paragraph("<b>Conservativo</b>", s.center), Paragraph("<b>Tolerancia < 0.01%</b>", s.cell)]
     ]
     mass_eq_text = (
         f"<b>Ecuación de Conservación de Masa:</b><br/>"
         f"<i>M<sub>entrada</sub> = M<sub>aceite pirolítico</sub> + M<sub>syngas</sub> + M<sub>char</sub> + M<sub>vapor</sub></i><br/>"
-        f"<b>Sustitución Numérica:</b> {inp.load_gal:.2f} kg{' / h' if inp.is_continuous else ''} = "
+        f"<b>Sustitución Numérica:</b> {inp.load_gal:.2f} kg = "
         f"{oil_kg:.2f} kg + {gas_kg:.2f} kg + {char_kg:.2f} kg + {water_kg:.2f} kg | "
         f"<b>Error de Cierre:</b> {summary['mass_error_pct']:.4f}%"
     )
@@ -908,7 +853,7 @@ def _add_mass_balance(story, s, inp, summary, solver_inputs, masses):
     return gas_m3
 
 
-def _add_energy_balance(story, s, inp, energy):
+def _add_energy_balance(story, s, energy):
     """3.2 Thermal energy balance by destination of the heat."""
     story.append(Paragraph("<b>3.2 Balance de Energía Térmica y Carga de Calentamiento</b>", s.h2))
     _add_body_text(story, s, (
@@ -921,12 +866,8 @@ def _add_energy_balance(story, s, inp, energy):
     ))
 
     e = energy
-    if inp.is_continuous:
-        unit, column_title = "kW", "Potencia (kW)"
-        total_label, total_note = "DEMANDA TÉRMICA TOTAL", "Potencia Neta Requerida"
-    else:
-        unit, column_title = "kWh", "Energía (kWh)"
-        total_label, total_note = "ENERGÍA TÉRMICA TOTAL", "Consumo Total Ciclo"
+    unit, column_title = "kWh", "Energía (kWh)"
+    total_label, total_note = "ENERGÍA TÉRMICA TOTAL", "Consumo Total Ciclo"
 
     energy_rows = [
         ("Calor Sensible del Sólido (Char)", e.char, "Conducción lecho de carbón residual"),
@@ -945,27 +886,9 @@ def _add_energy_balance(story, s, inp, energy):
     story.append(Spacer(1, 8))
 
 
-def _energy_formula_rows(inp, e, oil_kg, gas_kg, char_kg, water_kg):
+def _energy_formula_rows(e, oil_kg, gas_kg, char_kg, water_kg):
     """(component, formula, substitution) rows of the calculation memo, without the TOTAL row."""
     pct = lambda value: _share_pct(value, e.total)
-    if inp.is_continuous:
-        return [
-            ("Calor Char (Sólido)",
-             "<i>Q<sub>char</sub> = F<sub>char</sub> · Cp<sub>char</sub> · (T<sub>out</sub> - T<sub>in</sub>)</i>",
-             f"{e.flow_char_kgs*3600:.1f} kg/h · {e.cp_char:.0f} J/kg·K · {e.dT:.1f} K = <b>{e.char:.2f} kW</b> ({pct(e.char):.1f}%)"),
-            ("Calor Aceite pirolítico (Líquido)",
-             "<i>Q<sub>oil</sub> = F<sub>oil</sub> · Cp<sub>oil</sub> · (T<sub>out</sub> - T<sub>in</sub>)</i>",
-             f"{e.flow_oil_kgs*3600:.1f} kg/h · {e.cp_oil:.0f} J/kg·K · {e.dT:.1f} K = <b>{e.oil:.2f} kW</b> ({pct(e.oil):.1f}%)"),
-            ("Calor Syngas (Gas)",
-             "<i>Q<sub>gas</sub> = F<sub>gas</sub> · Cp<sub>gas</sub> · (T<sub>out</sub> - T<sub>in</sub>)</i>",
-             f"{e.flow_gas_kgs*3600:.1f} kg/h · {e.cp_gas:.0f} J/kg·K · {e.dT:.1f} K = <b>{e.gas:.2f} kW</b> ({pct(e.gas):.1f}%)"),
-            ("Reacción Química Craqueo",
-             "<i>Q<sub>rxn</sub> = (F<sub>oil</sub> + F<sub>gas</sub>) · ΔH<sub>pyro</sub></i>",
-             f"{(e.flow_oil_kgs+e.flow_gas_kgs)*3600:.1f} kg/h · {e.dh_pyro:,.0f} J/kg = <b>{e.rxn:.2f} kW</b> ({pct(e.rxn):.1f}%)"),
-            ("Evaporación del Agua",
-             "<i>Q<sub>steam</sub> = F<sub>steam</sub> · [Cp<sub>w</sub>ΔT<sub>w</sub> + ΔH<sub>evap</sub> + Cp<sub>s</sub>ΔT<sub>s</sub>]</i>",
-             f"{e.flow_steam_kgs*3600:.1f} kg/h · [Evap 2.256 MJ/kg + Sobrecalent.] = <b>{e.steam:.2f} kW</b> ({pct(e.steam):.1f}%)"),
-        ]
     return [
         ("Calor Char (Sólido)",
          "<i>E<sub>char</sub> = [M<sub>char</sub> · Cp<sub>char</sub> · (T<sub>hold</sub> - T<sub>start</sub>)] / 3.6e6</i>",
@@ -985,19 +908,16 @@ def _energy_formula_rows(inp, e, oil_kg, gas_kg, char_kg, water_kg):
     ]
 
 
-def _add_energy_formulas(story, s, inp, energy, masses):
+def _add_energy_formulas(story, s, energy, masses):
     """3.3 Calculation memo: formula and numeric substitution of each heat term."""
     story.append(Paragraph("<b>3.3 Memoria de Cálculo Detallada de Fórmulas Térmicas</b>", s.h2))
     e = energy
-    if inp.is_continuous:
-        total_row = ("DEMANDA TÉRMICA TOTAL", "Q<sub>total</sub> = Σ Q<sub>componentes</sub>", f"{e.total:.2f} kW (100.00%)")
-    else:
-        total_row = ("ENERGÍA TÉRMICA TOTAL", "E<sub>total</sub> = Σ E<sub>componentes</sub>", f"{e.total:.2f} kWh (100.00%)")
+    total_row = ("ENERGÍA TÉRMICA TOTAL", "E<sub>total</sub> = Σ E<sub>componentes</sub>", f"{e.total:.2f} kWh (100.00%)")
 
     calc_formula_data = [_header_row(s, "Componente Energético", "Fórmula de Ingeniería Aplicada", "Sustitución de Variables y Resultado")]
     calc_formula_data += [
         [Paragraph(f"<b>{component}</b>", s.cell), Paragraph(formula, s.cell), Paragraph(substitution, s.cell)]
-        for component, formula, substitution in _energy_formula_rows(inp, e, *masses)
+        for component, formula, substitution in _energy_formula_rows(e, *masses)
     ]
     total_label, total_formula, total_value = total_row
     calc_formula_data.append([
@@ -1009,7 +929,7 @@ def _add_energy_formulas(story, s, inp, energy, masses):
     story.append(Spacer(1, 12))
 
 
-def _add_figures_section(story, s, mode_option, results, summary):
+def _add_figures_section(story, s, results, summary):
     """4. Temperature, solids, vapour and yield-distribution figures."""
     story.append(PageBreak())
     _add_section_title(story, s, "4. Perfiles Térmicos y Distribución de Productos (Figuras)")
@@ -1018,7 +938,7 @@ def _add_figures_section(story, s, mode_option, results, summary):
         "la deshidratación del lodo y la tasa de desvolatilización de productos orgánicos hasta alcanzar la conversión completa."
     ))
 
-    figs = _generate_matplotlib_figures(mode_option, results, summary)
+    figs = _generate_matplotlib_figures(results, summary)
 
     story.append(figs['fig_temp'])
     story.append(Paragraph("<b>Figura 1.</b> Perfil axial/temporal de temperaturas en la pared del reactor, lecho sólido y fase gas.", s.caption))
@@ -1045,7 +965,7 @@ def _money_row(s, label, amount, share_pct, note):
     return [Paragraph(label, s.cell), Paragraph(f"{CURRENCY}{amount:,.2f}", s.center), Paragraph(f"{share_pct:.1f}%", s.center), Paragraph(note, s.cell)]
 
 
-def _add_economics_section(story, s, mode_option, summary, solver_inputs):
+def _add_economics_section(story, s, summary, solver_inputs):
     """5. CAPEX, OPEX, revenue, KPIs and the yearly cash-flow projection. Returns the financial results."""
     story.append(PageBreak())
     _add_section_title(story, s, "5. Evaluación de Viabilidad Económica")
@@ -1056,7 +976,7 @@ def _add_economics_section(story, s, mode_option, summary, solver_inputs):
         "junto con la comercialización del aceite pirolítico valorizado."
     ))
 
-    fin = _calculate_financials(mode_option, summary, solver_inputs)
+    fin = _calculate_financials(summary, solver_inputs)
     curr_sym = CURRENCY
     cb = fin['capex_breakdown']
     tot_cap = fin['total_capex']
@@ -1248,7 +1168,7 @@ def _add_signature(story, s):
     story.append(KeepTogether(t_sig))
 
 
-def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict):
+def generate_thesis_pdf(results, summary, solver_inputs, config_dict):
     """
     Generates a thesis-grade academic PDF report containing full kinetics,
     mass/energy balances, ASTM standards, operational parameters, charts, and conclusions.
@@ -1270,10 +1190,10 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
         bottomMargin=54
     )
     s = _build_styles()
-    inp = _report_inputs(mode_option, summary, solver_inputs)
-    timing = _pyrolysis_timing(inp.is_continuous, results, summary)
+    inp = _report_inputs(summary, solver_inputs)
+    timing = _pyrolysis_timing(results)
     masses = _product_masses(summary)
-    energy = _thermal_energy_balance(inp.is_continuous, results, solver_inputs, *masses)
+    energy = _thermal_energy_balance(results, solver_inputs, *masses)
 
     story = []
     _add_cover(story, s, inp)
@@ -1284,11 +1204,11 @@ def generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dic
     story.append(PageBreak())
     _add_section_title(story, s, "3. Balances de Materia y Energía")
     gas_m3 = _add_mass_balance(story, s, inp, summary, solver_inputs, masses)
-    _add_energy_balance(story, s, inp, energy)
-    _add_energy_formulas(story, s, inp, energy, masses)
+    _add_energy_balance(story, s, energy)
+    _add_energy_formulas(story, s, energy, masses)
 
-    _add_figures_section(story, s, mode_option, results, summary)
-    fin = _add_economics_section(story, s, mode_option, summary, solver_inputs)
+    _add_figures_section(story, s, results, summary)
+    fin = _add_economics_section(story, s, summary, solver_inputs)
     _add_conclusions_section(story, s, inp, summary, timing, gas_m3, fin)
     _add_signature(story, s)
 

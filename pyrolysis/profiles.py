@@ -56,7 +56,6 @@ HOLD_MIN_THESIS = 96.7    # min: el lote termina con 60.56 % de aceite
 
 # Claves de la interfaz (session_state) que cambia el perfil de tesis.
 THESIS_GUI_OVERRIDES = {
-    "mode_option": "Batch Operation",
     "feed_option": "Custom Feedstock",
     "c_moist": 2.0,
     "c_vol": 77.71,

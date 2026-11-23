@@ -27,23 +27,21 @@ def _pct(part, total):
     """Share of total in %, guarded against a zero total."""
     return part / max(0.001, total) * 100.0
 
-def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_kg, feed_option):
+def render_properties_tab(current_feed, batch_load_kg, feed_option):
     """Renders the feedstock properties tab content."""
     lang = get_lang()
     col_prop_l, col_prop_r = st.columns(2)
     
     with col_prop_l:
         st.subheader(t("analysis_chem_comp"))
-        load_val = feed_rate_kgh if mode_option == "Continuous Operation" else batch_load_kg
-        load_unit = "kg/h" if mode_option == "Continuous Operation" else "kg"
-        load_unit_gal = "gal/h" if mode_option == "Continuous Operation" else "gal"
+        load_val = batch_load_kg
         load_val_gal = sludge_gal(load_val)
         wt_pcts = [current_feed.moisture, current_feed.volatile, current_feed.fixed_carbon, current_feed.ash]
         comp_df = pd.DataFrame({
             t("analysis_component"): [t("analysis_moisture_name"), t("analysis_volatiles_name"), t("analysis_char_name"), t("analysis_ash_name")],
             t("analysis_wt_pct"): wt_pcts,
-            t("analysis_input_load").format(load_unit): [load_val * pct / 100.0 for pct in wt_pcts],
-            t("analysis_input_load").format(load_unit_gal): [load_val_gal * pct / 100.0 for pct in wt_pcts]
+            t("analysis_input_load").format("kg"): [load_val * pct / 100.0 for pct in wt_pcts],
+            t("analysis_input_load").format("gal"): [load_val_gal * pct / 100.0 for pct in wt_pcts]
         })
         st.table(comp_df)
         
@@ -70,176 +68,11 @@ def render_properties_tab(current_feed, mode_option, feed_rate_kgh, batch_load_k
         "Use los resultados del ensayo (ASTM D240, D445, D4052, D95)."
     )
 
-def render_balances_tab(mode_option, current_feed, results, summary, feed_rate_kgh, batch_load_kg, feed_option):
+def render_balances_tab(current_feed, results, summary, batch_load_kg, feed_option):
     """Renders the mass and energy balances tab content."""
     feed_name_display = t("feed_custom") if feed_option == "Custom Feedstock" else current_feed.name
-    if mode_option == "Continuous Operation":
-        _render_continuous_balances(results, summary, feed_rate_kgh, feed_name_display)
-    else:
-        _render_batch_balances(results, summary, batch_load_kg, feed_name_display)
+    _render_batch_balances(results, summary, batch_load_kg, feed_name_display)
     _render_kinetics_section(current_feed)
-
-
-def _render_continuous_balances(results, summary, feed_rate_kgh, feed_name_display):
-    """Mass and energy balance (flows, kW) of the continuous reactor."""
-    lang = get_lang()
-    st.markdown("### ⚖️ Mass Balance / Balance de Materia")
-    load_val = feed_rate_kgh
-    load_val_gal = sludge_gal(load_val)
-    oil_gal_h, gas_m3_h, char_gal_h, water_gal_h = product_volumes(
-        summary['oil_yield_kgh'], summary['gas_yield_kgh'], summary['char_yield_kgh'], summary['water_yield_kgh'])
-
-    mass_in_df = pd.DataFrame({
-        t("analysis_component", "Component"): [feed_name_display],
-        t("analysis_wt_pct", "wt%"): [100.0],
-        "Flow Rate / Flujo (kg/h)": [load_val],
-        "Flow Rate / Flujo (gal/h)": [load_val_gal]
-    })
-        
-    mass_out_df = pd.DataFrame({
-        t("analysis_component", "Component"): [
-            t("analysis_bio_oil_name", "Pyrolysis oil"), 
-            t("analysis_syngas_name", "Syngas"), 
-            t("analysis_char_res_name", "Char"), 
-            t("water_vapor_metric", "Water Vapor (Steam)")
-        ],
-        t("analysis_wt_pct", "wt%"): [
-            summary['oil_yield_pct'],
-            summary['gas_yield_pct'],
-            summary['char_yield_pct'],
-            summary['water_yield_pct']
-        ],
-        "Flow Rate / Flujo (kg/h)": [
-            summary['oil_yield_kgh'],
-            summary['gas_yield_kgh'],
-            summary['char_yield_kgh'],
-            summary['water_yield_kgh']
-        ],
-        "Volumen / Volume": [
-            f"{oil_gal_h:.1f} gal/h",
-            f"{gas_m3_h:.1f} m³/h",
-            f"{char_gal_h:.1f} gal/h",
-            f"{water_gal_h:.1f} gal/h"
-        ]
-    })
-        
-    m_col_l, m_col_r = st.columns(2)
-    with m_col_l:
-        st.markdown("**Inputs / Entradas:**")
-        st.table(mass_in_df)
-    with m_col_r:
-        st.markdown("**Outputs / Salidas:**")
-        st.table(mass_out_df)
-            
-    st.info(f"**Mass Balance Closure Error / Error de Cierre:** `{summary['mass_error_pct']:.2e} %`")
-        
-    if lang == 'es':
-        st.markdown(r"""
-        #### 📝 Ecuaciones del Balance de Materia (Continuo)
-        El balance de materia se basa en la conservación de la masa de sólidos y gases en el reactor:
-        $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam} + F_{moist, final}$$
-        * **Aceite pirolítico (Pyrolysis oil)**: Integrado localmente a partir de la formación primaria y craqueo secundario a gas:
-          $$F_{oil} = \int_{0}^{L} \left( k_1 \cdot C_{\text{slug}} - k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-        * **Gas de Síntesis (Syngas)**: Integrado localmente a partir del craqueo primario y secundario de pyrolysis oil:
-          $$F_{gas} = \int_{0}^{L} \left( k_2 \cdot C_{\text{slug}} + k_3 \cdot C_{\text{medios, local}} \right) \frac{dz}{v_s}$$
-        * **Carbón Residual (Char - Seco)**: Suma del carbón fijo inicial, cenizas iniciales y materia volátil sin reaccionar:
-          $$F_{char} = F_{fixed\_carbon, initial} + F_{ash, initial} + F_{volatile, unreacted}$$
-        * **Vapor de Agua (Steam)**: Humedad evaporada del lecho sólido:
-          $$F_{steam} = F_{moisture, initial} - F_{moisture, final}$$
-        * **Ecuación Evaluada y Error de Cierre**:
-          $$F_{inlet} = F_{char} + F_{oil} + F_{gas} + F_{steam}$$
-          $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
-          $$\text{{Error (\%)}}\ = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
-        """)
-    else:
-        st.markdown(rf"""
-        #### 📝 Mass Balance Equations (Continuous)
-        The mass balance is based on the conservation of mass entering and leaving the reactor:
-        $$F_{{inlet}} = F_{{char}} + F_{{oil}} + F_{{gas}} + F_{{steam}}$$
-        $${load_val:.2f}\text{{ kg/h}} = {summary['char_yield_kgh']:.2f} + {summary['oil_yield_kgh']:.2f} + {summary['gas_yield_kgh']:.2f} + {summary['water_yield_kgh']:.2f}\text{{ kg/h}}$$
-        $$\text{{Error (\%)}} = \frac{{|F_{{inlet}} - F_{{outlet\_total}}|}}{{F_{{inlet}}}} \times 100 = \mathbf{{{summary['mass_error_pct']:.4f}\%}}$$
-        """)
-        
-    st.markdown("---")
-    st.markdown("### ⚡ Energy Balance / Balance de Energía")
-        
-    F_oil_s = summary['oil_yield_kgh'] / 3600.0
-    F_gas_s = summary['gas_yield_kgh'] / 3600.0
-    F_char_s = summary['char_yield_kgh'] / 3600.0
-    F_steam_s = summary['water_yield_kgh'] / 3600.0
-    T_in = results['T_solid'][0]
-    T_out = results['T_solid'][-1]
-    T_gas_out = results['T_gas'][-1]
-    dT = T_out - T_in
-
-    cp_oil = float(st.session_state.get('custom_cp_oil', 1800.0))
-        
-    Q_char_kw = (F_char_s * CP_CHAR_J_KGK * dT) / 1000.0
-    Q_oil_sens_kw = (F_oil_s * cp_oil * dT) / 1000.0
-    Q_gas_sens_kw = (F_gas_s * CP_GAS_J_KGK * dT) / 1000.0
-    Q_rxn_kw = ((F_oil_s + F_gas_s) * DH_PYRO_J_KG) / 1000.0
-    if T_in < 100.0:
-        Q_steam_kw = (F_steam_s * (CP_WATER_J_KGK * (100.0 - T_in) + DH_EVAP_J_KG + CP_STEAM_J_KGK * (max(T_gas_out, 100.0) - 100.0))) / 1000.0
-    else:
-        Q_steam_kw = (F_steam_s * (DH_EVAP_J_KG + CP_STEAM_J_KGK * (max(T_gas_out, T_in) - T_in))) / 1000.0
-            
-    Q_total_kw = Q_char_kw + Q_oil_sens_kw + Q_gas_sens_kw + Q_rxn_kw + Q_steam_kw
-        
-    energy_df = pd.DataFrame({
-        "Process Stage / Etapa del Proceso": [
-            "Sensible Heat of Bed Solids / Calor Sensible Char",
-            "Sensible Heat Pyrolysis oil / Calor Sensible Vapores Aceite pirolítico (Líquido)",
-            "Sensible Heat Syngas / Calor Sensible Gas de Síntesis (Gas)",
-            "Pyrolysis Cracking Enthalpy / Reacción Química Craqueo",
-            "Evaporation & Dehydration / Evaporación del Agua",
-            "Total Thermal Heating Duty / Potencia Térmica Total"
-        ],
-        "Heat Rate / Flujo de Calor (kW)": [
-            Q_char_kw,
-            Q_oil_sens_kw,
-            Q_gas_sens_kw,
-            Q_rxn_kw,
-            Q_steam_kw,
-            Q_total_kw
-        ],
-        "Fraction of Total / Porcentaje del Total (%)": [
-            _pct(Q_char_kw, Q_total_kw),
-            _pct(Q_oil_sens_kw, Q_total_kw),
-            _pct(Q_gas_sens_kw, Q_total_kw),
-            _pct(Q_rxn_kw, Q_total_kw),
-            _pct(Q_steam_kw, Q_total_kw),
-            100.0
-        ]
-    })
-    st.table(energy_df)
-        
-    if lang == 'es':
-        st.markdown(rf"""
-        #### 📝 Ecuaciones del Balance de Energía con Sustitución Numérica
-        La demanda térmica total ($Q_{{total}}$) del reactor continuo se divide en cinco contribuciones caloríficas rigurosas:
-        $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
-        * **Calor Sensible del Char ($Q_{{char}}$)**:
-          $$Q_{{char}} = F_{{char}} \cdot Cp_{{char}} \cdot (T_{{out}} - T_{{in}}) = {F_char_s*3600:.2f}\text{{ kg/h}} \cdot 1000\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_char_kw, Q_total_kw):.1f}\%)$$
-        * **Calor Sensible del Aceite pirolítico Líquido ($Q_{{oil\_sens}}$)**:
-          $$Q_{{oil}} = F_{{oil}} \cdot Cp_{{oil}} \cdot (T_{{out}} - T_{{in}}) = {F_oil_s*3600:.2f}\text{{ kg/h}} \cdot {cp_oil:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_oil_sens_kw, Q_total_kw):.1f}\%)$$
-        * **Calor Sensible del Syngas ($Q_{{gas\_sens}}$)**:
-          $$Q_{{gas}} = F_{{gas}} \cdot Cp_{{gas}} \cdot (T_{{out}} - T_{{in}}) = {F_gas_s*3600:.2f}\text{{ kg/h}} \cdot {CP_GAS_J_KGK:.0f}\text{{ J/kg}}\cdot\text{{K}} \cdot {dT:.1f}\text{{ K}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_gas_sens_kw, Q_total_kw):.1f}\%)$$
-        * **Reacción Química Endotérmica de Pirólisis ($Q_{{rxn}}$)**:
-          $$Q_{{rxn}} = (F_{{oil}} + F_{{gas}}) \cdot \Delta H_{{pyro}} = {(F_oil_s+F_gas_s)*3600:.2f}\text{{ kg/h}} \cdot 700,000\text{{ J/kg}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_rxn_kw, Q_total_kw):.1f}\%)$$
-        * **Secado y Evaporación del Agua ($Q_{{steam}}$)**:
-          $$Q_{{steam}} = F_{{steam}} \cdot \left[ Cp_{{water}} \cdot \Delta T + \Delta H_{{evap}} + Cp_{{steam}} \cdot \Delta T_{{steam}} \right] = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_steam_kw, Q_total_kw):.1f}\%)$$
-        """)
-    else:
-        st.markdown(rf"""
-        #### 📝 Energy Balance Equations with Evaluated Results
-        The total thermal demand ($Q_{{total}}$) is rigorously separated into five thermal duties:
-        $$Q_{{total}} = Q_{{char}} + Q_{{oil\_sens}} + Q_{{gas\_sens}} + Q_{{rxn}} + Q_{{steam}} = \mathbf{{{Q_total_kw:.2f}\text{{ kW}}}}$$
-        * **Char Sensible Heat**: $Q_{{char}} = \mathbf{{{Q_char_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_char_kw, Q_total_kw):.1f}\%)$
-        * **Pyrolysis oil Sensible Heat**: $Q_{{oil}} = \mathbf{{{Q_oil_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_oil_sens_kw, Q_total_kw):.1f}\%)$
-        * **Syngas Sensible Heat**: $Q_{{gas}} = \mathbf{{{Q_gas_sens_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_gas_sens_kw, Q_total_kw):.1f}\%)$
-        * **Pyrolysis Chemical Endotherm**: $Q_{{rxn}} = \mathbf{{{Q_rxn_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_rxn_kw, Q_total_kw):.1f}\%)$
-        * **Moisture Dehydration & Evaporation**: $Q_{{steam}} = \mathbf{{{Q_steam_kw:.2f}\text{{ kW}}}} \quad ({_pct(Q_steam_kw, Q_total_kw):.1f}\%)$
-        """)
 
 
 def _render_batch_balances(results, summary, batch_load_kg, feed_name_display):
@@ -519,48 +352,27 @@ def render_guide_tab():
     
     st.subheader(t("guide_sec_3"))
     st.markdown(t("guide_sec_3_text"))
-    
-    st.subheader(t("guide_sec_4"))
-    st.markdown(t("guide_sec_4_text"))
 
-def _render_csv_export(mode_option, results):
+def _render_csv_export(results):
     """Renders the numerical simulation profile CSV export button."""
     st.markdown("### 📊 Datos de Perfil (CSV)")
-    st.caption("Descargue las series temporales/espaciales de temperatura, masa y rendimiento.")
+    st.caption("Descargue las series temporales de temperatura, masa y rendimiento.")
     
-    if mode_option == "Continuous Operation":
-        export_df = pd.DataFrame({
-            'Length_z_m': results['z'],
-            'T_Wall_C': results['T_wall'],
-            'T_Solids_C': results['T_solid'],
-            'T_Gas_C': results['T_gas'],
-            'Moisture_Flow_kgh': results['moisture'],
-            'Volatiles_Flow_kgh': results['volatile'],
-            'Char_Flow_kgh': results['char'],
-            'Ash_Flow_kgh': results['ash'],
-            'Oil_Vapor_Flow_kgh': results['oil'],
-            'Syngas_Flow_kgh': results['gas'],
-            'Steam_Flow_kgh': results['steam'],
-            'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
-            'Bed_Humidity_pct': results['humidity']
-        })
-        file_name_out = "pyrolysis_continuous_reactor_profile.csv"
-    else:
-        export_df = pd.DataFrame({
-            'Time_min': results['time'],
-            'T_Wall_C': results['T_wall'],
-            'T_Solids_C': results['T_solid'],
-            'Moisture_kg': results['moisture'],
-            'Volatiles_kg': results['volatile'],
-            'Char_kg': results['char'],
-            'Ash_kg': results['ash'],
-            'Oil_Produced_kg': results['oil'],
-            'Syngas_Produced_kg': results['gas'],
-            'Steam_Produced_kg': results['steam'],
-            'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
-            'Bed_Humidity_pct': results['humidity']
-        })
-        file_name_out = "pyrolysis_batch_reactor_profile.csv"
+    export_df = pd.DataFrame({
+        'Time_min': results['time'],
+        'T_Wall_C': results['T_wall'],
+        'T_Solids_C': results['T_solid'],
+        'Moisture_kg': results['moisture'],
+        'Volatiles_kg': results['volatile'],
+        'Char_kg': results['char'],
+        'Ash_kg': results['ash'],
+        'Oil_Produced_kg': results['oil'],
+        'Syngas_Produced_kg': results['gas'],
+        'Steam_Produced_kg': results['steam'],
+        'Volatiles_Conversion_pct': np.array(results['conversion']) * 100.0,
+        'Bed_Humidity_pct': results['humidity']
+    })
+    file_name_out = "pyrolysis_batch_reactor_profile.csv"
         
     csv_data = export_df.to_csv(index=False).encode('utf-8')
     st.download_button(
@@ -570,7 +382,7 @@ def _render_csv_export(mode_option, results):
         mime="text/csv"
     )
 
-def render_export_tab(mode_option, results, summary, solver_inputs=None, config_dict=None, enable_reports=None):
+def render_export_tab(results, summary, solver_inputs=None, config_dict=None, enable_reports=None):
     """Renders the data export tab content. Report generation (PDF/Word) is enabled only if enable_reports is True."""
     if enable_reports is None:
         enable_reports = ENABLE_REPORTS
@@ -580,7 +392,7 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
     
     if enable_reports:
         if config_dict is None:
-            config_dict = {'lang_option': st.session_state.get('lang_option', 'Español'), 'mode_option': mode_option}
+            config_dict = {'lang_option': st.session_state.get('lang_option', 'Español')}
         col_pdf, col_word, col_csv = st.columns(3)
         
         with col_pdf:
@@ -595,7 +407,7 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                     import importlib
                     import pyrolysis.pdf_generator as pdf_mod
                     importlib.reload(pdf_mod)
-                    pdf_bytes = pdf_mod.generate_thesis_pdf(mode_option, results, summary, solver_inputs, config_dict)
+                    pdf_bytes = pdf_mod.generate_thesis_pdf(results, summary, solver_inputs, config_dict)
                     pdf_filename = "Tesis_Simulacion_Pirolisis_Reactor_Rotatorio.pdf"
                     st.download_button(
                         label=t("export_pdf_button"),
@@ -620,7 +432,7 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                     import importlib
                     import pyrolysis.docx_generator as docx_mod
                     importlib.reload(docx_mod)
-                    docx_bytes = docx_mod.generate_word_report(mode_option, results, summary, solver_inputs, config_dict)
+                    docx_bytes = docx_mod.generate_word_report(results, summary, solver_inputs, config_dict)
                     word_filename = "Informe_Tecnico_Pirolisis_Reactor_Rotatorio.docx"
                     st.download_button(
                         label="📥 Descargar Informe en Word (.docx)",
@@ -635,10 +447,10 @@ def render_export_tab(mode_option, results, summary, solver_inputs=None, config_
                 st.warning("Complete la simulación para habilitar la descarga del reporte en Word.")
 
         with col_csv:
-            _render_csv_export(mode_option, results)
+            _render_csv_export(results)
     else:
         # Modo con reportes desactivados: solo exportación de datos crudos (CSV)
-        _render_csv_export(mode_option, results)
+        _render_csv_export(results)
     
     st.markdown("---")
     st.subheader(t("export_summary_title"))

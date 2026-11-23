@@ -6,7 +6,6 @@ DEFAULT_PARAMS = {
     'profile': "general",
     'profile_version': 0,   # version of the profile values stored in this configuration (see profiles.py)
     'lang_option': "Español",
-    'mode_option': "Batch Operation",
     'feed_option': "Blend (Petroleum + Hydrocarbon)",
     'blend_ratio': 50.0,
     'c_moist': 2.0,
@@ -26,21 +25,11 @@ DEFAULT_PARAMS = {
     'c_ea3': 100.0,
     'c_a3': 5e5,
     'c_t_onset': 250.0,
-    'feed_rate': 100.0,
-    'feed_inlet_temp': 25.0,
     'batch_size': 440.0,
     'reactor_len': 8.0,
     'reactor_dia': 3.0,
     'rotation_speed': 3.0,
-    'reactor_slope': 2.0,
     'heat_transfer_coeff': 80.0,
-    'wall_heating_type': "Uniform Temperature",
-    'wall_temp': 550.0,
-    'wall_temp_inlet': 300.0,
-    'wall_temp_outlet': 600.0,
-    'zone_1': 350.0,
-    'zone_2': 550.0,
-    'zone_3': 500.0,
     'starting_temp': 25.0,
     'heating_rate': 10.0,
     'holding_temp': 550.0,
@@ -78,7 +67,6 @@ DEFAULT_PARAMS = {
     'opex_electricity': 7.50,
     'opex_aux_utilities': 300000.0,
     'price_generator_fuel': 262.80,
-    'gen_diesel_rate': 1.2,
     'gen_diesel_batch': 1.0,
     'opex_labor': 3000000.0,
     'opex_maint': 3.0,
@@ -129,6 +117,7 @@ def apply_profile(profile_key):
 
 def load_saved_config(config):
     """Copies a saved configuration (localStorage or uploaded JSON) into session_state.
+    Keys not in DEFAULT_PARAMS (e.g. the removed continuous-mode settings in old configurations) are ignored.
     A thesis-profile configuration saved with an older profile version gets the current profile values
     again; returns True when that happened."""
     from pyrolysis.profiles import PROFILE_THESIS, THESIS_PROFILE_VERSION

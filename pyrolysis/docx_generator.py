@@ -245,9 +245,7 @@ def _add_reactor_section(doc, inp, summary, solver_inputs, timing):
     h_eff = solver_inputs['h_eff']
     burner_hp = solver_inputs.get('burner_hp', 300.0)
     burner_eff = solver_inputs.get('burner_eff_pct', 85.0)
-    fuel_cons = summary.get('waste_oil_consumed_galh', summary.get('waste_oil_consumed_gal', 0.0))
-    fuel_unit = "/h" if inp.is_continuous else "/lote"
-    is_continuous = inp.is_continuous
+    fuel_cons = summary.get('waste_oil_consumed_gal', 0.0)
     total_cycle_min = timing.total_cycle_min
 
     _add_data_table(doc, ["Parámetro Geométrico / Operativo", "Valor", "Parámetro Térmico / Energético", "Valor"], [
@@ -256,10 +254,10 @@ def _add_reactor_section(doc, inp, summary, solver_inputs, timing):
         ["Relación de Aspecto (L/D)", f"{aspect_ratio:.2f}", "Tasa de Calentamiento", f"{inp.heating_rate:.1f} °C/min"],
         ["Velocidad de Rotación", f"{rpm_val:.1f} RPM", "Coef. Transf. Calor (h_eff)", f"{h_eff:.1f} W/m²·K"],
         ["Grado de Llenado del Lecho", f"{fill_deg:.2f} %", "Potencia Quemadores", f"{burner_hp:.0f} BHP"],
-        ["Tiempo Evaporación Agua (Secado)", f"{timing.t_drying_end:.1f} min" if not is_continuous else "N/A", "Eficiencia Térmica Quemador", f"{burner_eff:.1f} %"],
-        [timing.time_label_1, timing.time_val_1, "Consumo Combustible Auxiliar", f"{fuel_cons:.1f} gal{fuel_unit}"],
+        ["Tiempo Evaporación Agua (Secado)", f"{timing.t_drying_end:.1f} min", "Eficiencia Térmica Quemador", f"{burner_eff:.1f} %"],
+        [timing.time_label_1, timing.time_val_1, "Consumo Combustible Auxiliar", f"{fuel_cons:.1f} gal/lote"],
         [timing.time_label_2, timing.time_val_2, "Conversión Volátiles Total", f"{inp.conv_pct:.1f} %"],
-        ["Carga / Alimentación Entrante", f"{inp.load_gal:.1f} {inp.load_unit}", "Tiempo Total Ciclo Lote" if not is_continuous else "Régimen", f"{total_cycle_min:.1f} min ({total_cycle_min/60.0:.1f} h)" if not is_continuous else "Estacionario"]
+        ["Carga / Alimentación Entrante", f"{inp.load_gal:.1f} {inp.load_unit}", "Tiempo Total Ciclo Lote", f"{total_cycle_min:.1f} min ({total_cycle_min/60.0:.1f} h)"]
     ], NAVY_BG)
     doc.add_paragraph()
 
@@ -278,21 +276,20 @@ def _add_mass_balance(doc, inp, summary, masses):
     gas_m3 = gas_kg / SYNGAS_DENSITY_KG_M3
     char_gal = (char_kg / 500.0) * GAL_PER_M3  # char bulk density 500 kg/m³
     water_gal = (water_kg / 1000.0) * GAL_PER_M3
-    per_h = "/h" if inp.is_continuous else ""
 
-    _add_data_table(doc, ["Flujo / Corriente", "Masa (kg" + per_h + ")", "Fracción wt.%", "Volumen Estimado"], [
+    _add_data_table(doc, ["Flujo / Corriente", "Masa (kg)", "Fracción wt.%", "Volumen Estimado"], [
         ["ENTRADA: " + inp.feed_name, f"{inp.load_kg:.2f}", "100.00%", "-"],
-        ["SALIDA: Aceite pirolítico (Pyrolysis oil)", f"{oil_kg:.2f}", f"{inp.oil_pct:.2f}%", f"{oil_gal:.1f} gal" + per_h],
-        ["SALIDA: Gas de Síntesis (Syngas)", f"{gas_kg:.2f}", f"{inp.gas_pct:.2f}%", f"{gas_m3:.1f} m³" + per_h],
-        ["SALIDA: Carbón (Char Seco)", f"{char_kg:.2f}", f"{inp.char_pct:.2f}%", f"{char_gal:.1f} gal" + per_h],
-        ["SALIDA: Vapor de Agua (Steam)", f"{water_kg:.2f}", f"{summary['water_yield_pct']:.2f}%", f"{water_gal:.1f} gal" + per_h],
+        ["SALIDA: Aceite pirolítico (Pyrolysis oil)", f"{oil_kg:.2f}", f"{inp.oil_pct:.2f}%", f"{oil_gal:.1f} gal"],
+        ["SALIDA: Gas de Síntesis (Syngas)", f"{gas_kg:.2f}", f"{inp.gas_pct:.2f}%", f"{gas_m3:.1f} m³"],
+        ["SALIDA: Carbón (Char Seco)", f"{char_kg:.2f}", f"{inp.char_pct:.2f}%", f"{char_gal:.1f} gal"],
+        ["SALIDA: Vapor de Agua (Steam)", f"{water_kg:.2f}", f"{summary['water_yield_pct']:.2f}%", f"{water_gal:.1f} gal"],
         ["ERROR CIERRE BALANCE", f"{summary['mass_error_pct']:.2e} %", "Conservativo", "Tolerancia < 0.01%"]
     ], NAVY_BG, highlights={0: LIGHT_ROW_BG, -1: HIGHLIGHT_ROW_BG})
 
     p_meq = doc.add_paragraph()
     r_meq = p_meq.add_run(
         f"Ecuación de Conservación de Masa: M_entrada = M_aceite pirolítico + M_syngas + M_char + M_vapor\n"
-        f"Sustitución Numérica: {inp.load_kg:.2f} kg{' / h' if inp.is_continuous else ''} = "
+        f"Sustitución Numérica: {inp.load_kg:.2f} kg = "
         f"{oil_kg:.2f} kg + {gas_kg:.2f} kg + {char_kg:.2f} kg + {water_kg:.2f} kg | "
         f"Error de Cierre: {summary['mass_error_pct']:.4f}%"
     )
@@ -303,7 +300,7 @@ def _add_mass_balance(doc, inp, summary, masses):
     return gas_m3
 
 
-def _add_energy_balance(doc, inp, e):
+def _add_energy_balance(doc, e):
     """3.2 Thermal energy balance by destination of the heat."""
     _add_heading(doc, "3.2 Balance de Energía Térmica y Carga de Calentamiento", level=2, size_pt=11)
     _add_body_text(doc, (
@@ -315,12 +312,8 @@ def _add_energy_balance(doc, inp, e):
         "(5) energía latente y sobrecalentamiento del agua evaporada (ΔH_evap = 2,256 kJ/kg)."
     ))
 
-    if inp.is_continuous:
-        unit, column_title = "kW", "Potencia (kW)"
-        total_row = ["DEMANDA TÉRMICA TOTAL", f"{e.total:.2f} kW", "100.0%", "Potencia neta requerida"]
-    else:
-        unit, column_title = "kWh", "Energía (kWh)"
-        total_row = ["ENERGÍA TÉRMICA TOTAL", f"{e.total:.2f} kWh", "100.0%", "Consumo total ciclo"]
+    unit, column_title = "kWh", "Energía (kWh)"
+    total_row = ["ENERGÍA TÉRMICA TOTAL", f"{e.total:.2f} kWh", "100.0%", "Consumo total ciclo"]
 
     energy_rows = [
         ("Calor Sensible del Sólido (Char)", e.char, "Conducción lecho carbón residual"),
@@ -336,18 +329,9 @@ def _add_energy_balance(doc, inp, e):
     doc.add_paragraph()
 
 
-def _energy_formula_rows(inp, e, oil_kg, gas_kg, char_kg, water_kg):
+def _energy_formula_rows(e, oil_kg, gas_kg, char_kg, water_kg):
     """(component, formula, substitution) rows of the calculation memo, TOTAL row included."""
     pct = lambda value: (_share_pct(value, e.total))
-    if inp.is_continuous:
-        return [
-            ["Calor Char (Sólido)", "Q_char = F_char · Cp_char · (T_out - T_in)", f"{e.flow_char_kgs*3600:.1f} kg/h · {e.cp_char:.0f} J/kg·K · {e.dT:.1f} K = {e.char:.2f} kW ({pct(e.char):.1f}%)"],
-            ["Calor Aceite pirolítico (Líquido)", "Q_oil = F_oil · Cp_oil · (T_out - T_in)", f"{e.flow_oil_kgs*3600:.1f} kg/h · {e.cp_oil:.0f} J/kg·K · {e.dT:.1f} K = {e.oil:.2f} kW ({pct(e.oil):.1f}%)"],
-            ["Calor Syngas (Gas)", "Q_gas = F_gas · Cp_gas · (T_out - T_in)", f"{e.flow_gas_kgs*3600:.1f} kg/h · {e.cp_gas:.0f} J/kg·K · {e.dT:.1f} K = {e.gas:.2f} kW ({pct(e.gas):.1f}%)"],
-            ["Reacción Química Craqueo", "Q_rxn = (F_oil + F_gas) · ΔH_pyro", f"{(e.flow_oil_kgs+e.flow_gas_kgs)*3600:.1f} kg/h · {e.dh_pyro:,.0f} J/kg = {e.rxn:.2f} kW ({pct(e.rxn):.1f}%)"],
-            ["Evaporación del Agua", "Q_steam = F_steam · [Cp_wΔT_w + ΔH_evap + Cp_sΔT_s]", f"{e.flow_steam_kgs*3600:.1f} kg/h · [Evap 2.256 MJ/kg + Sobrecalent.] = {e.steam:.2f} kW ({pct(e.steam):.1f}%)"],
-            ["DEMANDA TÉRMICA TOTAL", "Q_total = Σ Q_componentes", f"{e.total:.2f} kW (100.00%)"]
-        ]
     return [
         ["Calor Char (Sólido)", "E_char = [M_char · Cp_char · (T_hold - T_start)] / 3.6e6", f"[{char_kg:.1f} kg · {e.cp_char:.0f} J/kg·K · {e.dT:.1f} K] / 3.6e6 = {e.char:.2f} kWh ({pct(e.char):.1f}%)"],
         ["Calor Aceite pirolítico (Líquido)", "E_oil = [M_oil · Cp_oil · (T_hold - T_start)] / 3.6e6", f"[{oil_kg:.1f} kg · {e.cp_oil:.0f} J/kg·K · {e.dT:.1f} K] / 3.6e6 = {e.oil:.2f} kWh ({pct(e.oil):.1f}%)"],
@@ -358,15 +342,15 @@ def _energy_formula_rows(inp, e, oil_kg, gas_kg, char_kg, water_kg):
     ]
 
 
-def _add_energy_formulas(doc, inp, e, masses):
+def _add_energy_formulas(doc, e, masses):
     """3.3 Calculation memo: formula and numeric substitution of each heat term."""
     _add_heading(doc, "3.3 Memoria de Cálculo Detallada de Fórmulas Térmicas", level=2, size_pt=11)
     _add_data_table(doc, ["Componente Energético", "Fórmula de Ingeniería Aplicada", "Sustitución de Variables y Resultado"],
-                    _energy_formula_rows(inp, e, *masses), DARK_TEAL_BG, highlights={-1: LIGHT_ROW_BG})
+                    _energy_formula_rows(e, *masses), DARK_TEAL_BG, highlights={-1: LIGHT_ROW_BG})
     doc.add_paragraph()
 
 
-def _add_economics_section(doc, mode_option, summary, solver_inputs):
+def _add_economics_section(doc, summary, solver_inputs):
     """4. CAPEX, OPEX, revenue and KPI tables. Returns (fin, irr_str, payback_str) for the conclusions."""
     _add_section_heading(doc, "4. Evaluación de Viabilidad Económica")
     _add_body_text(doc, (
@@ -376,7 +360,7 @@ def _add_economics_section(doc, mode_option, summary, solver_inputs):
         "junto con la comercialización del aceite pirolítico valorizado."
     ))
 
-    fin = _calculate_financials(mode_option, summary, solver_inputs)
+    fin = _calculate_financials(summary, solver_inputs)
     curr_sym = CURRENCY
     cb = fin['capex_breakdown']
     tot_cap = fin['total_capex']
@@ -500,7 +484,7 @@ def _add_signature(doc):
     run_name.font.size = Pt(10)
 
 
-def generate_word_report(mode_option, results, summary, solver_inputs, config_dict=None):
+def generate_word_report(results, summary, solver_inputs, config_dict=None):
     """
     Generates a complete, highly formatted engineering technical report in Microsoft Word (.docx) format.
     Returns bytes buffer.
@@ -515,11 +499,11 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
         section.left_margin = Inches(PAGE_MARGIN_IN)
         section.right_margin = Inches(PAGE_MARGIN_IN)
 
-    inp = _report_inputs(mode_option, summary, solver_inputs)
-    mode_str_es = "CONTINUO" if inp.is_continuous else "POR LOTES (BATCH)"
-    timing = _pyrolysis_timing(inp.is_continuous, results, summary)
+    inp = _report_inputs(summary, solver_inputs)
+    mode_str_es = "POR LOTES (BATCH)"
+    timing = _pyrolysis_timing(results)
     masses = _product_masses(summary)
-    energy = _thermal_energy_balance(inp.is_continuous, results, solver_inputs, *masses)
+    energy = _thermal_energy_balance(results, solver_inputs, *masses)
 
     _add_title_block(doc, mode_str_es, inp.feed_name)
     _add_abstract(doc, inp, mode_str_es, summary)
@@ -528,10 +512,10 @@ def generate_word_report(mode_option, results, summary, solver_inputs, config_di
 
     _add_section_heading(doc, "3. Balances de Materia y Energía")
     gas_m3 = _add_mass_balance(doc, inp, summary, masses)
-    _add_energy_balance(doc, inp, energy)
-    _add_energy_formulas(doc, inp, energy, masses)
+    _add_energy_balance(doc, energy)
+    _add_energy_formulas(doc, energy, masses)
 
-    fin, irr_str, payback_str = _add_economics_section(doc, mode_option, summary, solver_inputs)
+    fin, irr_str, payback_str = _add_economics_section(doc, summary, solver_inputs)
     _add_conclusions_section(doc, inp, summary, timing, gas_m3, fin, irr_str, payback_str)
     _add_signature(doc)
 

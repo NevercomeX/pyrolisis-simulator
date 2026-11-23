@@ -120,8 +120,8 @@ def draw_front_view(filling_degree_pct, rpm):
     )
     return fig
 
-def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option):
-    """Draws a 2D rounded cylinder side view showing reactor tilt and bed filling depth."""
+def draw_side_view(length, diameter, filling_degree_pct):
+    """Draws a 2D rounded cylinder side view showing the bed filling depth."""
     lang = get_lang()
     title_side = "Perfil Longitudinal" if lang == 'es' else "Longitudinal Profile"
     
@@ -133,15 +133,6 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
     
     # Dynamic curvature cap radius for the cylinder edges
     r_cap = max(0.15 * D, 0.03 * L)
-    
-    # Inclination angle
-    slope = (slope_pct / 100.0) if mode_option == "Continuous Operation" else 0.0
-    alpha = np.arctan(slope)
-    
-    # Helper to rotate points by -alpha
-    def rotate(x, y):
-        c, s = np.cos(-alpha), np.sin(-alpha)
-        return x * c - y * s, x * s + y * c
 
     # Cylinder outline coordinates (curved caps at ends)
     theta_left = np.linspace(np.pi/2, 3*np.pi/2, 40)
@@ -154,8 +145,7 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
     
     shell_x = np.concatenate([left_cap_x, right_cap_x])
     shell_y = np.concatenate([left_cap_y, right_cap_y])
-    shell_x_rot, shell_y_rot = rotate(shell_x, shell_y)
-    
+
     # Bed outline coordinates conforming to curved ends
     y_bed_left = np.linspace(y_bed, -D/2, 20)
     x_bed_left = - r_cap * np.sqrt(np.clip(1.0 - (y_bed_left / (D/2))**2, 0.0, 1.0))
@@ -165,14 +155,13 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
     
     bed_x = np.concatenate([x_bed_left, x_bed_right])
     bed_y = np.concatenate([y_bed_left, y_bed_right])
-    bed_x_rot, bed_y_rot = rotate(bed_x, bed_y)
-    
+
     fig = go.Figure()
     
     # Draw bed of solids inside
     fig.add_trace(go.Scatter(
-        x=bed_x_rot,
-        y=bed_y_rot,
+        x=bed_x,
+        y=bed_y,
         fill='toself',
         fillcolor=_BED_FILL,
         line=dict(color=_BED_LINE, width=1.5),
@@ -182,8 +171,8 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
     
     # Draw transparent metallic reactor shell on top for see-through depth effect
     fig.add_trace(go.Scatter(
-        x=shell_x_rot,
-        y=shell_y_rot,
+        x=shell_x,
+        y=shell_y,
         fill='toself',
         fillcolor='rgba(215, 220, 225, 0.2)', # Shiny metal see-through
         line=dict(color=_SHELL_COLOR, width=4),
@@ -192,17 +181,16 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
     ))
     
     # Compute shell bounding box to adjust layout zoom dynamically
-    x_min, x_max = np.min(shell_x_rot), np.max(shell_x_rot)
-    y_min, y_max = np.min(shell_y_rot), np.max(shell_y_rot)
+    y_min, y_max = np.min(shell_y), np.max(shell_y)
 
     # Draw feed inlet indicator (green arrow) entering from the left cap center
-    inlet_x, inlet_y = rotate(-r_cap - L * 0.05, 0)
-    _add_flow_arrow(fig, (inlet_x, inlet_y), rotate(-r_cap, 0), "seagreen")
+    inlet_x = -r_cap - L * 0.05
+    _add_flow_arrow(fig, (inlet_x, 0.0), (-r_cap, 0.0), "seagreen")
     
     # Draw discharge outlet indicator (red arrow) exiting from the right cap bed height
     x_edge = L + r_cap * np.sqrt(np.clip(1.0 - (y_bed / (D/2))**2, 0.0, 1.0))
-    outlet_x_tip, outlet_y_tip = rotate(x_edge + L * 0.05, y_bed)
-    _add_flow_arrow(fig, rotate(x_edge, y_bed), (outlet_x_tip, outlet_y_tip), "crimson")
+    outlet_x_tip = x_edge + L * 0.05
+    _add_flow_arrow(fig, (x_edge, y_bed), (outlet_x_tip, y_bed), "crimson")
     
     # Set tighter, zoomed ranges with dynamic padding
     x_plot_min = inlet_x - L * 0.01
@@ -225,7 +213,7 @@ def draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
     )
     return fig
 
-def render_reactor_geometry_section(mode_option, summary, solver_inputs):
+def render_reactor_geometry_section(summary, solver_inputs):
     """Renders longitudinal and transverse cylinder diagrams showing filling degree."""
     lang = get_lang()
     title_sec = "Visualización Física del Reactor / Visualización del Nivel de Llenado" if lang == 'es' else "Visualización Física del Reactor / Physical Reactor Visualization"
@@ -236,11 +224,10 @@ def render_reactor_geometry_section(mode_option, summary, solver_inputs):
     length = solver_inputs['length']
     diameter = solver_inputs['diameter']
     rpm = solver_inputs['rpm']
-    slope_pct = solver_inputs['slope'] * 100.0 if mode_option == "Continuous Operation" else 0.0
     filling_degree_pct = summary['filling_degree_pct']
     
     with col1:
-        fig_side = draw_side_view(length, diameter, slope_pct, filling_degree_pct, mode_option)
+        fig_side = draw_side_view(length, diameter, filling_degree_pct)
         st.plotly_chart(fig_side, width='stretch')
         
     with col2:
@@ -248,7 +235,7 @@ def render_reactor_geometry_section(mode_option, summary, solver_inputs):
         st.plotly_chart(fig_front, width='stretch')
 
 def _solids_chart(x_data, results, title, x_label, y_label):
-    """Solid bed components (kg or kg/h) plus bed humidity (%) on a second axis."""
+    """Solid bed components (kg) plus bed humidity (%) on a second axis."""
     fig_solids = go.Figure()
     fig_solids.add_trace(go.Scatter(x=x_data, y=results['moisture'], name=t("trace_moisture"), line=dict(color='#3a86c8', width=2)))
     fig_solids.add_trace(go.Scatter(x=x_data, y=results['volatile'], name=t("trace_volatiles"), line=dict(color='#a233c6', width=2.5)))
@@ -273,35 +260,10 @@ def _solids_chart(x_data, results, title, x_label, y_label):
     return fig_solids
 
 
-def render_charts_panel(mode_option, results):
+def render_charts_panel(results):
     """Renders Plotly charts for temperature, solids mass, and vapor accumulation profiles."""
     col_chart_l, col_chart_r = st.columns(2)
 
-    if mode_option == "Continuous Operation":
-        x_data = results['z']
-        x_label = t("chart_x_len")
-
-        with col_chart_l:
-            fig_temp = go.Figure()
-            fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_wall'], name=t("trace_wall_temp"), line=dict(color='crimson', width=2, dash='dash')))
-            fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_solid'], name=t("trace_solid_temp"), line=dict(color='royalblue', width=3)))
-            fig_temp.add_trace(go.Scatter(x=x_data, y=results['T_gas'], name=t("trace_gas_temp"), line=dict(color='seagreen', width=2, dash='dot')))
-            fig_temp.add_trace(go.Scatter(x=x_data, y=[100]*len(x_data), name=t("trace_boiling_pt"), line=dict(color='grey', width=1, dash='dot')))
-            fig_temp.update_layout(title=t("chart_temp_title"), xaxis_title=x_label, yaxis_title=t("chart_y_temp"), hovermode="x unified", margin=_CHART_MARGIN)
-            st.plotly_chart(fig_temp, width='stretch')
-
-        with col_chart_r:
-            st.plotly_chart(_solids_chart(x_data, results, t("chart_solids_title"), x_label, t("chart_y_mass")), width='stretch')
-
-        fig_vapors = go.Figure()
-        fig_vapors.add_trace(go.Scatter(x=x_data, y=results['oil'], name=t("trace_bio_oil"), line=dict(color='#ff9f1c', width=3.0)))
-        fig_vapors.add_trace(go.Scatter(x=x_data, y=results['gas'], name=t("trace_syngas"), line=dict(color='#2ec4b6', width=2.0, dash='dash')))
-        fig_vapors.add_trace(go.Scatter(x=x_data, y=results['steam'], name=t("trace_steam"), line=dict(color='#e71d36', width=1.5, dash='dot')))
-        fig_vapors.update_layout(title=t("chart_vapors_title"), xaxis_title=x_label, yaxis_title=t("chart_y_vapors"), hovermode="x unified", margin=_CHART_MARGIN)
-        st.plotly_chart(fig_vapors, width='stretch')
-        return
-
-    # Batch mode
     x_data = results['time']
     x_label = t("chart_x_time")
 

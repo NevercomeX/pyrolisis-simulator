@@ -15,7 +15,7 @@ WATER_DENSITY_KG_M3 = 1000.0
 
 
 def product_volumes(oil_kg, gas_kg, char_kg, water_kg):
-    """Converts product masses (or mass flows) to volumes: oil, char and water in gal, syngas in m³.
+    """Converts product masses to volumes: oil, char and water in gal, syngas in m³.
     Oil and char densities come from the sidebar (session_state)."""
     oil_density = float(st.session_state.get('bio_oil_density', 750.0))
     char_density = float(st.session_state.get('bio_char_density', 500.0))
@@ -28,7 +28,7 @@ def product_volumes(oil_kg, gas_kg, char_kg, water_kg):
 
 
 def sludge_gal(sludge_kg):
-    """Sludge mass (kg or kg/h) to volume (gal or gal/h) with the sidebar sludge density."""
+    """Sludge mass (kg) to volume (gal) with the sidebar sludge density."""
     return (sludge_kg / float(st.session_state.get('sludge_density', 944.7))) * GAL_PER_M3
 
 

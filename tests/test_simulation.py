@@ -2,14 +2,14 @@ import copy
 import math
 import unittest
 import numpy as np
-from pyrolysis import PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, Feedstock, blend_feedstocks, ContinuousReactorSimulation, BatchReactorSimulation
+from pyrolysis import PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, Feedstock, blend_feedstocks, BatchReactorSimulation
 from pyrolysis.profiles import thesis_batch_kwargs, THESIS_GUI_OVERRIDES
 from pyrolysis.reactor import BaseReactorSimulation
 from pyrolysis.reactor.base import BHP_TO_W
 
 
 def total_products(summary, unit):
-    """Char + oil + gas + steam, from the summary keys ending in '_kgh' (continuous) or '_kg' (batch)."""
+    """Char + oil + gas + steam, from the summary keys ending in f'_{unit}' (e.g. '_kg')."""
     return (summary[f'char_yield_{unit}'] +
             summary[f'oil_yield_{unit}'] +
             summary[f'gas_yield_{unit}'] +
@@ -26,74 +26,6 @@ def small_base_reactor():
 
 
 class TestPyrolysisSimulation(unittest.TestCase):
-
-    # ==========================================================================
-    # CONTINUOUS MODE TESTS
-    # ==========================================================================
-
-    def test_continuous_mass_conservation(self):
-        """Verify that total mass entering equals total mass leaving in Continuous Mode."""
-        feed_rate = 150.0  # kg/h
-        sim = ContinuousReactorSimulation(
-            feedstock=blend_feedstocks(PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, 0.5),
-            feed_rate_kgh=feed_rate,
-            length=10.0,
-            diameter=0.8,
-            slope=0.02,
-            rpm=4.0,
-            T_inlet_C=20.0,
-            h_eff=100.0,
-            T_wall_type='uniform',
-            T_wall_params={'T_wall': 600.0}
-        )
-        summary = sim.simulate(steps=100)['summary']
-
-        # At 600°C and 10 m all moisture leaves as steam
-        self.assertAlmostEqual(total_products(summary, 'kgh'), feed_rate, places=4)
-        self.assertLess(summary['mass_error_pct'], 1e-4)
-
-    def test_continuous_no_evaporation_at_low_temp(self):
-        """Verify water doesn't evaporate and kinetics don't run at low temp in Continuous Mode."""
-        sim = ContinuousReactorSimulation(
-            feedstock=PETROLEUM_SLUDGE,
-            feed_rate_kgh=100.0,
-            length=5.0,
-            diameter=0.5,
-            slope=0.02,
-            rpm=3.0,
-            T_inlet_C=15.0,
-            h_eff=80.0,
-            T_wall_type='uniform',
-            T_wall_params={'T_wall': 50.0}
-        )
-        summary = sim.simulate(steps=50)['summary']
-
-        # At 50°C, no steam and virtually no conversion
-        self.assertAlmostEqual(summary['water_yield_kgh'], 0.0, places=4)
-        self.assertLess(summary['conversion_pct'], 0.01)
-
-    def test_continuous_complete_dehydration_and_pyrolysis_at_high_temp(self):
-        """Verify complete dehydration and conversion at high temp in Continuous Mode."""
-        feed = PETROLEUM_SLUDGE
-        feed_rate = 100.0
-        sim = ContinuousReactorSimulation(
-            feedstock=feed,
-            feed_rate_kgh=feed_rate,
-            length=15.0,
-            diameter=0.8,
-            slope=0.01,
-            rpm=1.0,
-            T_inlet_C=25.0,
-            h_eff=150.0,
-            T_wall_type='uniform',
-            T_wall_params={'T_wall': 700.0}
-        )
-        results = sim.simulate(steps=100)
-        summary = results['summary']
-
-        self.assertAlmostEqual(results['moisture'][-1], 0.0, places=4)
-        self.assertAlmostEqual(summary['water_yield_kgh'], feed_rate * (feed.moisture / 100.0), places=4)
-        self.assertGreater(summary['conversion_pct'], 99.0)
 
     # ==========================================================================
     # BATCH MODE TESTS

@@ -15,7 +15,7 @@ DRYING_PLATEAU_HEAT_KW = 25000.0   # heat flow assumed in the reactor's drying p
 GEN_DIESEL_GAL_PER_KWH = 0.08      # diesel generator consumption, prices the dryer's electricity
 
 
-def render_pre_drying_evaluator(solver_inputs, summary, is_continuous, curr_sym, opex_fuel,
+def render_pre_drying_evaluator(solver_inputs, summary, curr_sym, opex_fuel,
                                 available_calendar_days, batches_per_year, t_cycle_hours, m, lang):
     """
     Renders an interactive Sludge Pre-Drying Evaluator.
@@ -43,11 +43,10 @@ def render_pre_drying_evaluator(solver_inputs, summary, is_continuous, curr_sym,
             )
 
         inputs = _pre_dryer_inputs(solver_inputs, curr_sym, lang)
-        b = _pre_drying_balance(inputs, summary, is_continuous, opex_fuel, available_calendar_days,
+        b = _pre_drying_balance(inputs, summary, opex_fuel, available_calendar_days,
                                 batches_per_year, t_cycle_hours, m, lang)
-        _render_kpis(b, is_continuous, curr_sym, lang)
-        _render_comparison_table(b, summary, is_continuous, curr_sym, opex_fuel, available_calendar_days,
-                                 batches_per_year, t_cycle_hours, lang)
+        _render_kpis(b, curr_sym, lang)
+        _render_comparison_table(b, summary, curr_sym, opex_fuel, batches_per_year, t_cycle_hours, lang)
         _render_verdict(b, curr_sym, lang)
 
 
@@ -136,19 +135,14 @@ def _pre_dryer_inputs(solver_inputs, curr_sym, lang):
                            dryer_elec_kwh_ton=dryer_elec_kwh_ton)
 
 
-def _pre_drying_balance(inp, summary, is_continuous, opex_fuel, available_calendar_days,
+def _pre_drying_balance(inp, summary, opex_fuel, available_calendar_days,
                         batches_per_year, t_cycle_hours, m, lang):
-    """Water removed, fuel and electricity per basis (one batch or one hour), time saved per batch,
+    """Water removed, fuel and electricity per batch, time saved per batch,
     extra batches and the yearly net benefit / payback of the pre-dryer."""
     b = SimpleNamespace(**vars(inp))
-    if is_continuous:
-        b.m_sludge_basis = float(summary.get('feed_rate_kgh', 500.0))
-        b.basis_label = "por hora" if lang == 'es' else "per hour"
-        b.annual_multiplier = available_calendar_days * 24.0
-    else:
-        b.m_sludge_basis = float(summary.get('batch_load_kg', 5000.0))
-        b.basis_label = "por lote" if lang == 'es' else "per batch"
-        b.annual_multiplier = batches_per_year
+    b.m_sludge_basis = float(summary.get('batch_load_kg', 5000.0))
+    b.basis_label = "por lote" if lang == 'es' else "per batch"
+    b.annual_multiplier = batches_per_year
 
     h_in = inp.initial_moist_pct / 100.0
     h_out = inp.target_moist_pct / 100.0
@@ -182,28 +176,21 @@ def _pre_drying_balance(inp, summary, is_continuous, opex_fuel, available_calend
     cost_per_kwh = float(st.session_state.get('price_generator_fuel', 262.80)) * GEN_DIESEL_GAL_PER_KWH
     cost_elec_dryer = b.elec_kwh_dryer * cost_per_kwh
 
-    # Time saved in the reactor (batch mode only)
-    if not is_continuous:
-        t_dry_plateau_min = (b.m_water_initial * WATER_EVAP_KJ_PER_KG) / (DRYING_PLATEAU_HEAT_KW * 60.0)
-        b.t_saved_min = t_dry_plateau_min * (b.pct_water_removed / 100.0)
-        t_saved_hours = b.t_saved_min / 60.0
-        b.t_cycle_new = max(1.0, t_cycle_hours - t_saved_hours)
-        available_hours = available_calendar_days * 24.0
-        b.batches_year_new = np.floor(available_hours / b.t_cycle_new) if b.t_cycle_new > 0 else batches_per_year
-        b.extra_batches = max(0.0, b.batches_year_new - batches_per_year)
-        if int(st.session_state.get('econ_batches_per_year', 0)) > 0:
-            # Batches fixed by plant data: a shorter cycle adds no batches
-            b.batches_year_new, b.extra_batches = batches_per_year, 0.0
+    # Time saved in the reactor
+    t_dry_plateau_min = (b.m_water_initial * WATER_EVAP_KJ_PER_KG) / (DRYING_PLATEAU_HEAT_KW * 60.0)
+    b.t_saved_min = t_dry_plateau_min * (b.pct_water_removed / 100.0)
+    t_saved_hours = b.t_saved_min / 60.0
+    b.t_cycle_new = max(1.0, t_cycle_hours - t_saved_hours)
+    available_hours = available_calendar_days * 24.0
+    b.batches_year_new = np.floor(available_hours / b.t_cycle_new) if b.t_cycle_new > 0 else batches_per_year
+    b.extra_batches = max(0.0, b.batches_year_new - batches_per_year)
+    if int(st.session_state.get('econ_batches_per_year', 0)) > 0:
+        # Batches fixed by plant data: a shorter cycle adds no batches
+        b.batches_year_new, b.extra_batches = batches_per_year, 0.0
 
-        annual_rev_base = m['rev_flows'][1] if len(m['rev_flows']) > 1 else 0.0
-        rev_per_batch = annual_rev_base / max(batches_per_year, 1)
-        b.extra_revenue_annual = b.extra_batches * rev_per_batch
-    else:
-        b.t_saved_min = 0.0
-        b.t_cycle_new = 0.0
-        b.batches_year_new = 0.0
-        b.extra_batches = 0.0
-        b.extra_revenue_annual = 0.0
+    annual_rev_base = m['rev_flows'][1] if len(m['rev_flows']) > 1 else 0.0
+    rev_per_batch = annual_rev_base / max(batches_per_year, 1)
+    b.extra_revenue_annual = b.extra_batches * rev_per_batch
 
     b.annual_fuel_saved_cost = b.cost_saved_reactor * b.annual_multiplier
     b.annual_dryer_fuel_cost = b.cost_fuel_dryer * b.annual_multiplier
@@ -221,8 +208,8 @@ def _pre_drying_balance(inp, summary, is_continuous, opex_fuel, available_calend
     return b
 
 
-def _render_kpis(b, is_continuous, curr_sym, lang):
-    """Four metric cards: water removed, fuel saved, time saved (batch) / net fuel (continuous), net benefit."""
+def _render_kpis(b, curr_sym, lang):
+    """Four metric cards: water removed, fuel saved, time saved, net benefit."""
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
     with col_m1:
@@ -239,18 +226,11 @@ def _render_kpis(b, is_continuous, curr_sym, lang):
             delta=f"+{curr_sym}{b.cost_saved_reactor:,.2f} {b.basis_label}"
         )
     with col_m3:
-        if not is_continuous:
-            st.metric(
-                "Tiempo Ahorrado" if lang == 'es' else "Time Saved in Reactor",
-                f"{b.t_saved_min:.0f} min {b.basis_label}",
-                delta=f"+{b.extra_batches:.0f} lotes/año" if lang == 'es' else f"+{b.extra_batches:.0f} batches/yr"
-            )
-        else:
-            st.metric(
-                "Ahorro Neto Combustible" if lang == 'es' else "Net Fuel Saved",
-                f"{(b.fuel_saved_reactor_gal - b.fuel_used_dryer_gal):,.1f} gal/h",
-                delta=f"{b.fuel_saved_reactor_gal * b.annual_multiplier:,.0f} gal/año" if lang == 'es' else f"{b.fuel_saved_reactor_gal * b.annual_multiplier:,.0f} gal/yr"
-            )
+        st.metric(
+            "Tiempo Ahorrado" if lang == 'es' else "Time Saved in Reactor",
+            f"{b.t_saved_min:.0f} min {b.basis_label}",
+            delta=f"+{b.extra_batches:.0f} lotes/año" if lang == 'es' else f"+{b.extra_batches:.0f} batches/yr"
+        )
     with col_m4:
         st.metric(
             "Beneficio Neto Anual" if lang == 'es' else "Net Annual Benefit",
@@ -259,13 +239,12 @@ def _render_kpis(b, is_continuous, curr_sym, lang):
         )
 
 
-def _render_comparison_table(b, summary, is_continuous, curr_sym, opex_fuel, available_calendar_days,
-                             batches_per_year, t_cycle_hours, lang):
+def _render_comparison_table(b, summary, curr_sym, opex_fuel, batches_per_year, t_cycle_hours, lang):
     """Baseline (raw sludge) vs. with pre-dryer, row by row, with the favourable impact of each row."""
     st.markdown("##### 📊 Comparativo Técnico y Económico: Sin Pre-Secado vs. Con Pre-Secado" if lang == 'es' else "##### 📊 Technical & Economic Comparison: Baseline vs. With Pre-Drying")
 
     basis = b.basis_label
-    burner_fuel_gal = summary.get('waste_oil_consumed_gal', 0.0) if not is_continuous else summary.get('waste_oil_consumed_galh', 0.0)
+    burner_fuel_gal = summary.get('waste_oil_consumed_gal', 0.0)
     burner_fuel_dried_gal = max(0.0, burner_fuel_gal - b.fuel_saved_reactor_gal)
     comp_data = {
         "Concepto / Parámetro" if lang == 'es' else "Parameter": [
@@ -276,8 +255,8 @@ def _render_comparison_table(b, summary, is_continuous, curr_sym, opex_fuel, ava
             "Combustible consumido por pre-secador" if lang == 'es' else "Fuel consumed by pre-dryer",
             "Costo de combustible de proceso" if lang == 'es' else "Process fuel operational cost",
             "Consumo eléctrico del pre-secador" if lang == 'es' else "Pre-dryer auxiliary electricity",
-            "Tiempo de ciclo por lote" if not is_continuous and lang == 'es' else ("Batch cycle duration" if not is_continuous else "Régimen de operación"),
-            "Capacidad anual de procesamiento" if not is_continuous and lang == 'es' else ("Annual batch capacity" if not is_continuous else "Horas anuales"),
+            "Tiempo de ciclo por lote" if lang == 'es' else "Batch cycle duration",
+            "Capacidad anual de procesamiento" if lang == 'es' else "Annual batch capacity",
             "Beneficio económico neto anual" if lang == 'es' else "Net annual financial benefit"
         ],
         "Operación Actual (Lodo Crudo)" if lang == 'es' else "Current Baseline": [
@@ -288,8 +267,8 @@ def _render_comparison_table(b, summary, is_continuous, curr_sym, opex_fuel, ava
             "0.0 gal",
             f"{curr_sym}{burner_fuel_gal * opex_fuel * b.annual_multiplier:,.2f}/año",
             "0.0 kWh/año",
-            f"{t_cycle_hours:.2f} horas" if not is_continuous else f"{available_calendar_days * 24:.0f} horas",
-            f"{batches_per_year:.0f} lotes/año" if not is_continuous else f"{available_calendar_days:.0f} días",
+            f"{t_cycle_hours:.2f} horas",
+            f"{batches_per_year:.0f} lotes/año",
             "Línea Base (RD$ 0.00)"
         ],
         "Con Sistema de Pre-Secado" if lang == 'es' else "With Pre-Drying System": [
@@ -300,8 +279,8 @@ def _render_comparison_table(b, summary, is_continuous, curr_sym, opex_fuel, ava
             f"{b.fuel_used_dryer_gal:,.1f} gal {basis}",
             f"{curr_sym}{(burner_fuel_dried_gal * opex_fuel + b.cost_fuel_dryer) * b.annual_multiplier:,.2f}/año",
             f"{b.elec_kwh_dryer * b.annual_multiplier:,.0f} kWh/año ({curr_sym}{b.annual_dryer_elec_cost:,.2f})",
-            f"{b.t_cycle_new:.2f} horas" if not is_continuous else f"{available_calendar_days * 24:.0f} horas",
-            f"{b.batches_year_new:.0f} lotes/año" if not is_continuous else f"{available_calendar_days:.0f} días",
+            f"{b.t_cycle_new:.2f} horas",
+            f"{b.batches_year_new:.0f} lotes/año",
             f"+{curr_sym}{b.annual_net_benefit:,.2f}/año"
         ],
         "Ahorro / Impacto Favorable" if lang == 'es' else "Favorable Impact / Savings": [
@@ -312,8 +291,8 @@ def _render_comparison_table(b, summary, is_continuous, curr_sym, opex_fuel, ava
             "Incluido en balance",
             f"Ahorro combustible: +{curr_sym}{b.annual_fuel_saved_cost - b.annual_dryer_fuel_cost:,.2f}/año",
             f"Costo auxiliar secador: -{curr_sym}{b.annual_dryer_elec_cost:,.2f}/año",
-            f"-{b.t_saved_min:.0f} min menos por lote" if not is_continuous else "Régimen continuo",
-            f"+{b.extra_batches:.0f} lotes extra (+{curr_sym}{b.extra_revenue_annual:,.2f}/año)" if not is_continuous else "Mismo tiempo",
+            f"-{b.t_saved_min:.0f} min menos por lote",
+            f"+{b.extra_batches:.0f} lotes extra (+{curr_sym}{b.extra_revenue_annual:,.2f}/año)",
             f"Retorno inversión: {b.payback_months:.1f} meses ({b.payback_years:.2f} años)" if b.payback_months < 60 else "Sin retorno directo"
         ]
     }

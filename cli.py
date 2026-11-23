@@ -6,17 +6,13 @@ from pyrolysis import PETROLEUM_SLUDGE, HYDROCARBON_SLUDGE, blend_feedstocks, Ba
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Rotary Pyrolysis Reactor Dual-Mode Simulator (Continuous & Batch)")
+    parser = argparse.ArgumentParser(description="Rotary Pyrolysis Reactor Batch Simulator")
 
     # Perfil: 'tesis' reproduce la corrida documentada sin introducir datos a mano
     parser.add_argument("--perfil", type=str, choices=["general", "tesis"], default="general",
                         help="Perfil de simulación: 'general' (valores por defecto) o 'tesis' (corrida PROENERGÉTICOS)")
 
-    # Mode selector
-    parser.add_argument("--mode", type=str, choices=["batch"], default="batch",
-                        help="Operation mode: only 'batch' (continuous mode is temporarily disabled)")
-
-    # Shared arguments
+    # Feedstock and reactor
     parser.add_argument("--feed", type=str, choices=["petroleum", "hydrocarbon", "blend"], default="blend",
                         help="Feedstock type: 'petroleum', 'hydrocarbon', or 'blend'")
     parser.add_argument("--blend-ratio", type=float, default=0.5,
@@ -30,27 +26,17 @@ def parse_args():
     parser.add_argument("--h-eff", type=float, default=80.0,
                         help="Effective wall-to-bed heat transfer coefficient (W/m²·K)")
 
-    # Continuous mode arguments: still accepted, but unused while continuous mode is disabled
-    parser.add_argument("--feed-rate", type=float, default=100.0,
-                        help="Feedstock mass flow rate (kg/h) - Continuous mode only")
-    parser.add_argument("--slope", type=float, default=0.02,
-                        help="Reactor slope (inclination, m/m) - Continuous mode only")
-    parser.add_argument("--temp-inlet", type=float, default=25.0,
-                        help="Inlet solid feedstock temperature (°C) - Continuous mode only")
-    parser.add_argument("--temp-wall", type=float, default=500.0,
-                        help="Uniform wall temperature setting (°C) - Continuous mode only")
-
-    # Batch mode specific arguments
+    # Batch operation
     parser.add_argument("--batch-load", type=float, default=100.0,
-                        help="Initial batch loading mass (kg) - Batch mode only")
+                        help="Initial batch loading mass (kg)")
     parser.add_argument("--temp-start", type=float, default=25.0,
-                        help="Initial batch start temperature (°C) - Batch mode only")
+                        help="Initial batch start temperature (°C)")
     parser.add_argument("--heating-rate", type=float, default=10.0,
-                        help="Heating rate (°C/min) - Batch mode only")
+                        help="Heating rate (°C/min)")
     parser.add_argument("--temp-hold", type=float, default=550.0,
-                        help="Target holding temperature (°C) - Batch mode only")
+                        help="Target holding temperature (°C)")
     parser.add_argument("--hold-time", type=float, default=60.0,
-                        help="Holding duration (minutes) - Batch mode only")
+                        help="Holding duration (minutes)")
 
     # Output file settings
     parser.add_argument("--out-csv", type=str, default="",
@@ -84,7 +70,7 @@ def select_feedstock(args):
 
 def print_run_header(args, feed):
     print("=" * 60)
-    print(f"Starting Rotary Pyrolysis Simulation [Mode: {args.mode.upper()}]")
+    print("Starting Rotary Pyrolysis Simulation [Mode: BATCH]")
     print(f"Feedstock: {feed.name}")
     print(f"Reactor dimensions: L = {args.length:.1f} m, D = {args.diameter:.1f} m, RPM = {args.rpm:.1f}")
     print(f"Batch loading: {args.batch_load:.1f} kg, Start Temp = {args.temp_start:.1f} °C")
@@ -172,7 +158,6 @@ def main():
         run_thesis_profile(args)
         return
 
-    # Only batch mode is reachable: --mode accepts nothing else while continuous mode is disabled
     feed = select_feedstock(args)
     print_run_header(args, feed)
     results = run_batch(args, feed)

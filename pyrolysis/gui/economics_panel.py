@@ -84,14 +84,14 @@ def render_kpi_card(title, value_str, subtitle=None, is_positive=True):
 # =============================================================================================
 # 1. Economic inputs form
 # =============================================================================================
-def _econ_defaults(is_continuous):
+def _econ_defaults():
     """Fallback values of the economic inputs (session_state normally already holds them via DEFAULT_PARAMS)."""
     return {
-        'capex_equip': 9000000.0 if is_continuous else 4800000.0,
-        'capex_install': 3150000.0 if is_continuous else 1680000.0,
-        'capex_civil': 2250000.0 if is_continuous else 1200000.0,
-        'capex_piping_elec': 2250000.0 if is_continuous else 1200000.0,
-        'capex_eng': 1350000.0 if is_continuous else 720000.0,
+        'capex_equip': 4800000.0,
+        'capex_install': 1680000.0,
+        'capex_civil': 1200000.0,
+        'capex_piping_elec': 1200000.0,
+        'capex_eng': 720000.0,
         'capex_permits': 450000.0,
         'capex_cont': 900000.0,
         'opex_handling': 3.00,
@@ -114,7 +114,6 @@ def _econ_defaults(is_continuous):
         'inflation_rate': 4.0,
         'shutdown_days': 15,
         'holidays_days': 15,
-        'gen_diesel_rate': 1.2,    # gal/h (continuous)
         'gen_diesel_batch': 1.0,   # gal/batch
         'batch_cooldown_h': 0.50,
         'batch_loading_h': 0.50,
@@ -140,12 +139,11 @@ _CAPEX_RATIOS = {
 }
 
 
-def render_economics_inputs(mode_option):
+def render_economics_inputs():
     """Economic parameters inside a form: new values reach session_state (and every section) only when the
     user presses "Recalcular", so typing a number does not reload the page."""
     lang = get_lang()
-    is_continuous = (mode_option == "Continuous Operation")
-    d = _econ_defaults(is_continuous)
+    d = _econ_defaults()
     ss = st.session_state
 
     def num(label, key, **kw):
@@ -188,10 +186,7 @@ def render_economics_inputs(mode_option):
                 with col_ox2:
                     num(t('econ_input_fuel'), 'opex_fuel', min_value=0.0, step=5.0, format="%.4f")
                     num(t('econ_input_aux_utilities'), 'opex_aux_utilities', min_value=0.0, step=25000.0)
-                    if is_continuous:
-                        num(t('econ_input_gen_fuel_rate'), 'gen_diesel_rate', min_value=0.0, step=0.1)
-                    else:
-                        num(t('econ_input_gen_fuel_batch'), 'gen_diesel_batch', min_value=0.0, step=0.5)
+                    num(t('econ_input_gen_fuel_batch'), 'gen_diesel_batch', min_value=0.0, step=0.5)
                     num(t('econ_input_maintenance'), 'opex_maint', min_value=0.0, max_value=25.0, step=0.5)
                 num(t('econ_input_insurance_tax'), 'opex_insurance_tax', min_value=0.0, max_value=10.0, step=0.1)
 
@@ -228,44 +223,43 @@ def render_economics_inputs(mode_option):
                     num(t('econ_input_holidays_days'), 'holidays_days', min_value=0, max_value=200, step=1,
                         help="Días feriados o no laborables al año según calendario legal/laboral.")
 
-                if not is_continuous:
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        num("Tiempo de Enfriamiento por Lote (h)", 'batch_cooldown_h',
-                            min_value=0.0, max_value=200.0, step=0.25, format="%.2f")
-                    with col_b2:
-                        num("Tiempo de Carga y Descarga por Lote (h)", 'batch_loading_h',
-                            min_value=0.0, max_value=200.0, step=0.25, format="%.2f")
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    num("Tiempo de Enfriamiento por Lote (h)", 'batch_cooldown_h',
+                        min_value=0.0, max_value=200.0, step=0.25, format="%.2f")
+                with col_b2:
+                    num("Tiempo de Carga y Descarga por Lote (h)", 'batch_loading_h',
+                        min_value=0.0, max_value=200.0, step=0.25, format="%.2f")
 
-                    st.markdown("##### 🧹 Mantenimiento Periódico y Limpieza")
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    with col_m1:
-                        num("Cantidad de Lotes antes de Limpieza", 'batches_before_cleaning',
-                            min_value=1, max_value=1000, step=1,
-                            help="Cantidad de lotes operados antes de detener el reactor para limpieza y mantenimiento.")
-                    with col_m2:
-                        num("Tiempo de Limpieza (h)", 'cleaning_time_h', min_value=0.0, max_value=200.0, step=0.5,
-                            format="%.2f", help="Duración del trabajo de limpieza física, decoking e inspección interna.")
-                    with col_m3:
-                        num("Tiempo de Enfriamiento para Mantenimiento (h)", 'maint_cooldown_h',
-                            min_value=0.0, max_value=200.0, step=0.5, format="%.2f",
-                            help="Tiempo de enfriamiento profundo necesario para poder abrir e intervenir el reactor de forma segura.")
+                st.markdown("##### 🧹 Mantenimiento Periódico y Limpieza")
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    num("Cantidad de Lotes antes de Limpieza", 'batches_before_cleaning',
+                        min_value=1, max_value=1000, step=1,
+                        help="Cantidad de lotes operados antes de detener el reactor para limpieza y mantenimiento.")
+                with col_m2:
+                    num("Tiempo de Limpieza (h)", 'cleaning_time_h', min_value=0.0, max_value=200.0, step=0.5,
+                        format="%.2f", help="Duración del trabajo de limpieza física, decoking e inspección interna.")
+                with col_m3:
+                    num("Tiempo de Enfriamiento para Mantenimiento (h)", 'maint_cooldown_h',
+                        min_value=0.0, max_value=200.0, step=0.5, format="%.2f",
+                        help="Tiempo de enfriamiento profundo necesario para poder abrir e intervenir el reactor de forma segura.")
 
-                    # Plant data that override the simulation in the economics (0 = use the simulated value)
-                    st.markdown("##### 📌 " + ("Datos de planta para la economía (0 = usar la simulación)" if lang == 'es'
-                                               else "Plant data for the economics (0 = use the simulation)"))
-                    col_f1, col_f2, col_f3 = st.columns(3)
-                    with col_f1:
-                        num("Lotes por año (fijo)" if lang == 'es' else "Batches per year (fixed)",
-                            'econ_batches_per_year', min_value=0, max_value=10000, step=1,
-                            help="Si es mayor que 0, no se calculan a partir del tiempo de ciclo simulado." if lang == 'es'
-                            else "If above 0, batches are not derived from the simulated cycle time.")
-                    with col_f2:
-                        num("Aceite por lote (gal)" if lang == 'es' else "Oil per batch (gal)",
-                            'econ_oil_gal_per_batch', min_value=0.0, step=10.0, format="%.4f")
-                    with col_f3:
-                        num("Combustible auxiliar por lote (gal)" if lang == 'es' else "Auxiliary fuel per batch (gal)",
-                            'econ_fuel_gal_per_batch', min_value=0.0, step=10.0, format="%.2f")
+                # Plant data that override the simulation in the economics (0 = use the simulated value)
+                st.markdown("##### 📌 " + ("Datos de planta para la economía (0 = usar la simulación)" if lang == 'es'
+                                           else "Plant data for the economics (0 = use the simulation)"))
+                col_f1, col_f2, col_f3 = st.columns(3)
+                with col_f1:
+                    num("Lotes por año (fijo)" if lang == 'es' else "Batches per year (fixed)",
+                        'econ_batches_per_year', min_value=0, max_value=10000, step=1,
+                        help="Si es mayor que 0, no se calculan a partir del tiempo de ciclo simulado." if lang == 'es'
+                        else "If above 0, batches are not derived from the simulated cycle time.")
+                with col_f2:
+                    num("Aceite por lote (gal)" if lang == 'es' else "Oil per batch (gal)",
+                        'econ_oil_gal_per_batch', min_value=0.0, step=10.0, format="%.4f")
+                with col_f3:
+                    num("Combustible auxiliar por lote (gal)" if lang == 'es' else "Auxiliary fuel per batch (gal)",
+                        'econ_fuel_gal_per_batch', min_value=0.0, step=10.0, format="%.2f")
 
         col_btn1, col_btn2 = st.columns([1, 1])
         with col_btn1:
@@ -279,7 +273,7 @@ def render_economics_inputs(mode_option):
 # =============================================================================================
 # 2. Economic results
 # =============================================================================================
-def compute_economics(mode_option, summary, solver_inputs):
+def compute_economics(summary, solver_inputs):
     """Every economic result, computed from the parameters stored in session_state (no widgets).
     The Summary and Economy sections both use it, so they always show the same numbers.
 
@@ -287,8 +281,7 @@ def compute_economics(mode_option, summary, solver_inputs):
     ARE its keys, read by render_economics_tab and summary_panel, so rename them only together.
     `m` is the run_financial_model() result and `_model(fee)` re-runs it for another tipping fee."""
     ss = st.session_state
-    is_continuous = (mode_option == "Continuous Operation")
-    d = _econ_defaults(is_continuous)
+    d = _econ_defaults()
 
     def g(key):
         return ss.get(key, d[key])
@@ -335,33 +328,19 @@ def compute_economics(mode_option, summary, solver_inputs):
     annual_days = available_calendar_days
     ss['annual_days'] = annual_days
 
-    if not is_continuous:
-        gen_diesel_batch = float(g('gen_diesel_batch'))
-        batch_cooldown_h = float(g('batch_cooldown_h'))
-        batch_loading_h = float(g('batch_loading_h'))
-        batch_turnaround_h = batch_cooldown_h + batch_loading_h
-        ss['batch_turnaround_h'] = batch_turnaround_h
-        batches_before_cleaning = int(g('batches_before_cleaning'))
-        cleaning_time_h = float(g('cleaning_time_h'))
-        maint_cooldown_h = float(g('maint_cooldown_h'))
-        maint_stop_total_h = maint_cooldown_h + cleaning_time_h
-        maint_penalty_per_batch_h = maint_stop_total_h / max(batches_before_cleaning, 1)
-        econ_batches_fixed = int(g('econ_batches_per_year'))
-        econ_oil_gal_batch = float(g('econ_oil_gal_per_batch'))
-        econ_fuel_gal_batch = float(g('econ_fuel_gal_per_batch'))
-    else:
-        # Batch-only values: fixed placeholders so the econ dict has the same keys in both modes
-        gen_diesel_rate = float(g('gen_diesel_rate'))
-        batch_cooldown_h = 0.50
-        batch_loading_h = 0.50
-        batch_turnaround_h = 1.0
-        batches_before_cleaning = 20
-        cleaning_time_h = 4.0
-        maint_cooldown_h = 6.0
-        maint_stop_total_h = 10.0
-        maint_penalty_per_batch_h = 0.0
-        econ_batches_fixed, econ_oil_gal_batch, econ_fuel_gal_batch = 0, 0.0, 0.0
-        ss['batch_turnaround_h'] = 1.0
+    gen_diesel_batch = float(g('gen_diesel_batch'))
+    batch_cooldown_h = float(g('batch_cooldown_h'))
+    batch_loading_h = float(g('batch_loading_h'))
+    batch_turnaround_h = batch_cooldown_h + batch_loading_h
+    ss['batch_turnaround_h'] = batch_turnaround_h
+    batches_before_cleaning = int(g('batches_before_cleaning'))
+    cleaning_time_h = float(g('cleaning_time_h'))
+    maint_cooldown_h = float(g('maint_cooldown_h'))
+    maint_stop_total_h = maint_cooldown_h + cleaning_time_h
+    maint_penalty_per_batch_h = maint_stop_total_h / max(batches_before_cleaning, 1)
+    econ_batches_fixed = int(g('econ_batches_per_year'))
+    econ_oil_gal_batch = float(g('econ_oil_gal_per_batch'))
+    econ_fuel_gal_batch = float(g('econ_fuel_gal_per_batch'))
 
     total_capex = capex_equip + capex_install + capex_civil + capex_piping_elec + capex_eng + capex_permits + capex_cont
 
@@ -371,48 +350,30 @@ def compute_economics(mode_option, summary, solver_inputs):
     gas_density = 1.15   # kg/m³, non-condensable gas
     annual_hours = annual_days * 24.0
 
-    if is_continuous:
-        batches_per_year = 0.0
-        t_cycle_hours = 0.0
-        t_op_batch_hours = 0.0
-        operating_days_batches = float(annual_days)
-        cleaning_days_annual = 0.0
-        campaign_active_days = float(annual_days)
+    t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
+    t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
+    t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
 
-        sludge_treated_kg = summary['feed_rate_kgh'] * annual_hours
-        oil_produced_kg = summary['oil_yield_kgh'] * annual_hours
-        char_produced_kg = summary['char_yield_kgh'] * annual_hours
-        char_carbon_kg = char_produced_kg
-        gas_produced_kg = summary['gas_yield_kgh'] * annual_hours
-
-        fuel_consumed_gal = summary['waste_oil_consumed_galh'] * annual_hours
-        elec_consumed_kwh = 0.0
-        generator_fuel_consumed_gal = gen_diesel_rate * annual_hours
+    if econ_batches_fixed > 0:
+        batches_per_year = float(econ_batches_fixed)
     else:
-        t_cycle_min, t_heat_min, t_hold_min = batch_thermal_cycle_min(summary, solver_inputs)
-        t_op_batch_hours = (t_cycle_min / 60.0) + batch_turnaround_h
-        t_cycle_hours = t_op_batch_hours + maint_penalty_per_batch_h
+        batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
 
-        if econ_batches_fixed > 0:
-            batches_per_year = float(econ_batches_fixed)
-        else:
-            batches_per_year = np.floor(annual_hours / t_cycle_hours) if t_cycle_hours > 0 else 0.0
+    operating_days_batches = (batches_per_year * t_op_batch_hours) / 24.0
+    cleaning_days_annual = (batches_per_year * maint_penalty_per_batch_h) / 24.0
+    campaign_active_days = operating_days_batches + cleaning_days_annual
 
-        operating_days_batches = (batches_per_year * t_op_batch_hours) / 24.0
-        cleaning_days_annual = (batches_per_year * maint_penalty_per_batch_h) / 24.0
-        campaign_active_days = operating_days_batches + cleaning_days_annual
+    sludge_treated_kg = summary['batch_load_kg'] * batches_per_year
+    oil_produced_kg = summary['oil_yield_kg'] * batches_per_year
+    char_produced_kg = summary['char_yield_kg'] * batches_per_year
+    char_carbon_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
+    # Only the syngas not burned in the process is sellable (burned syngas already offsets fuel)
+    gas_produced_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches_per_year
 
-        sludge_treated_kg = summary['batch_load_kg'] * batches_per_year
-        oil_produced_kg = summary['oil_yield_kg'] * batches_per_year
-        char_produced_kg = summary['char_yield_kg'] * batches_per_year
-        char_carbon_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
-        # Only the syngas not burned in the process is sellable (burned syngas already offsets fuel)
-        gas_produced_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches_per_year
-
-        fuel_per_batch_gal = econ_fuel_gal_batch if econ_fuel_gal_batch > 0 else summary['waste_oil_consumed_gal']
-        fuel_consumed_gal = fuel_per_batch_gal * batches_per_year
-        elec_consumed_kwh = 0.0
-        generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
+    fuel_per_batch_gal = econ_fuel_gal_batch if econ_fuel_gal_batch > 0 else summary['waste_oil_consumed_gal']
+    fuel_consumed_gal = fuel_per_batch_gal * batches_per_year
+    elec_consumed_kwh = 0.0
+    generator_fuel_consumed_gal = gen_diesel_batch * batches_per_year
 
     # Liquids in gallons, gas in m³, char stays in kg
     sludge_treated_gal = (sludge_treated_kg / sludge_density) * GAL_PER_M3
@@ -441,7 +402,7 @@ def compute_economics(mode_option, summary, solver_inputs):
 # =============================================================================================
 # 3. Economy section
 # =============================================================================================
-def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None):
+def render_economics_tab(results, summary, solver_inputs, econ=None):
     """Renders the Economy section (Standardized in DOP - RD$): parameters form, then results.
     `econ` is the compute_economics() result already used by the other sections (computed here if omitted).
     `results` is accepted for the caller's signature and not used."""
@@ -449,14 +410,11 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
     _render_header_with_save_button()
     st.markdown("---")
 
-    render_economics_inputs(mode_option)
+    render_economics_inputs()
     if econ is None:
-        econ = compute_economics(mode_option, summary, solver_inputs)
+        econ = compute_economics(summary, solver_inputs)
 
-    if not econ['is_continuous']:
-        _render_batch_calendar(econ, lang)
-    else:
-        st.caption(f"📅 **Calendario Anual Continuo:** `{econ['available_calendar_days']} días disponibles/año` (365 días base - `{econ['shutdown_days']}` días parada - `{econ['holidays_days']}` feriados = `{econ['available_calendar_days'] * 24:.0f} h/año`).")
+    _render_batch_calendar(econ, lang)
 
     _render_kpi_cards(econ, lang)
     _render_sludge_scenarios(econ, lang)
@@ -478,7 +436,6 @@ def render_economics_tab(mode_option, results, summary, solver_inputs, econ=None
     render_pre_drying_evaluator(
         solver_inputs=solver_inputs,
         summary=summary,
-        is_continuous=econ['is_continuous'],
         curr_sym=CURR_SYM,
         opex_fuel=econ['opex_fuel'],
         available_calendar_days=econ['available_calendar_days'],
@@ -816,50 +773,35 @@ def _render_annual_quantities(econ, summary, lang):
     st.table(df_summary)
 
     holidays_days, shutdown_days = e['holidays_days'], e['shutdown_days']
-    if not e['is_continuous']:
-        t_heat_min, t_hold_min = e['t_heat_min'], e['t_hold_min']
-        batch_cooldown_h, batch_loading_h = e['batch_cooldown_h'], e['batch_loading_h']
-        t_op_batch_hours, t_cycle_hours = e['t_op_batch_hours'], e['t_cycle_hours']
-        maint_stop_total_h, maint_cooldown_h, cleaning_time_h = e['maint_stop_total_h'], e['maint_cooldown_h'], e['cleaning_time_h']
-        batches_before_cleaning, maint_penalty_per_batch_h = e['batches_before_cleaning'], e['maint_penalty_per_batch_h']
-        available_calendar_days, batches_per_year = e['available_calendar_days'], e['batches_per_year']
-        operating_days_batches, cleaning_days_annual, campaign_active_days = e['operating_days_batches'], e['cleaning_days_annual'], e['campaign_active_days']
-        gen_diesel_per_batch = e['gen_diesel_batch']
-        burner_fuel_per_batch = summary['waste_oil_consumed_gal']
-        if lang == 'es':
-            st.info(f"⏱️ **Detalles del Ciclo, Mantenimiento y Calendario:**\n"
-                    f"- Proceso térmico: Calentamiento `{t_heat_min:.1f} min` | Retención `{t_hold_min:.1f} min`\n"
-                    f"- Turnaround de rutina: Enfriamiento `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Carga y descarga `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
-                    f"- Ciclo operativo por lote: `{t_op_batch_hours:.2f} horas`\n"
-                    f"- Mantenimiento programado: Parada de `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento + `{cleaning_time_h:.2f} h` limpieza) cada `{batches_before_cleaning}` lotes (+`{maint_penalty_per_batch_h:.2f} h/lote` ponderado)\n"
-                    f"- Tiempo efectivo promedio por lote: `{t_cycle_hours:.2f} horas`\n"
-                    f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{available_calendar_days} d`\n"
-                    f"- **Días de Operación al Año:** `{operating_days_batches:.1f} días de proceso de lotes` + `{cleaning_days_annual:.1f} días de parada por limpieza` = `{campaign_active_days:.1f} días activos` (`{batches_per_year:.0f} lotes/año`)\n"
-                    f"- **Consumo por lote:** Diésel planta eléctrica: `{gen_diesel_per_batch:.2f} gal` | Combustible quemadores: `{burner_fuel_per_batch:.2f} gal`")
-        else:
-            st.info(f"⏱️ **Batch Timeline, Maintenance & Calendar Details:**\n"
-                    f"- Thermal process: Heating `{t_heat_min:.1f} min` | Holding `{t_hold_min:.1f} min`\n"
-                    f"- Routine turnaround: Cooldown `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Loading/Unloading `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
-                    f"- Operational batch cycle: `{t_op_batch_hours:.2f} hours`\n"
-                    f"- Scheduled maintenance: Downtime of `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` cooldown + `{cleaning_time_h:.2f} h` cleaning) every `{batches_before_cleaning}` batches (+`{maint_penalty_per_batch_h:.2f} h/batch` weighted)\n"
-                    f"- Effective average cycle time: `{t_cycle_hours:.2f} hours`\n"
-                    f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{available_calendar_days} d`\n"
-                    f"- **Operating Days per Year:** `{operating_days_batches:.1f} batch process days` + `{cleaning_days_annual:.1f} cleaning days` = `{campaign_active_days:.1f} active days` (`{batches_per_year:.0f} batches/year`)\n"
-                    f"- **Consumption per batch:** Generator diesel: `{gen_diesel_per_batch:.2f} gal` | Burner fuel: `{burner_fuel_per_batch:.2f} gal`")
+    t_heat_min, t_hold_min = e['t_heat_min'], e['t_hold_min']
+    batch_cooldown_h, batch_loading_h = e['batch_cooldown_h'], e['batch_loading_h']
+    t_op_batch_hours, t_cycle_hours = e['t_op_batch_hours'], e['t_cycle_hours']
+    maint_stop_total_h, maint_cooldown_h, cleaning_time_h = e['maint_stop_total_h'], e['maint_cooldown_h'], e['cleaning_time_h']
+    batches_before_cleaning, maint_penalty_per_batch_h = e['batches_before_cleaning'], e['maint_penalty_per_batch_h']
+    available_calendar_days, batches_per_year = e['available_calendar_days'], e['batches_per_year']
+    operating_days_batches, cleaning_days_annual, campaign_active_days = e['operating_days_batches'], e['cleaning_days_annual'], e['campaign_active_days']
+    gen_diesel_per_batch = e['gen_diesel_batch']
+    burner_fuel_per_batch = summary['waste_oil_consumed_gal']
+    if lang == 'es':
+        st.info(f"⏱️ **Detalles del Ciclo, Mantenimiento y Calendario:**\n"
+                f"- Proceso térmico: Calentamiento `{t_heat_min:.1f} min` | Retención `{t_hold_min:.1f} min`\n"
+                f"- Turnaround de rutina: Enfriamiento `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Carga y descarga `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
+                f"- Ciclo operativo por lote: `{t_op_batch_hours:.2f} horas`\n"
+                f"- Mantenimiento programado: Parada de `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` enfriamiento + `{cleaning_time_h:.2f} h` limpieza) cada `{batches_before_cleaning}` lotes (+`{maint_penalty_per_batch_h:.2f} h/lote` ponderado)\n"
+                f"- Tiempo efectivo promedio por lote: `{t_cycle_hours:.2f} horas`\n"
+                f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{available_calendar_days} d`\n"
+                f"- **Días de Operación al Año:** `{operating_days_batches:.1f} días de proceso de lotes` + `{cleaning_days_annual:.1f} días de parada por limpieza` = `{campaign_active_days:.1f} días activos` (`{batches_per_year:.0f} lotes/año`)\n"
+                f"- **Consumo por lote:** Diésel planta eléctrica: `{gen_diesel_per_batch:.2f} gal` | Combustible quemadores: `{burner_fuel_per_batch:.2f} gal`")
     else:
-        annual_hours, annual_days = e['annual_hours'], e['annual_days']
-        gen_diesel_per_hour = e['gen_diesel_rate']
-        burner_fuel_per_hour = summary['waste_oil_consumed_galh']
-        if lang == 'es':
-            st.info(f"⚡ **Detalles de la Operación Continua:**\n"
-                    f"- Horas de operación al año: `{annual_hours:.0f} horas` ({annual_days} días/año × 24h).\n"
-                    f"- **Balance Calendario (365 días base):** Feriados: `{holidays_days} d` | Paradas mayores: `{shutdown_days} d` | Disponibles planta: `{annual_days} días`\n"
-                    f"- **Consumo horario:** Diésel planta eléctrica: `{gen_diesel_per_hour:.2f} gal/h` | Combustible quemadores: `{burner_fuel_per_hour:.2f} gal/h`")
-        else:
-            st.info(f"⚡ **Continuous Operation Details:**\n"
-                    f"- Operating hours per year: `{annual_hours:.0f} hours` ({annual_days} days/year × 24h).\n"
-                    f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{annual_days} days`\n"
-                    f"- **Consumption per hour:** Generator diesel: `{gen_diesel_per_hour:.2f} gal/h` | Burner fuel: `{burner_fuel_per_hour:.2f} gal/h`")
+        st.info(f"⏱️ **Batch Timeline, Maintenance & Calendar Details:**\n"
+                f"- Thermal process: Heating `{t_heat_min:.1f} min` | Holding `{t_hold_min:.1f} min`\n"
+                f"- Routine turnaround: Cooldown `{batch_cooldown_h*60:.0f} min` (`{batch_cooldown_h:.2f} h`) | Loading/Unloading `{batch_loading_h*60:.0f} min` (`{batch_loading_h:.2f} h`)\n"
+                f"- Operational batch cycle: `{t_op_batch_hours:.2f} hours`\n"
+                f"- Scheduled maintenance: Downtime of `{maint_stop_total_h:.2f} h` (`{maint_cooldown_h:.2f} h` cooldown + `{cleaning_time_h:.2f} h` cleaning) every `{batches_before_cleaning}` batches (+`{maint_penalty_per_batch_h:.2f} h/batch` weighted)\n"
+                f"- Effective average cycle time: `{t_cycle_hours:.2f} hours`\n"
+                f"- **Annual Calendar (365 days):** Holidays: `{holidays_days} d` | Major shutdown: `{shutdown_days} d` | Plant available: `{available_calendar_days} d`\n"
+                f"- **Operating Days per Year:** `{operating_days_batches:.1f} batch process days` + `{cleaning_days_annual:.1f} cleaning days` = `{campaign_active_days:.1f} active days` (`{batches_per_year:.0f} batches/year`)\n"
+                f"- **Consumption per batch:** Generator diesel: `{gen_diesel_per_batch:.2f} gal` | Burner fuel: `{burner_fuel_per_batch:.2f} gal`")
 
 
 def _render_cash_flow_breakdown(econ):
@@ -967,7 +909,6 @@ def _monthly_projection(econ, summary, plan_df):
     """Month-by-month production, sales with oil/char inventory carried over, revenue, OPEX and net cash
     flow after taxes. Returns a dict of 12-item lists keyed by the monthly table's column names."""
     e = econ
-    is_continuous = e['is_continuous']
     inv_oil = 0.0
     inv_char = 0.0
     cols = {name: [] for name in (
@@ -985,25 +926,15 @@ def _monthly_projection(econ, summary, plan_df):
         gas_pct = row.get(_COL_GAS_PCT, 100.0)
 
         # Production and consumption of the month
-        if is_continuous:
-            sludge_kg = summary['feed_rate_kgh'] * 24.0 * days
-            oil_kg = summary['oil_yield_kgh'] * 24.0 * days
-            char_kg = summary['char_yield_kgh'] * 24.0 * days
-            gas_kg = summary['gas_yield_kgh'] * 24.0 * days
+        batches = np.floor((days * 24.0) / e['t_cycle_hours']) if e['t_cycle_hours'] > 0 else 0.0
+        sludge_kg = summary['batch_load_kg'] * batches
+        oil_kg = summary['oil_yield_kg'] * batches
+        char_kg = summary['char_yield_kg'] * batches
+        gas_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches
 
-            fuel_gal = summary['waste_oil_consumed_galh'] * 24.0 * days
-            elec_kwh = 0.0
-            diesel_gal = e['gen_diesel_rate'] * 24.0 * days
-        else:
-            batches = np.floor((days * 24.0) / e['t_cycle_hours']) if e['t_cycle_hours'] > 0 else 0.0
-            sludge_kg = summary['batch_load_kg'] * batches
-            oil_kg = summary['oil_yield_kg'] * batches
-            char_kg = summary['char_yield_kg'] * batches
-            gas_kg = summary.get('syngas_flare_kg', summary['gas_yield_kg']) * batches
-
-            fuel_gal = summary['waste_oil_consumed_gal'] * batches
-            elec_kwh = 0.0
-            diesel_gal = e['gen_diesel_batch'] * batches
+        fuel_gal = summary['waste_oil_consumed_gal'] * batches
+        elec_kwh = 0.0
+        diesel_gal = e['gen_diesel_batch'] * batches
 
         sludge_gal = (sludge_kg / e['sludge_density']) * GAL_PER_M3
         oil_prod_gal = (oil_kg / e['oil_density']) * GAL_PER_M3
@@ -1023,8 +954,7 @@ def _monthly_projection(econ, summary, plan_df):
         rev_o = oil_sold * e['price_oil']
         rev_c = char_sold * e['price_char']
         rev_g = gas_sold * e['price_gas']
-        char_carbon_month_kg = char_prod_kg if is_continuous else (
-            summary.get('char_organic_kg', summary['char_yield_kg']) * batches)
+        char_carbon_month_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches
         rev_carb = ((char_carbon_month_kg * e['rate_carbon_offset']) / 1000.0) * e['price_carbon']
         total_rev = rev_tip + rev_o + rev_c + rev_g + rev_carb
 
@@ -1278,17 +1208,12 @@ def render_sustainability_tab(summary, solver_inputs):
     st.markdown("---")
 
     ss = st.session_state
-    is_continuous = (ss.get('mode_option', 'Continuous Operation') == "Continuous Operation")
     price_carbon = ss.get('price_carbon', 1200.0)
     rate_carbon_offset = ss.get('rate_carbon_offset', 2.2)
 
-    if is_continuous:
-        batches_per_year = None
-        char_produced_kg = summary['char_yield_kgh'] * (_sustainability_annual_days() * 24.0)
-    else:
-        batches_per_year = _sustainability_batches_per_year(summary, solver_inputs)
-        # Carbon credit applies to carbon-bearing char only (ash excluded)
-        char_produced_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
+    batches_per_year = _sustainability_batches_per_year(summary, solver_inputs)
+    # Carbon credit applies to carbon-bearing char only (ash excluded)
+    char_produced_kg = summary.get('char_organic_kg', summary['char_yield_kg']) * batches_per_year
 
     co2_tons = (char_produced_kg * rate_carbon_offset) / 1000.0
 
@@ -1310,8 +1235,7 @@ def render_sustainability_tab(summary, solver_inputs):
             value=f"{int(co2_tons / CO2_T_PER_CAR_YEAR):,}"
         )
 
-    if not is_continuous:
-        _render_process_emissions(summary, batches_per_year, co2_tons, lang)
+    _render_process_emissions(summary, batches_per_year, co2_tons, lang)
 
     st.markdown(f"""
     <div style="

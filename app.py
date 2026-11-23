@@ -1,6 +1,5 @@
 import streamlit as st
 from pyrolysis import (
-    ContinuousReactorSimulation,
     BatchReactorSimulation,
     TRANSLATIONS
 )
@@ -23,31 +22,24 @@ from pyrolysis.gui import (
     ENABLE_REPORTS
 )
 
-CONTINUOUS_STEPS = 250     # axial grid points of the continuous model
 BATCH_DT_SEC = 2.0         # batch time step (s), same as the CLI and corrida_tesis.py
 
 
-def simulation_cache_key(mode_option, solver_inputs):
+def simulation_cache_key(solver_inputs):
     """Every input the simulation depends on; while it stays the same, the cached results are reused."""
     feed_obj = solver_inputs['current_feed']
     return (
-        mode_option,
         # Every feedstock attribute (yields, Ea1-3, A1-3, onset/end), so any change reruns the simulation
         tuple(sorted(vars(feed_obj).items())),
-        float(solver_inputs.get('feed_rate_kgh', 0.0)),
         float(solver_inputs.get('batch_load_kg', 0.0)),
         float(solver_inputs.get('length', 0.0)),
         float(solver_inputs.get('diameter', 0.0)),
-        float(solver_inputs.get('slope', 0.0)),
         float(solver_inputs.get('rpm', 0.0)),
-        float(solver_inputs.get('temp_inlet_c', 0.0)),
         float(solver_inputs.get('temp_start_c', 0.0)),
         float(solver_inputs.get('heating_rate_cmin', 0.0)),
         float(solver_inputs.get('temp_hold_c', 0.0)),
         float(solver_inputs.get('hold_time_min', 0.0)),
         float(solver_inputs.get('h_eff', 0.0)),
-        str(solver_inputs.get('T_wall_type_str', '')),
-        str(solver_inputs.get('T_wall_params', '')),
         bool(solver_inputs.get('auto_heating_rate', False)),
         float(solver_inputs.get('burner_hp', 300.0)),
         float(solver_inputs.get('burner_eff_pct', 85.0)),
@@ -67,10 +59,9 @@ def simulation_cache_key(mode_option, solver_inputs):
     )
 
 
-def run_simulation(mode_option, solver_inputs):
-    """Builds the reactor model for the selected operation mode and runs it."""
-    # Settings both reactor models take
-    common = dict(
+def run_simulation(solver_inputs):
+    """Builds the batch reactor model and runs it."""
+    sim = BatchReactorSimulation(
         feedstock=solver_inputs['current_feed'],
         length=solver_inputs['length'],
         diameter=solver_inputs['diameter'],
@@ -86,21 +77,7 @@ def run_simulation(mode_option, solver_inputs):
         fuel_lhv_mj_kg=st.session_state.get('fuel_lhv', 41.0),
         fuel_density_kg_l=st.session_state.get('fuel_density', 0.90),
         fuel_moisture_pct=st.session_state.get('fuel_moisture', 1.0),
-        fuel_ash_pct=st.session_state.get('fuel_ash', 0.5)
-    )
-    if mode_option == "Continuous Operation":
-        sim = ContinuousReactorSimulation(
-            **common,
-            feed_rate_kgh=solver_inputs['feed_rate_kgh'],
-            slope=solver_inputs['slope'],
-            T_inlet_C=solver_inputs['temp_inlet_c'],
-            T_wall_type=solver_inputs['T_wall_type_str'],
-            T_wall_params=solver_inputs['T_wall_params']
-        )
-        return sim.simulate(steps=CONTINUOUS_STEPS)
-
-    sim = BatchReactorSimulation(
-        **common,
+        fuel_ash_pct=st.session_state.get('fuel_ash', 0.5),
         batch_load_kg=solver_inputs['batch_load_kg'],
         T_start_C=solver_inputs['temp_start_c'],
         heating_rate_cmin=solver_inputs['heating_rate_cmin'],
@@ -143,18 +120,17 @@ st.markdown("---")
 render_config_manager(config_dict)
 
 # The results are cached in session_state, so switching sections does not re-simulate
-mode_option = config_dict['mode_option']
-sim_cache_key = simulation_cache_key(mode_option, solver_inputs)
+sim_cache_key = simulation_cache_key(solver_inputs)
 if st.session_state.get('last_sim_key') == sim_cache_key and 'last_sim_results' in st.session_state:
     results = st.session_state['last_sim_results']
 else:
-    results = run_simulation(mode_option, solver_inputs)
+    results = run_simulation(solver_inputs)
     st.session_state['last_sim_key'] = sim_cache_key
     st.session_state['last_sim_results'] = results
 summary = results['summary']
 
 # Economic results computed once from session_state; the Summary and Economy sections share them
-econ = compute_economics(mode_option, summary, solver_inputs)
+econ = compute_economics(summary, solver_inputs)
 
 # ------------------------------------------------------------------------------------------------
 # Dashboard navigation. Its value lives in session_state under 'nav_section', so any rerun caused by
@@ -178,42 +154,38 @@ section = st.segmented_control(
 
 
 def render_process_section():
-    render_reactor_geometry_section(mode_option, summary, solver_inputs)
+    render_reactor_geometry_section(summary, solver_inputs)
     st.markdown("---")
-    render_charts_panel(mode_option, results)
+    render_charts_panel(results)
 
 
 def render_balances_section():
-    render_metrics_panel(mode_option, summary, results)
+    render_metrics_panel(summary, results)
     st.markdown("---")
     render_balances_tab(
-        mode_option=mode_option,
         current_feed=solver_inputs['current_feed'],
         results=results,
         summary=summary,
-        feed_rate_kgh=solver_inputs['feed_rate_kgh'],
         batch_load_kg=solver_inputs['batch_load_kg'],
         feed_option=config_dict['feed_option']
     )
     st.markdown("---")
     render_properties_tab(
         current_feed=solver_inputs['current_feed'],
-        mode_option=mode_option,
-        feed_rate_kgh=solver_inputs['feed_rate_kgh'],
         batch_load_kg=solver_inputs['batch_load_kg'],
         feed_option=config_dict['feed_option']
     )
 
 
 SECTION_RENDERERS = {
-    'summary': lambda: render_summary_section(mode_option, summary, econ),
+    'summary': lambda: render_summary_section(summary, econ),
     'process': render_process_section,
     'balances': render_balances_section,
-    'economy': lambda: render_economics_tab(mode_option=mode_option, results=results, summary=summary,
+    'economy': lambda: render_economics_tab(results=results, summary=summary,
                                             solver_inputs=solver_inputs, econ=econ),
     'sustainability': lambda: render_sustainability_tab(summary=summary, solver_inputs=solver_inputs),
     'theory': render_guide_tab,
-    'export': lambda: render_export_tab(mode_option, results, summary, solver_inputs, config_dict,
+    'export': lambda: render_export_tab(results, summary, solver_inputs, config_dict,
                                         enable_reports=ENABLE_REPORTS),
 }
 SECTION_RENDERERS[section]()
