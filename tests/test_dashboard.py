@@ -59,8 +59,8 @@ class TestDashboard(unittest.TestCase):
         at = _thesis_app()
         self.assertFalse(at.exception)
         text = _text(at)
-        for expected in ("RD$ 103,915,543", "107.06 %", "1.11 años", "6.18", "RD$ -28.86/gal",
-                         "mientras el lodo cueste menos de RD$ 28.86/gal",
+        for expected in ("RD$ 96,651,788", "100.99 %", "1.19 años", "5.82", "RD$ -26.84/gal",
+                         "mientras el lodo cueste menos de RD$ 26.84/gal",
                          "60.56 %", "Medido al apagar: 60.56 %"):
             self.assertIn(expected, text)
 
@@ -81,7 +81,7 @@ class TestDashboard(unittest.TestCase):
             nav.set_value(section).run()
             self.assertFalse(at.exception, section)
         self.assertEqual(at.session_state['econ_batches_per_year'], 216)
-        self.assertIn("RD$ 103,915,543", _text(at))
+        self.assertIn("RD$ 96,651,788", _text(at))
 
 
 def _load_script():

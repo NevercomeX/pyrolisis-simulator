@@ -28,7 +28,7 @@ PROFILE_GENERAL = "general"
 PROFILE_THESIS = "tesis"
 # Súbalo cada vez que cambie THESIS_GUI_OVERRIDES: una configuración guardada con el perfil de tesis y otra
 # versión (o sin versión) vuelve a recibir los valores del perfil al cargarse.
-THESIS_PROFILE_VERSION = 4
+THESIS_PROFILE_VERSION = 5
 THESIS_OIL_AT_SHUTDOWN_PCT = 60.56   # aceite medido al apagar (2,431 gal), % de la carga
 
 PROFILE_LABELS = {
@@ -111,9 +111,9 @@ THESIS_GUI_OVERRIDES = {
     "project_lifetime": 10,
     "tax_rate": 25.0,
     "inflation_rate": 4.0,
-    # Datos de planta en lugar de la simulación (el ciclo real no se midió)
+    # Lotes y combustible: datos de planta (el ciclo real no se midió). El aceite sale de la simulación.
     "econ_batches_per_year": 216,           # 216 × 3,700 gal = 799,200 gal de lodo/año
-    "econ_oil_gal_per_batch": 2492.8765,    # aceite total medido (8,217.36 kg ÷ 0.8708 ÷ 3.785411784), incluye el enfriamiento
+    "econ_oil_gal_per_batch": 0.0,         # 0 = aceite simulado (2,431 gal; sin los 62 gal del enfriamiento, conservador)
     "econ_fuel_gal_per_batch": 586.0,       # combustible auxiliar medido en planta
 }
 
